@@ -1,0 +1,51 @@
+
+dnl This file is part of mdcore.
+dnl Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+dnl 
+dnl This program is free software: you can redistribute it and/or modify
+dnl it under the terms of the GNU General Public License as published by
+dnl the Free Software Foundation, either version 3 of the License, or
+dnl (at your option) any later version.
+dnl 
+dnl This program is distributed in the hope that it will be useful,
+dnl but WITHOUT ANY WARRANTY; without even the implied warranty of
+dnl MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+dnl GNU General Public License for more details.
+dnl 
+dnl You should have received a copy of the GNU General Public License
+dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+dnl init the project
+AC_INIT(src/engine.c)
+VERSION="0.0.1"
+AC_SUBST(VERSION)
+AM_INIT_AUTOMAKE(mdcore,VERSION)
+AC_PROG_LIBTOOL
+
+dnl generate header file
+AM_CONFIG_HEADER(config.h)
+
+dnl compiler settings
+CFLAGS=-Wall
+
+dnl find and test the compiler
+AC_PROG_CC
+AC_LANG_C
+
+dnl autoconf stuff
+AC_PROG_INSTALL
+AC_PROG_MAKE_SET
+AC_HEADER_STDC
+
+dnl check for the libraries we will need
+AC_CHECK_LIB(m,sqrt,,AC_MSG_ERROR(something is wrong with the math library!))
+
+dnl make the documentation
+DX_INIT_DOXYGEN(mdcore,mdcore/Doxyfile,doc/)
+
+dnl generate the Makefiles
+AC_OUTPUT(Makefile src/Makefile examples/Makefile doc/Makefile)
+
+dnl do the same magic in other directories
+dnl AC_CONFIG_SUBDIRS(src examples)
+
