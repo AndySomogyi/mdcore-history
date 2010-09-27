@@ -19,14 +19,14 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the debug flag to the whole thing
-AM_CFLAGS = -g
+AM_CFLAGS = -g #-O2 -msse2 -march=core2
 
 # Build the libchebfun library
-lib_LTLIBRARIES = libmcore.la
-libmdcore_la_SOURCES = cell.c part.c runner.c test.c engine.c potential.c space.c
+lib_LTLIBRARIES = libmdcore.la
+libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c
 
 # List required headers
-include_HEADERS = cell.h part.h runner.h test.h engine.h potential.h space.h
+include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h
 
 # Assign a "safe" version number
 libmdcore_la_LDFLAGS = -version-info 0:0:0

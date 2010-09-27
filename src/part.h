@@ -18,6 +18,10 @@
  ******************************************************************************/
 
 
+/* Local includes. */
+#include "fptype.h"
+
+
 /* error codes */
 #define part_err_ok                     0
 #define part_err_null                   -1
@@ -33,69 +37,62 @@
 /* default values */
 
 
-/* the last error */
+/** ID of the last error. */
 extern int part_err;
 
 
-/* the data structure */
+/**
+ * The #part data structure.
+ *
+ * Note that the arrays for @c x, @c v and @c f are 4 entries long for
+ * propper alignment.
+ */
 struct part {
 
-    /* particle id and type */
-    int id, type;
+    #ifdef CELL
     
-    /* particle flags */
-    unsigned int flags;
-    
-    #ifdef VECTORIZE
-    
-        /* buffer value for correct alignment */
-        unsigned int buff;
-    
-        /* particle position */
+        /** Particle position */
         vector float x;
 
-        /* particle velocity */
+        /** Particle velocity */
         vector float v;
 
-        /* particle force */
+        /** Particle force */
         vector float f;
     
     #else
     
-        #ifdef USE_DOUBLES
-            /* particle position */
-            double x[3];
+        /** Particle position */
+        FPTYPE x[4];
 
-            /* particle velocity */
-            double v[3];
+        /** Particle velocity */
+        FPTYPE v[4];
 
-            /* particle force */
-            double f[3];
-        #else
-            /* particle position */
-            float x[3];
-
-            /* particle velocity */
-            float v[3];
-
-            /* particle force */
-            float f[3];
-        #endif
+        /** Particle force */
+        FPTYPE f[4];
     
     #endif
+    
+    /** Particle id and type */
+    int id, type;
+    
+    /** Particle flags */
+    unsigned int flags;
     
     };
     
     
+/** Structure containing information on each particle species. */
 struct part_type {
 
-    /* id of this type */
+    /** ID of this type */
     int id;
     
-    /* constant physical characteristics */
+    /** Constant physical characteristics */
     double mass, imass, charge;
     
     };
 
 
 /* associated functions */
+int part_init ( struct part *p );

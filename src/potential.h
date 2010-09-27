@@ -18,11 +18,16 @@
  ******************************************************************************/
 
 
+/* Local includes. */
+#include "fptype.h"
+
+
 /* potential error codes */
 #define potential_err_ok                    0
 #define potential_err_null                  -1
 #define potential_err_malloc                -2
 #define potential_err_bounds                -3
+#define potential_err_nyi                   -4
 
 
 /* some constants */
@@ -40,65 +45,48 @@
 #define potential_flag_single                6
 
 
-/* the last error */
+/** ID of the last error. */
 extern int potential_err;
 
 
-/* the potential structure */
+/** The #potential structure. */
 struct potential {
 
-    /* interval edges */
+    /** Interval edges. */
     double a, b;
     
-    /* flags */
+    /** Flags. */
     unsigned int flags;
     
-    /* coefficients for the interval transform */
-    double alpha[3];
+    /** Coefficients for the interval transform. */
+    FPTYPE alpha[3];
     
-    /* nr of intervals */
+    /** Nr of intervals. */
     int n;
     
-    /* the coefficients */
-    double *c;
+    /** The coefficients. */
+    FPTYPE *c;
     
-    /* the interval centres and widths */
-    double *mi, *hi;
+    /** The interval centres and widths. */
+    FPTYPE *mi, *hi;
     
     };
     
 
 /* associated functions */
-int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , double a , double b , double tol );
-int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , double *xi , int n , double *c , double *err );
+int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol );
+int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYPE *xi , int n , FPTYPE *c , FPTYPE *err );
 double potential_getalpha ( double (*f6p)( double ) , double a , double b );
-struct potential *potential_createLJ126 ( double a , double b , double A , double B , double tol );
-struct potential *potential_createLJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol );
+struct potential *potential_create_LJ126 ( double a , double b , double A , double B , double tol );
+struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol );
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol );
-#ifdef USE_SINGLE
-/* inline */ void potential_eval ( struct potential *p , float r2 , float *e , float *f );
-/* inline */ void potential_eval_expl ( struct potential *p , float r2 , float *e , float *f );
-#else
-/* inline */ void potential_eval ( struct potential *p , double r2 , double *e , double *f );
-/* inline */ void potential_eval_expl ( struct potential *p , double r2 , double *e , double *f );
-#endif
+void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
+void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 
 /* helper functions */
 double potential_LJ126 ( double r , double A , double B );
 double potential_LJ126_p ( double r , double A , double B );
 double potential_LJ126_6p ( double r , double A , double B );
-double potential_LJ126_r2 ( double r2 , double A , double B );
-double potential_LJ126_r2_p ( double r2 , double A , double B );
-double potential_LJ126_r2_6p ( double r2 , double A , double B );
-double potential_LJn6_r2 ( double r2 , int n , double eps , double sigma );
-double potential_LJn6_r2_p ( double r2 , int n , double eps , double sigma );
-double potential_LJn6_r2_6p ( double r2 , int n , double eps , double sigma );
-double potential_Coulomb_r2 ( double r2 );
-double potential_Coulomb_r2_p ( double r2 );
-double potential_Coulomb_r2_6p ( double r2 );
 double potential_Ewald ( double r , double kappa );
 double potential_Ewald_p ( double r , double kappa );
 double potential_Ewald_6p ( double r , double kappa );
-double potential_Ewald_r2 ( double r2 , double kappa );
-double potential_Ewald_r2_p ( double r2 , double kappa );
-double potential_Ewald_r2_6p ( double r2 , double kappa );

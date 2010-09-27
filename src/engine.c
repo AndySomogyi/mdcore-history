@@ -28,6 +28,7 @@
 #endif
 
 /* include local headers */
+#include "fptype.h"
 #include "part.h"
 #include "cell.h"
 #include "space.h"
@@ -36,15 +37,21 @@
 #include "engine.h"
 
 
-/* the last error */
+/** ID of the last error. */
 int engine_err = engine_err_ok;
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int engine_initpairs */
-//
-/* init the data for the pair finding algorithm. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Init the data for the pair finding algorithm.
+ *
+ * @param The #engine on which to do this.
+ *
+ * Fills the matrices @c M and @c cellpairs and initializes the @c nneigh,
+ * @c cell_count, @c runner_count and @c owner indices.
+ *
+ * This function must be called at the beginning of every time step if
+ * #engine_getpairs is used.
+ */
 
 int engine_initpairs ( struct engine *e ) {
 

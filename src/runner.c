@@ -18,7 +18,7 @@
  ******************************************************************************/
 
 
-/* include some standard header files */
+/* Include some standard header files */
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -28,10 +28,11 @@
 #ifdef CELL
     #include <libspe2.h>
     #include <libmisc.h>
-    #define mfc_ceil128(v) (((v) + 127) & ~127)
+    #define ceil128(v) (((v) + 127) & ~127)
 #endif
 
-/* include local headers */
+/* Include local headers */
+#include "fptype.h"
 #include "part.h"
 #include "cell.h"
 #include "space.h"
@@ -40,7 +41,8 @@
 #include "runner.h"
 
 
-/* the last error */
+/* Global variables. */
+/** The ID of the last error. */
 int runner_err = runner_err_ok;
 unsigned int runner_rcount = 0;
 
@@ -50,23 +52,36 @@ unsigned int runner_rcount = 0;
 #endif
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int runner_sortedpair */
-//
-/* compute the pairwise interactions for the given pair using the sorted */
-/* interactions algorithm */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Compute the pairwise interactions for the given pair using the sorted
+ * interactions algorithm.
+ *
+ * @param r The #runner computing the pair.
+ * @param cell_i The first cell.
+ * @param cell_j The second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err)
+ *
+ * Sorts the particles from @c cell_i and @c cell_j along the normalized axis
+ * @c pshift and tries to interact only those particles that are within
+ * the cutoff distance along that axis.
+ * 
+ * It is assumed that @c cell_i != @c cell_j.
+ *
+ * @sa #runner_dopair.
+ */
 
-#ifdef USE_SINGLE
-int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , float *pshift ) {
+int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
 
     struct part *part_i, *part_j;
     struct space *s;
     struct potential *pot;
     struct engine *eng;
-    float cutoff, cutoff2, r2, dx[3], e, f;
-    float d[runner_maxparts], temp, pivot;
-    float shift[3];
+    FPTYPE cutoff, cutoff2, r2, dx[3], e, f;
+    FPTYPE d[runner_maxparts], temp, pivot;
+    FPTYPE shift[3];
     int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
@@ -156,16 +171,16 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         }
         
     /* sort with selection sort */
-    /* for ( i = 0 ; i < count-1 ; i++ ) { */
-    /*     imax = i; */
-    /*     for ( j = i+1 ; j < count ; j++ ) */
-    /*         if ( d[j] > d[imax] ) */
-    /*             imax = j; */
-    /*     if ( imax != i ) { */
-    /*         k = ind[imax]; ind[imax] = ind[i]; ind[i] = k; */
-    /*         temp = d[imax]; d[imax] = d[i]; d[i] = temp; */
-    /*         } */
-    /*     } */
+    /* for ( i = 0 ; i < count-1 ; i++ ) { 
+        imax = i;
+        for ( j = i+1 ; j < count ; j++ )
+            if ( d[j] > d[imax] )
+                imax = j;
+        if ( imax != i ) {
+            k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
+            temp = d[imax]; d[imax] = d[i]; d[i] = temp;
+            }
+        } */
     
     /* loop over the sorted list of particles */
     for ( i = 0 ; i < count ; i++ ) {
@@ -242,204 +257,29 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     return runner_err_ok;
 
     }
-#else
-int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , float *pshift ) {
 
-    struct part *part_i, *part_j;
-    struct space *s;
-    struct potential *pot;
-    struct engine *eng;
-    double cutoff, cutoff2, r2, dx[3], e, f;
-    double d[runner_maxparts], temp, pivot;
-    float shift[3];
-    int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
-    int i, j, k, imax, qpos, lo, hi;
-    struct {
-        int lo, hi;
-        } qstack[runner_maxqstack];
-    struct part *parts_i, *parts_j;
-    
-    /* get the space and cutoff */
-    eng = r->e;
-    s = &(eng->s);
-    cutoff = s->cutoff;
-    cutoff2 = s->cutoff2;
-    
-    /* break early if one of the cells is empty */
-    if ( cell_i->count == 0 || cell_j->count == 0 )
-        return runner_err_ok;
-    
-    /* set pointers to the particle lists */
-    #ifdef PARTS_LOCAL
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
-        memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
-    #else
-        parts_i = cell_i->parts;
-        parts_j = cell_j->parts;
-    #endif
-        
-    /* start by filling the particle ids of both cells into ind and d */
-    temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
-    shift[0] = pshift[0]*temp; shift[1] = pshift[1]*temp; shift[2] = pshift[2]*temp;
-    for ( i = 0 ; i < cell_i->count ; i++ ) {
-        part_i = &( parts_i[i] );
-        ind[count] = -i - 1;
-        d[count] = part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2];
-        count += 1;
-        }
-    for ( i = 0 ; i < cell_j->count ; i++ ) {
-        part_i = &( parts_j[i] );
-        ind[count] = i;
-        d[count] = (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff;
-        count += 1;
-        }
-        
-    /* sort with quicksort */
-    qstack[0].lo = 0; qstack[0].hi = count - 1; qpos = 0;
-    while ( qpos >= 0 ) {
-        lo = qstack[qpos].lo; hi = qstack[qpos].hi;
-        qpos -= 1;
-        if ( hi - lo < 10 ) {
-            for ( i = lo ; i < hi ; i++ ) {
-                imax = i;
-                for ( j = i+1 ; j <= hi ; j++ )
-                    if ( d[j] > d[imax] )
-                        imax = j;
-                if ( imax != i ) {
-                    k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-                    temp = d[imax]; d[imax] = d[i]; d[i] = temp;
-                    }
-                }
-            }
-        else {
-            pivot = d[ ( lo + hi ) / 2 ];
-            i = lo; j = hi;
-            while ( i <= j ) {
-                while ( d[i] > pivot ) i++;
-                while ( d[j] < pivot ) j--;
-                if ( i <= j ) {
-                    if ( i < j ) {
-                        k = ind[i]; ind[i] = ind[j]; ind[j] = k;
-                        temp = d[i]; d[i] = d[j]; d[j] = temp;
-                        }
-                    i += 1; j -= 1;
-                    }
-                }
-            if ( lo < j ) {
-                qpos += 1;
-                qstack[qpos].lo = lo;
-                qstack[qpos].hi = j;
-                }
-            if ( i < hi ) {
-                qpos += 1;
-                qstack[qpos].lo = i;
-                qstack[qpos].hi = hi;
-                }
-            }
-        }
-        
-    /* sort with selection sort */
-    /* for ( i = 0 ; i < count-1 ; i++ ) { */
-    /*     imax = i; */
-    /*     for ( j = i+1 ; j < count ; j++ ) */
-    /*         if ( d[j] > d[imax] ) */
-    /*             imax = j; */
-    /*     if ( imax != i ) { */
-    /*         k = ind[imax]; ind[imax] = ind[i]; ind[i] = k; */
-    /*         temp = d[imax]; d[imax] = d[i]; d[i] = temp; */
-    /*         } */
-    /*     } */
-    
-    /* loop over the sorted list of particles */
-    for ( i = 0 ; i < count ; i++ ) {
-    
-        /* is this a particle from the left? */
-        if ( ind[i] < 0 )
-            left[lcount++] = -ind[i] - 1;
-            
-        /* it's from the right, interact with all left particles */
-        else {
-        
-            /* get a handle on this particle */
-            part_j = &( parts_j[ind[i]] );
-        
-            /* loop over the left particles */
-            for ( j = lcount-1 ; j >= 0 ; j-- ) {
-            
-                /* get a handle on the second particle */
-                part_i = &( parts_i[left[j]] );
-            
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - pshift[k];
-                    r2 += dx[k] * dx[k];
-                    }
-                    
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
-                    continue;
-                
-                /* fetch the potential, if any */
-                pot = eng->p[ part_i->type * eng->max_type + part_j->type ];
-                if ( pot == NULL )
-                    continue;
-                    
-                /* evaluate the interaction */
-                /* runner_rcount += 1; */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
-                #else
-                    potential_eval( pot , r2 , &e , &f );
-                #endif
-                
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    part_i->f[k] += -f * dx[k];
-                    part_j->f[k] += f * dx[k];
-                    }
-                    
-                /* tabulate the energy */
-                cell_i->epot += e;
-                
-                }
-        
-            }
-    
-        } /* loop over all particles */
-        
-    #ifdef PARTS_LOCAL
-        /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
-            cell_i->parts[i].f[0] = parts_i[i].f[0];
-            cell_i->parts[i].f[1] = parts_i[i].f[1];
-            cell_i->parts[i].f[2] = parts_i[i].f[2];
-            }
-        for ( i = 0 ; i < cell_j->count ; i++ ) {
-            cell_j->parts[i].f[0] = parts_j[i].f[0];
-            cell_j->parts[i].f[1] = parts_j[i].f[1];
-            cell_j->parts[i].f[2] = parts_j[i].f[2];
-            }
-    #endif
-        
-    /* since nothing bad happened to us... */
-    return runner_err_ok;
 
-    }
-#endif
+/**
+ * @brief Compute the pairwise interactions for the given pair.
+ *
+ * @param r The #runner computing the pair.
+ * @param cell_i The first cell.
+ * @param cell_j The second cell.
+ * @param shift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err)
+ *
+ * Computes the interactions between all the particles in @c cell_i and all
+ * the paritcles in @c cell_j. @c cell_i and @c cell_j may be the same cell.
+ *
+ * @sa #runner_sortedpair.
+ */
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int runner_dopair */
-//
-/* compute the pairwise interactions for the given pair. */
-/*////////////////////////////////////////////////////////////////////////////// */
-
-#ifdef USE_SINGLE
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , float *shift ) {
+int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
     int i, j, k;
-    float cutoff2, dx[3], r2, e, f;
+    FPTYPE cutoff2, dx[3], r2, e, f;
     struct space *s;
     struct part *part_i, *part_j;
     struct potential *pot;
@@ -494,9 +334,6 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 if ( pot == NULL )
                     continue;
                     
-                /* if ( r2 < 0.23*0.23 && part_i->type == 0 && part_j->type == 0 ) */
-                /*     printf("runner_dopair: particles %i and %i are too close!\n",part_i->id,part_j->id); */
-                    
                 /* evaluate the interaction */
                 /* runner_rcount += 1; */
                 #ifdef EXPLICIT_POTENTIALS
@@ -550,9 +387,6 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 if ( pot == NULL )
                     continue;
                     
-                /* if ( r2 < 0.23*0.23 && part_i->type == 0 && part_j->type == 0 ) */
-                /*     printf("runner_dopair: particles %i and %i are too close!\n",part_i->id,part_j->id); */
-                    
                 /* evaluate the interaction */
                 /* runner_rcount += 1; */
                 #ifdef EXPLICIT_POTENTIALS
@@ -595,394 +429,28 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     return runner_err_ok;
 
     }
-#else
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , float *shift ) {
-
-    int i, j, k;
-    double cutoff2, dx[3], r2, e, f;
-    struct space *s;
-    struct part *part_i, *part_j;
-    struct potential *pot;
-    struct engine *eng;
-    struct part *parts_i, *parts_j = NULL;
-
-    /* get the space and cutoff */
-    eng = r->e;
-    s = &(eng->s);
-    cutoff2 = s->cutoff2;
-        
-    /* set pointers to the particle lists */
-    #ifdef PARTS_LOCAL
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
-        if ( cell_i != cell_j ) {
-            parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-            memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
-            }
-    #else
-        parts_i = cell_i->parts;
-        parts_j = cell_j->parts;
-    #endif
-        
-    /* is this a genuine pair or a cell against itself */
-    if ( cell_i == cell_j ) {
-    
-        /* loop over all particles */
-        for ( i = 1 ; i < cell_i->count ; i++ ) {
-        
-            /* get the particle */
-            part_i = &(cell_i->parts[i]);
-        
-            /* loop over all other particles */
-            for ( j = 0 ; j < i ; j++ ) {
-            
-                /* get the other particle */
-                part_j = &(cell_i->parts[j]);
-                
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
-                    
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
-                    continue;
-                
-                /* fetch the potential, if any */
-                pot = eng->p[ part_i->type * eng->max_type + part_j->type ];
-                if ( pot == NULL )
-                    continue;
-                    
-                /* if ( r2 < 0.23*0.23 && part_i->type == 0 && part_j->type == 0 ) */
-                /*     printf("runner_dopair: particles %i and %i are too close!\n",part_i->id,part_j->id); */
-                    
-                /* evaluate the interaction */
-                /* runner_rcount += 1; */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
-                #else
-                    potential_eval( pot , r2 , &e , &f );
-                #endif
-                
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    part_i->f[k] += -f * dx[k];
-                    part_j->f[k] += f * dx[k];
-                    }
-                    
-                /* tabulate the energy */
-                cell_i->epot += e;
-                
-                } /* loop over all other particles */
-        
-            } /* loop over all particles */
-    
-        }
-        
-    /* no, it's a genuine pair */
-    else {
-    
-        /* loop over all particles */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
-        
-            /* get the particle */
-            part_i = &(cell_i->parts[i]);
-            
-            /* loop over all other particles */
-            for ( j = 0 ; j < cell_j->count ; j++ ) {
-            
-                /* get the other particle */
-                part_j = &(cell_j->parts[j]);
-
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - shift[k];
-                    r2 += dx[k] * dx[k];
-                    }
-                    
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
-                    continue;
-                    
-                /* fetch the potential, if any */
-                pot = eng->p[ part_i->type * eng->max_type + part_j->type ];
-                if ( pot == NULL )
-                    continue;
-                    
-                /* if ( r2 < 0.23*0.23 && part_i->type == 0 && part_j->type == 0 ) */
-                /*     printf("runner_dopair: particles %i and %i are too close!\n",part_i->id,part_j->id); */
-                    
-                /* evaluate the interaction */
-                /* runner_rcount += 1; */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
-                #else
-                    potential_eval( pot , r2 , &e , &f );
-                #endif
-                
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    part_i->f[k] += -f * dx[k];
-                    part_j->f[k] += f * dx[k];
-                    }
-                
-                /* tabulate the energy */
-                cell_i->epot += e;
-                
-                } /* loop over all other particles */
-        
-            } /* loop over all particles */
-
-        }
-        
-    #ifdef PARTS_LOCAL
-        /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
-            cell_i->parts[i].f[0] = parts_i[i].f[0];
-            cell_i->parts[i].f[1] = parts_i[i].f[1];
-            cell_i->parts[i].f[2] = parts_i[i].f[2];
-            }
-        if ( cell_i != cell_j )
-            for ( i = 0 ; i < cell_j->count ; i++ ) {
-                cell_j->parts[i].f[0] = parts_j[i].f[0];
-                cell_j->parts[i].f[1] = parts_j[i].f[1];
-                cell_j->parts[i].f[2] = parts_j[i].f[2];
-                }
-    #endif
-        
-    /* all is well that ends ok */
-    return runner_err_ok;
-
-    }
-#endif    
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int runner_run_static */
-//
-/* this is the runner's main routine, with static scheduling */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief The #runner's main routine (for the Cell/BE SPU).
+ *
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having passed, calls #space_getpair until there are no pairs
+ * available.
+ *
+ * Note that this routine is only compiled if @c CELL has been defined.
+ *
+ * @sa #runner_run_cell.
+ */
 
-int runner_run_static ( struct runner *r ) {
-
-    struct cellpair *pairs, *p;
-    struct cell *cells, *ci, *cj;
-    int i, j, k, chunk, nr_pairs, nr_cells;
-    #ifdef CELL
-        unsigned int buff[2];
-    #endif
-
-    /* check the inputs */
-    if ( r == NULL )
-        return runner_err = runner_err_ok;
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running...\n",r->id);
-    
-    /* allocate a list of cellpairs */
-    chunk = (r->e->s.nr_pairs + r->e->nr_runners - 1) / r->e->nr_runners;
-    if ( ( pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * chunk ) ) == NULL )
-        return runner_err_malloc;
-        
-    /* copy-over this runner's pairs */
-    for ( i = 0 , j = r->id * chunk ; j < r->e->s.nr_pairs && j < (r->id+1) * chunk ; i++ , j++ )
-        pairs[i] = r->e->s.pairs[j];
-    nr_pairs = i;
-    printf("runner_run_static: grabbed %i pairs from %i to %i (out of %i).\n",
-        nr_pairs, r->id*chunk, j-1, r->e->s.nr_pairs);
-    
-    /* allocate the cells list */
-    nr_cells = r->e->s.nr_cells;
-    if ( ( cells = (struct cell *)malloc( sizeof(struct cell) * nr_cells ) ) == NULL )
-        return runner_err_malloc;
-    
-    /* main loop */
-    while ( 1 ) {
-    
-        /* wait at the engine barrier */
-        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
-        if ( engine_barrier(r->e) < 0)
-            return runner_err = runner_err_engine;
-            
-        /* get a copy of the list of cells */
-        memcpy( cells , r->e->s.cells , sizeof(struct cell) * nr_cells );
-
-        /* set all the particle list pointers to NULL */
-        for ( i = 0 ; i < nr_cells ; i++ )
-            cells[i].parts = NULL;
-
-        /* loop through this runner's pairs and make copies of the */
-        /* particle data. */
-        for ( i = 0 ; i < nr_pairs ; i++ ) {
-            p = &( pairs[i] );
-            ci = &( cells[p->i] );
-            cj = &( cells[p->j] );
-            if ( ci->parts == NULL ) {
-                #ifdef CELL
-                    if ( ( ci->parts = (struct part *)malloc_align( mfc_ceil128( sizeof(struct part) * ci->count ) , 7 ) ) == NULL )
-                        return runner_err_malloc;
-                #else
-                    if ( ( ci->parts = (struct part *)malloc( sizeof(struct part) * ci->count ) ) == NULL )
-                        return runner_err_malloc;
-                #endif
-                memcpy( ci->parts , r->e->s.cells[ p->i ].parts , sizeof(struct part) * ci->count );
-                }
-            if ( cj->parts == NULL ) {
-                #ifdef CELL
-                    if ( ( cj->parts = (struct part *)malloc_align( mfc_ceil128( sizeof(struct part) * cj->count ) , 7 ) ) == NULL )
-                        return runner_err_malloc;
-                #else
-                    if ( ( cj->parts = (struct part *)malloc( sizeof(struct part) * cj->count ) ) == NULL )
-                        return runner_err_malloc;
-                #endif
-                memcpy( cj->parts , r->e->s.cells[ p->j ].parts , sizeof(struct part) * cj->count );
-                }
-            }
-                
-        #ifdef CELL
-        
-            /* fill this runner's celldata and send it to the SPU */
-            for ( i = 0 ; i < r->e->s.nr_cells ; i++ ) {
-                r->celldata[i].ni = cells[i].count;
-                r->celldata[i].ai = (unsigned long long)cells[i].parts;
-                }
-                
-            /* send the reload message */
-            buff[0] = 0xFFFFFFFF;
-            /* printf("runner_run: runner %i sending reload message...\n",r->id); */
-            if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
-                return runner_err_spe;
-                
-            /* loop through the pairs again and send them to the SPU */
-            for ( i = 0 ; i < nr_pairs ; i++ ) {
-            
-                /* skip if empty */
-                if ( cells[pairs[i].i].count == 0 || cells[pairs[i].j].count == 0 )
-                    continue;
-
-                /* pack this pair's data */
-                buff[0] = ( pairs[i].i << 20 ) + ( pairs[i].j << 8 ) + 1;
-                if ( pairs[i].shift[0] == r->e->s.cutoff )
-                    buff[0] += 1 << 6;
-                else if ( pairs[i].shift[0] == -r->e->s.cutoff )
-                    buff[0] += 2 << 6;
-                if ( pairs[i].shift[1] == r->e->s.cutoff )
-                    buff[0] += 1 << 4;
-                else if ( pairs[i].shift[1] == -r->e->s.cutoff )
-                    buff[0] += 2 << 4;
-                if ( pairs[i].shift[2] == r->e->s.cutoff )
-                    buff[0] += 1 << 2;
-                else if ( pairs[i].shift[2] == -r->e->s.cutoff )
-                    buff[0] += 2 << 2;
-
-                /* write the data to the mailbox */
-                if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
-                    return runner_err_spe;
-
-                }
-                
-            /* send a flush and wait for the reply */
-            buff[0] = 0;
-            if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
-                return runner_err_spe;
-            if ( spe_out_intr_mbox_read( r->spe , buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
-                return runner_err_spe;
-        
-        #else
-            
-            /* run through the list of cellpairs */
-            for ( i = 0 ; i < nr_pairs ; i++ ) {
-
-                /* get a direct pointer to this pair and its cells */
-                p = &( pairs[i] );
-                ci = &( cells[p->i] );
-                cj = &( cells[p->j] );
-
-                /* skip if empty */
-                if ( ci->count == 0 || cj->count == 0 )
-                    continue;
-
-                /* compute the interactions in this pair */
-                /* is this cellpair playing with itself? */
-                if ( ci == cj ) {
-                    if ( runner_dopair(r,ci,cj,p->shift) < 0 )
-                        return runner_err;
-                    }
-
-                /* nope, good cell-on-cell action. */
-                else {
-                    #ifdef SORTED_INTERACTIONS
-                        if ( runner_sortedpair(r,ci,cj,p->shift) < 0 )
-                            return runner_err;
-                    #else
-                        if ( runner_dopair(r,ci,cj,p->shift) < 0 )
-                            return runner_err;
-                    #endif
-                    }
-
-                } /* run through the list of cellpairs */
-            
-            /* give the reaction count */
-            /* printf("runner_run: last count was %u.\n",runner_rcount); */
-            
-        #endif
-            
-        /* in an abuse of nomenclature, grab the space's cellpairs_mutex */
-	    if (pthread_mutex_lock(&r->e->s.cellpairs_mutex) != 0)
-		    return runner_err_pthread;
-            
-        /* loop over the cells... */
-        for ( i = 0 ; i < nr_cells ; i++ ) {
-        
-            /* get pointers for convenience */
-            ci = &( cells[i] );
-            cj = &( r->e->s.cells[i] );
-            
-            /* if the parts pointer is non-NULL... */
-            if ( ci->parts != NULL ) {
-            
-                /* agregate the force */
-                for ( j = 0 ; j < ci->count ; j++ )
-                    for ( k = 0 ; k < 3 ; k++ )
-                        cj->parts[j].f[k] += ci->parts[j].f[k];
-                        
-                /* copy the cell's potential energy */
-                cj->epot += ci->epot;
-                
-                /* free the parts array and set pointer to NULL */
-                #ifdef CELL
-                    free_align( ci->parts );
-                #else
-                    free( ci->parts );
-                #endif
-                ci->parts = NULL;
-            
-                }
-                        
-            } /* loop over the cells */
-            
-        /* give back the cellpairs_mutex */
-	    if (pthread_mutex_unlock(&r->e->s.cellpairs_mutex) != 0)
-            return runner_err_pthread;
-            
-        } /* main loop */
-        
-    /* leave with an air of elegance */
-    return runner_err_ok;
-        
-    }
-    
-
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int runner_run */
-//
-/* this is the runner's main routine */
-/*////////////////////////////////////////////////////////////////////////////// */
+int runner_run_cell ( struct runner *r ) {
 
 #ifdef CELL
-int runner_run ( struct runner *r ) {
-
     int err = 0;
     struct cellpair *p[runner_qlen];
     unsigned int buff[2];
@@ -990,7 +458,7 @@ int runner_run ( struct runner *r ) {
 
     /* check the inputs */
     if ( r == NULL )
-        return runner_err = runner_err_ok;
+        return runner_err = runner_err_null;
         
     /* give a hoot */
     printf("runner_run: runner %i is up and running...\n",r->id); fflush(stdout);
@@ -1130,8 +598,29 @@ int runner_run ( struct runner *r ) {
     /* end well... */
     return runner_err_ok;
 
-    }
 #else
+
+    /* This functionality is not available */
+    return runner_err_unavail;
+    
+#endif
+
+    }
+
+
+/**
+ * @brief The #runner's main routine.
+ *
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having passed, calls #space_getpair until there are no pairs
+ * available.
+ */
+
 int runner_run ( struct runner *r ) {
 
     int err = 0;
@@ -1167,15 +656,9 @@ int runner_run ( struct runner *r ) {
                     }
 
                 /* nope, good cell-on-cell action. */
-                else {
-                    #ifdef SORTED_INTERACTIONS
-                        if ( runner_sortedpair( r , &(r->e->s.cells[finger->i]) , &(r->e->s.cells[finger->j]) , finger->shift ) < 0 )
-                            return runner_err;
-                    #else
-                        if ( runner_dopair( r , &(r->e->s.cells[finger->i]) , &(r->e->s.cells[finger->j]) , finger->shift ) < 0 )
-                            return runner_err;
-                    #endif
-                    }
+                else
+                    if ( runner_sortedpair( r , &(r->e->s.cells[finger->i]) , &(r->e->s.cells[finger->j]) , finger->shift ) < 0 )
+                        return runner_err;
 
                 /* release this pair */
                 if ( space_releasepair( &(r->e->s) , finger ) < 0 )
@@ -1199,20 +682,31 @@ int runner_run ( struct runner *r ) {
     return runner_err_ok;
 
     }
-#endif    
+
     
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int runner_run_queue */
-//
-/* this is the runner's main routine */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief The #runner's main routine (#engine queue model).
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having passed, calls #engine_getpairs until there are no pairs
+ * available.
+ *
+ * This routine uses the #engine's queueing model to allocate cell pairs
+ * to the runners.
+ *
+ * @sa #runner_run.
+ */
 
 int runner_run_queue ( struct runner *r ) {
 
     int count, err = 0;
     struct cell *ci, *cj;
     int k;
-    float shift[3];
+    FPTYPE shift[3];
 
     /* check the inputs */
     if ( r == NULL )
@@ -1259,15 +753,10 @@ int runner_run_queue ( struct runner *r ) {
                     }
 
                 /* nope, good cell-on-cell action. */
-                else {
-                    #ifdef SORTED_INTERACTIONS
-                        if ( runner_sortedpair( r , ci , cj , shift ) < 0 )
-                            return runner_err;
-                    #else
-                        if ( runner_dopair( r , ci , cj , shift ) < 0 )
-                            return runner_err;
-                    #endif
-                    }
+                else
+                    if ( runner_sortedpair( r , ci , cj , shift ) < 0 )
+                        return runner_err;
+                   
                     
                 /* free it */
                 r->count_free += 1;
@@ -1296,11 +785,15 @@ int runner_run_queue ( struct runner *r ) {
     }
 
     
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int runner_init */
-//
-/* initialize the runner associated to the given engine. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Initialize the runner associated to the given engine.
+ * 
+ * @param r The #runner to be initialized.
+ * @param e The #engine with which it is associated.
+ * @param id The ID of this #runner.
+ * 
+ * @return #runner_err_ok or < 0 on error (see #runner_err).
+ */
 
 int runner_init ( struct runner *r , struct engine *e , int id ) {
 
@@ -1431,7 +924,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
         r->data = data;
         
         /* allocate and set the cell data */
-        if ( ( r->celldata = (struct celldata *)malloc_align( mfc_ceil128( sizeof(struct celldata) * r->e->s.nr_cells ) , 7 ) ) == NULL )
+        if ( ( r->celldata = (struct celldata *)malloc_align( ceil128( sizeof(struct celldata) * r->e->s.nr_cells ) , 7 ) ) == NULL )
             return runner_err = runner_err_malloc;
         *((unsigned long long *)data) = (unsigned long long)r->celldata;
             

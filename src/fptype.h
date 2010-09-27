@@ -17,36 +17,16 @@
  * 
  ******************************************************************************/
 
-
-/* include some standard header files */
-#include <stdlib.h>
-#include <math.h>
-
-/* include local headers */
-#include "part.h"
-
-
-/** ID of the last error */
-int part_err = part_err_ok;
-
-
-/**
- * @brief Initialize a #part.
- *
- * @param p The #part to be initialized.
- *
- * @return #part_err_ok or < 0 on error (see #part_err).
- *
- * Note: this routine doesn't do anything yet.
- */
-
-int part_init ( struct part *p ) {
-
-    /* check inputs */
-    if ( p == NULL )
-        return part_err = part_err_null;
-        
-    /* all is well... */
-    return part_err_ok;
-
-    }
+/* Global defines. */
+#ifndef FPTYPE_DEFINED
+    #ifdef FPTYPE_SINGLE
+        /** The basic type was set to float. */
+        typedef float FPTYPE;
+        #define FPTYPE_EPSILON FLT_EPSILON
+    #else
+        /** The default basic type is double. */
+        typedef double FPTYPE;
+        #define FPTYPE_EPSILON DBL_EPSILON
+    #endif
+    #define FPTYPE_DEFINED
+#endif

@@ -35,11 +35,149 @@
 int space_err = space_err_ok;
 
 
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
-/* int space_prepare */
-//
-/* get this space ready for a time-step */
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
+/** @brief generate the list of #celltuple.
+ * 
+ * @param s Pointer to the #space to make tuples for.
+ *
+ * @return #space_err_ok or < 0 on error (see #space_err).
+ */
+ 
+int space_maketuples ( struct space *s ) {
+
+    int size, *w, w_max;
+    int i, j, k, newid;
+    struct celltuple *t;
+    struct cellpair *p, temppair;
+    
+    /* Check for bad input. */
+    if ( s == NULL )
+        return space_err = space_err_null;
+        
+    /* Guess the size of the tuple array and allocate it. */
+    size = s->nr_pairs / space_maxtuples;
+    if ( ( s->tuples = (struct celltuple *)malloc( sizeof(struct celltuple) * size ) ) == NULL )
+        return space_err = space_err_malloc;
+    s->nr_tuples = 0;
+        
+    /* Allocate the vector w. */
+    if ( ( w = (int *)alloca( sizeof(int) * s->nr_pairs ) ) == NULL )
+        return space_err = space_err_malloc;
+    s->next_pair = 0;
+        
+    /* While there are still pairs that are not part of a tuple... */
+    while ( s->next_pair < s->nr_pairs ) {
+    
+        /* Is the array of tuples long enough? */
+        if ( s->nr_tuples >= size ) {
+            if ( ( t = (struct celltuple *)malloc( sizeof(struct celltuple) * (size + 20) ) ) == NULL )
+                return space_err = space_err_malloc;
+            memcpy( t , s->tuples , sizeof(struct celltuple) * size );
+            size += 20;
+            free( s->tuples );
+            s->tuples = t;
+            }
+            
+        /* Get a pointer on the next free tuple. */
+        t = &( s->tuples[ s->nr_tuples++ ] );
+            
+        /* Just put the next pair into this tuple. */
+        p = &( s->pairs[ s->next_pair++ ] );
+        t->cellid[0] = p->i; t->n = 1;
+        if ( p->j != p->i ) {
+            t->cellid[ t->n++ ] = p->j;
+            t->pairs = ( 1 << ( 0 * space_maxtuples + 1 ) ) | ( 1 << ( 1 * space_maxtuples + 0 ) );
+            }
+        else
+            t->pairs = 1;
+        printf("space_maketuples: starting tuple %i with pair [%i,%i].\n",
+            s->nr_tuples-1 , p->i , p->j );
+            
+        /* Fill the weights for the remaining pairs. */
+        w_max = s->next_pair;
+        for ( k = s->next_pair ; k < s->nr_pairs ; k++ ) {
+            w[k] = 0;
+            for ( i = 0 ; i < t->n ; i++ ) {
+                if ( s->pairs[k].i == t->cellid[i] )
+                    w[k] += 1;
+                if ( s->pairs[k].j == t->cellid[i] )
+                    w[k] += 1;
+                }
+            if ( w[w_max] < w[k] )
+                w_max = k;
+            }
+            
+        /* While there is still room in this tuple... */
+        while ( t->n < space_maxtuples && s->next_pair < s->nr_pairs ) {
+        
+            /* If there are no pairs that will add to this tuple, bail. */
+            if ( w[w_max] == 0 )
+                break;
+                
+            /* Add this pair to the tuple. */
+            p = &( s->pairs[ w_max ] );
+            newid = -1;
+            for ( j = 0 ; j < t->n && t->cellid[j] != p->i ; j++ )
+            if ( j == t->n )
+                newid = t->cellid[ t->n++ ] = p->i;
+            for ( k = 0 ; k < t->n && t->cellid[k] != p->j ; k++ )
+            if ( k == t->n )
+                newid = t->cellid[ t->n++ ] = p->j;
+            t->pairs |= ( 1 << ( k * space_maxtuples + j ) ) | ( 1 << ( j * space_maxtuples + k ) );
+            printf("space_maketuples: adding pair [%i,%i] to tuple %i (w[%i]=%i).\n",
+                p->i, p->j, s->nr_tuples-1 , w_max , w[w_max] );
+            
+            /* If this pair was not at the top of the list, swap it there. */
+            if ( w_max != s->next_pair ) {
+                temppair = s->pairs[ s->next_pair ];
+                s->pairs[ s->next_pair ] = s->pairs[ w_max ];
+                s->pairs[ w_max ] = temppair;
+                }
+                
+            /* Move the next_pair pointer. */
+            s->next_pair += 1;
+            
+            /* Update the weights and get the ID of the new max. */
+            w_max = s->next_pair;
+            for ( k = s->next_pair ; k < s->nr_pairs ; k++ ) {
+                if ( s->pairs[k].i == newid )
+                    w[k] += 1;
+                if ( s->pairs[k].j == newid )
+                    w[k] += 1;
+                if ( w[k] > w[w_max] )
+                    w_max = k;
+                }
+        
+            }
+    
+        }
+        
+    /* Dump the list of tuples. */
+    for ( i = 0 ; i < s->nr_tuples ; i++ ) {
+        t = &( s->tuples[i] );
+        printf("space_maketuples: tuple %i has pairs:",i);
+        for ( k = 0 ; k < t->n ; k++ )
+            for ( j = k ; j < t->n ; j++ )
+                if ( t->pairs & ( 1 << ( k * space_maxtuples + j ) ) )
+                    printf(" [%i,%i]", t->cellid[j], t->cellid[k] );
+        printf("\n");
+        }
+        
+    /* If we made it up to here, we're done! */
+    return space_err_ok;
+
+    }
+
+
+/**
+ * @brief Prepare the space before a time step.
+ *
+ * @param s A pointer to the #space to prepare.
+ *
+ * @return #space_err_ok or < 0 on error (see #space_err)
+ *
+ * Initializes a #space for a single time step. This routine runs
+ * through the particles and sets their forces to zero.
+ */
 
 int space_prepare ( struct space *s ) {
 
@@ -64,11 +202,18 @@ int space_prepare ( struct space *s ) {
     }
 
 
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
-/* int space_shuffle */
-//
-/* run through the cells and make sure every particle is in its place. */
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
+/**
+ * @brief Run through the cells of a #space and make sure every particle is in
+ * its place.
+ *
+ * @param s The #space on which to operate.
+ *
+ * @returns #space_err_ok or < 0 on error.
+ *
+ * Runs through the cells of @c s and if a particle has stepped outside the
+ * cell bounds, moves it to the correct cell.
+ */
+/* TODO: Check non-periodicity and ghost cells. */
 
 int space_shuffle ( struct space *s ) {
 
@@ -137,12 +282,20 @@ int space_shuffle ( struct space *s ) {
     }
 
 
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
-/* int space_addpart */
-//
-/* adds the given particle to the given space at the position given */
-/* by the double-precision values. */
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
+/**
+ * @brief Add a #part to a #space at the given coordinates.
+ *
+ * @param s The space to which @c p should be added.
+ * @param p The #part to be added.
+ * @param x A pointer to an array of three doubles containing the particle
+ *      position.
+ *
+ * @returns #space_err_ok or < 0 on error (see #space_err).
+ *
+ * Inserts a #part @c p into the #space @c s at the position @c x.
+ * Note that since particle positions in #part are relative to the cell, that
+ * data in @c p is overwritten and @c x is used.
+ */
 
 int space_addpart ( struct space *s , struct part *p , double *x ) {
 
@@ -197,29 +350,42 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
     }
 
 
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
-/* int space_releasepair */
-//
-/* free the cells involved in the current pair */
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
+/**
+ * @brief Free the cells involved in the current pair.
+ *
+ * @param s The #space to operate on.
+ * @param p the #cellpair to release.
+ *
+ * @returns #space_err_ok or < 0 on error (see #space_err).
+ *
+ * Decreases the taboo-counter of the cells involved in the pair
+ * and signals any #runner that might be waiting.
+ * Note that only a single waiting #runner is released per released cell
+ * and therefore, if two different cells become free, the condition
+ * @c cellpairs_avail is signaled twice.
+ */
 
 int space_releasepair ( struct space *s , struct cellpair *p ) {
 
     /* try to get a hold of the cells mutex */
-	/* if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) */
-    /*     return space_err_pthread; */
+	if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
+        return space_err_pthread;
         
     /* release the given pair */
     s->cells_taboo[ p->i ] -= 1;
     s->cells_taboo[ p->j ] -= 1;
     
     /* send a strong signal to anybody waiting on pairs... */
-    if (pthread_cond_signal(&s->cellpairs_avail) != 0)
-        return space_err_pthread;
+    if ( s->cells_taboo[ p->i ] == 0 )
+        if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+            return space_err_pthread;
+    if ( p->i != p->j && s->cells_taboo[ p->j ] == 0 )
+        if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+            return space_err_pthread;
     
     /* let go of the cells mutex */
-	/* if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0) */
-    /*     return space_err_pthread; */
+	if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
+        return space_err_pthread;
     
     /* all is well... */
     return space_err_ok;
@@ -227,12 +393,43 @@ int space_releasepair ( struct space *s , struct cellpair *p ) {
     }
     
 
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
-/* struct cellpair *space_getpair */
-//
-/* returns a pointer to the next pair or NULL if the list is empty. */
-/* if anything goes wrong, the error code is returned in 'err'. */
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
+/**
+ * @brief Get a set of #cellpair from the space.
+ *
+ * @param s The #space from which to get pairs.
+ * @param owner The id of the calling #runner.
+ * @param count The maximum number of #cellpair to return.
+ * @param old A list of #cellpair that have been processed and may be released,
+ *      can also be @c NULL.
+ * @param err A pointer to an integer in which to store the error code.
+ * @param wait A boolean integer specifying if to wait or not if no pairs are
+ *      available.
+ * 
+ * @return A pointer to a linked list of #cellpair. If none were available,
+ *      @c NULL is returned. If an error occurs, @c NULL is returned and
+ *      @c err is set to the respective error code.
+ *
+ * The returned #cellpair are linked through the field @c next. The value
+ * of @c next in the last #cellpair is @c NULL.
+ *
+ * The routine starts by blocking the @c cellpair_mutex of the #space @c s
+ * and searches for available pairs in the #space pair-list until either
+ * @c count pairs have been found or the list has been exhausted.
+ *
+ * For each pair found, the #space @c s counters in @c cells_taboo are
+ * incremented.
+ *
+ * If no pairs are
+ * available and @c wait is not @c 0, the routines waits for a signal on
+ * the #space @c s condition variable @c cellpairs_avail. If @c wait is @c 0
+ * and no #cellpair have been found, the routine returns @c NULL and sets
+ * @c err to @c 0.
+ *
+ * If the last #cellpair has been taken, the routine broadcasts a signal
+ * on the #space @c s condition variable @c cellpairs_avail to release any
+ * other @c runners waiting for pairs.
+ * 
+ */
 
 struct cellpair *space_getpair ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait ) {
 
@@ -352,12 +549,24 @@ struct cellpair *space_getpair ( struct space *s , int owner , int count , struc
     }
 
 
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
-/* int space_init */
-//
-/* initialize the space with the given dimensions. this creates the cells and */
-/* generates the pair list. */
-/*/*//////////////////////////////////////////////////////////////////////////// */ */
+/**
+ * @brief Initialize the space with the given dimensions.
+ *
+ * @param s The #space to initialize.
+ * @param origin Pointer to an array of three doubles specifying the origin
+ *      of the rectangular domain.
+ * @param dim Pointer to an array of three doubles specifying the length
+ *      of the rectangular domain along each dimension.
+ * @param cutoff A double-precision value containing the maximum cutoff lenght
+ *      that will be used in the potentials.
+ * @param period Unsigned integer containing the flags #space_periodic_x,
+ *      #space_periodic_y and/or #space_periodic_z or #space_periodic_full.
+ *
+ * @return #space_err_ok or <0 on error (see #space_err).
+ * 
+ * This routine initializes the fields of the #space @c s, creates the cells and
+ * generates the cell-pair list.
+ */
 
 int space_init ( struct space *s , const double *origin , const double *dim , double cutoff , unsigned int period ) {
 
@@ -527,6 +736,10 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     if ( (s->cells_owner = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )
         return space_err = space_err_malloc;
     bzero( s->cells_owner , sizeof(char) * s->nr_pairs );
+    
+    /* Make the list of celltuples. */
+    if ( space_maketuples( s ) < 0 )
+        return space_err;
     
     /* allocate the initial partlist */
     if ( ( s->partlist = (struct part **)malloc( sizeof(struct part *) * space_partlist_incr ) ) == NULL )

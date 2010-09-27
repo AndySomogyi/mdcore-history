@@ -17,6 +17,9 @@
  * 
  ******************************************************************************/
 
+/* Local includes. */
+#include "fptype.h"
+
 
 /* space error codes */
 #define space_err_ok                    0
@@ -35,78 +38,117 @@
 
 #define space_partlist_incr             100
 
+#define space_maxtuples                 4
+
 
 /* some useful macros */
+/** Converts the index triplet (@c i, @c j, @c k) to the cell id in the
+    #space @c s. */
 #define space_cellid(s,i,j,k)           (  ((i)*(s)->cdim[1] + (j)) * (s)->cdim[2] + (k) )
 
 
-/* the last error */
+/** ID of the last error */
 extern int space_err;
 
 
-/* the space structure */
+/** The space structure */
 struct space {
 
-    /* real dimensions */
+    /** Real dimensions. */
     double dim[3];
     
-    /* location of origin */
+    /** Location of origin. */
     double origin[3];
     
-    /* cell dimensions */
+    /** Space dimension in cells. */
     int cdim[3];
     
-    /* cell dimensions and their inverse */
+    /** Cell edge lengths and their inverse. */
     double h[3], ih[3];
     
-    /* the cutoff and the cutoff squared */
+    /** The cutoff and the cutoff squared. */
     double cutoff, cutoff2;
     
-    /* periodicities */
+    /** Periodicities. */
     unsigned int period;
     
-    /* total nr of cells in this space */
+    /** Total nr of cells in this space. */
     int nr_cells;
     
-    /* the cells spanning the space */
+    /** Array of cells spanning the space. */
     struct cell *cells;
     
-    /* the total number of cell pairs */
+    /** The total number of cell pairs. */
     int nr_pairs;
     
-    /* the cell pairs */
+    /** Array of cell pairs. */
     struct cellpair *pairs;
     
-    /* id of the next pair */
+    /** Id of the next unprocessed pair (for #space_getpair) */
     int next_pair;
     
-    /* the mutex for accessing the cell pairs */
+    /** Array of cell pairs. */
+    struct celltuple *tuples;
+    
+    /** The number of tuples. */
+    int nr_tuples;
+    
+    /** The ID of the next free tuple. */
+    int next_tuple;
+    
+    /** Mutex for accessing the cell pairs. */
     pthread_mutex_t cellpairs_mutex;
+    
+    /** Condition to wait for free cells on. */
     pthread_cond_t cellpairs_avail;
     
-    /* the taboo-list for collision avoidance */
+    /** Taboo-list for collision avoidance */
     char *cells_taboo;
+    
+    /** Id of #runner owning each cell. */
     char *cells_owner;
     
-    /* count the number of swaps in every step */
+    /** Counter for the number of swaps in every step. */
     int nr_swaps, nr_stalls;
     
+    /** Array of pointers to the individual parts, sorted by their ID. */
     struct part **partlist;
+    
+    /** Array of pointers to the #cell of individual parts, sorted by their ID. */
     struct cell **celllist;
+    
+    /** Number of parts in this space and size of the buffers partlist and celllist. */
     int nr_parts, size_parts;
 
     };
     
+    
+/** Struct for each cellpair (see #space_getpair). */
 struct cellpair {
 
-    /* indices of the cells */
+    /** Indices of the cells involved. */
     int i, j;
     
-    /* relative shift */
-    float shift[3];
+    /** Relative shift between cell centres. */
+    FPTYPE shift[3];
     
-    /* pointer to chain pairs together */
+    /** Pointer to chain pairs together. */
     struct cellpair *next;
+    
+    };
+    
+    
+/** Struct for groups of cellpairs. */
+struct celltuple {
+
+    /** IDs of the cells in this tuple. */
+    int cellid[ space_maxtuples ];
+    
+    /** Nr. of cells in this tuple. */
+    int n;
+    
+    /** Cell pairs within this tuple. */
+    unsigned int pairs;
     
     };
 
@@ -118,3 +160,4 @@ int space_releasepair ( struct space *s , struct cellpair *p );
 int space_shuffle ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
 int space_prepare ( struct space *s );
+int space_maketuples ( struct space *s );

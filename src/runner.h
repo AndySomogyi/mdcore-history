@@ -17,6 +17,8 @@
  * 
  ******************************************************************************/
 
+/* Local includes. */
+#include "fptype.h"
 
 /* runner error codes */
 #define runner_err_ok                    0
@@ -27,6 +29,7 @@
 #define runner_err_engine                -5
 #define runner_err_spe                   -6
 #define runner_err_mfc                   -7
+#define runner_err_unavail               -8
 
 
 /* some constants */
@@ -97,5 +100,5 @@ struct runner {
 /* associated functions */
 int runner_init ( struct runner *r , struct engine *e , int id );
 int runner_run ( struct runner *r );
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , float *shift );
-int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , float *shift );
+int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
+int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );

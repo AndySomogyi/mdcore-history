@@ -25,42 +25,55 @@
 #include <float.h>
 
 /* include local headers */
+#include "fptype.h"
 #include "potential.h"
 
 
-/* the last error */
+/** The last error */
 int potential_err = potential_err_ok;
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* void potential_eval_expl */
-//
-/* evaluates the given potential at the given point. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Evaluates the given potential at the given radius explicitly.
+ * 
+ * @param p The #potential to be evaluated.
+ * @param r2 The radius squared.
+ * @param e A pointer to a floating point value in which to store the
+ *      interaction energy.
+ * @param f A pointer to a floating point value in which to store the
+ *      magnitude of the interaction force
+ *
+ * Assumes that the parameters for the potential forms given in the value
+ * @c flags of the #potential @c p are stored in the array @c alpha of
+ * @c p.
+ *
+ * This way of evaluating a potential is not extremely efficient and is
+ * intended for comparison and debugging purposes.
+ *
+ * Note that for performance reasons, this function does not check its input
+ * arguments for @c NULL.
+ */
 
-#ifdef USE_SINGLE
-/* inline */ void potential_eval_expl ( struct potential *p , float r2 , float *e , float *f ) {
+void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
 
-    const float isqrtpi = 0.56418958354775628695;
-    const float kappa = 3.0;
-    double r = sqrt(r2), ir = 1.0 / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
+    const FPTYPE isqrtpi = 0.56418958354775628695;
+    const FPTYPE kappa = 3.0;
+    FPTYPE r = sqrt(r2), ir = 1.0 / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
+    FPTYPE ee = 0.0, eff = 0.0;
 
-    /* init f and e */
-    *e = 0.0; *f = 0.0;
-
-    /* do we have a Lennard-Jones interaction? */
+    /* Do we have a Lennard-Jones interaction? */
     if ( p->flags & potential_flag_LJ126 ) {
     
         /* init some variables */
         ir4 = ir2 * ir2; ir6 = ir4 * ir2; ir12 = ir6 * ir6;
         
         /* compute the energy and the force */
-        *e = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
-        *f = 6.0 * ir * ( -2.0 * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
+        ee = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
+        eff = 6.0 * ir * ( -2.0 * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
     
         }
         
-    /* do we have an Ewald short-range part? */
+    /* Do we have an Ewald short-range part? */
     if ( p->flags & potential_flag_Ewald ) {
     
         /* get some values we will re-use */
@@ -68,12 +81,12 @@ int potential_err = potential_err_ok;
         t1 = erfc( t2 );
     
         /* compute the energy and the force */
-        *e += p->alpha[2] * t1 * ir;
-        *f += p->alpha[2] * ( -2.0 * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
+        ee += p->alpha[2] * t1 * ir;
+        eff += p->alpha[2] * ( -2.0 * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
     
         }
     
-    /* do we have a Coulomb interaction? */
+    /* Do we have a Coulomb interaction? */
     if ( p->flags & potential_flag_Coulomb ) {
     
         /* get some values we will re-use */
@@ -81,69 +94,24 @@ int potential_err = potential_err_ok;
         t1 = erfc( t2 );
     
         /* compute the energy and the force */
-        *e += p->alpha[2] * ir;
-        *f += -p->alpha[2] * ir2;
+        ee += p->alpha[2] * ir;
+        eff += -p->alpha[2] * ir2;
     
         }
     
     }
-#else
-/* inline */ void potential_eval_expl ( struct potential *p , double r2 , double *e , double *f ) {
-
-    const double isqrtpi = 0.56418958354775628695;
-    const double kappa = 3.0;
-    double r = sqrt(r2), ir = 1.0 / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
-
-    /* init f and e */
-    *e = 0.0; *f = 0.0;
-
-    /* do we have a Lennard-Jones interaction? */
-    if ( p->flags & potential_flag_LJ126 ) {
-    
-        /* init some variables */
-        ir4 = ir2 * ir2; ir6 = ir4 * ir2; ir12 = ir6 * ir6;
-        
-        /* compute the energy and the force */
-        *e = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
-        *f = 6.0 * ir * ( -2.0 * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
-    
-        }
-        
-    /* do we have an Ewald short-range part? */
-    if ( p->flags & potential_flag_Ewald ) {
-    
-        /* get some values we will re-use */
-        t2 = r * kappa;
-        t1 = erfc( t2 );
-    
-        /* compute the energy and the force */
-        *e += p->alpha[2] * t1 * ir;
-        *f += p->alpha[2] * ( -2.0 * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
-    
-        }
-    
-    /* do we have a Coulomb interaction? */
-    if ( p->flags & potential_flag_Coulomb ) {
-    
-        /* get some values we will re-use */
-        t2 = r * kappa;
-        t1 = erfc( t2 );
-    
-        /* compute the energy and the force */
-        *e += p->alpha[2] * ir;
-        *f += -p->alpha[2] * ir2;
-    
-        }
-    
-    }
-#endif
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* double potential_LJ126 */
-//
-/* provide some basic functions over r^2 and r to construct potentials */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief A basic 12-6 Lennard-Jones potential.
+ *
+ * @param r The interaction radius.
+ * @param A First parameter of the potential.
+ * @param B Second parameter of the potential.
+ *
+ * @return The potential @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$
+ *      evaluated at @c r.
+ */
 
 inline double potential_LJ126 ( double r , double A , double B ) {
 
@@ -153,6 +121,18 @@ inline double potential_LJ126 ( double r , double A , double B ) {
 
     }
     
+/**
+ * @brief A basic 12-6 Lennard-Jones potential (first derivative).
+ *
+ * @param r The interaction radius.
+ * @param A First parameter of the potential.
+ * @param B Second parameter of the potential.
+ *
+ * @return The first derivative of the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$
+ *      evaluated at @c r.
+ */
+
 inline double potential_LJ126_p ( double r , double A , double B ) {
 
     double ir = 1.0/r, ir2 = ir * ir, ir4 = ir2*ir2, ir12 = ir4 * ir4 * ir4;
@@ -161,6 +141,18 @@ inline double potential_LJ126_p ( double r , double A , double B ) {
 
     }
     
+/**
+ * @brief A basic 12-6 Lennard-Jones potential (sixth derivative).
+ *
+ * @param r The interaction radius.
+ * @param A First parameter of the potential.
+ * @param B Second parameter of the potential.
+ *
+ * @return The sixth derivative of the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$
+ *      evaluated at @c r.
+ */
+
 inline double potential_LJ126_6p ( double r , double A , double B ) {
 
     double r2 = r * r, ir2 = 1.0 / r2, ir6 = ir2*ir2*ir2, ir12 = ir6 * ir6;
@@ -169,108 +161,32 @@ inline double potential_LJ126_6p ( double r , double A , double B ) {
         
     }
     
-double potential_LJ126_r2 ( double r2 , double A , double B ) {
+/**
+ * @brief The short-range part of an Ewald summation.
+ *
+ * @param r The interaction radius.
+ * @param kappa The screening length of the Ewald summation.
+ *
+ * @return The potential @f$ \frac{\mbox{erfc}( \kappa r )}{r} @f$
+ *      evaluated at @c r.
+ */
 
-    double ir2 = 1.0/r2, ir6 = ir2*ir2*ir2, ir12 = ir6 * ir6;
-
-    return ( A * ir12 - B * ir6 );
-
-    }
-    
-double potential_LJ126_r2_p ( double r2 , double A , double B ) {
-
-    double ir2 = 1.0/r2, ir4 = ir2*ir2, ir12 = ir4 * ir4 * ir4;
-
-    return 3 * ( -2 * A * ir12 * ir2 + B * ir4 * ir4 );
-
-    }
-    
-double potential_LJ126_r2_6p ( double r2 , double A , double B ) {
-
-    double ir2 = 1.0 / r2, ir6 = ir2*ir2*ir2, ir12 = ir6 * ir6;
-
-    return 10080 * ( 33 * A * ir12 * ir12 - 2 * B * ir12 * ir6 );
-        
-    }
-    
-double potential_LJn6_r2 ( double r2 , int n , double eps , double sigma ) {
-
-    double ir = 1.0 / sqrt(r2), ir2 = 1.0/r2, ir6 = ir2*ir2*ir2;
-    double sigma2 = sigma * sigma, sigma6 = sigma2 * sigma2 * sigma2;
-
-    return eps * (n / (n - 6)) * pow( n/6 , 6 / (n-6) ) *
-        ( pow( sigma * ir , n ) - sigma6 * ir6 );
-
-    }
-    
-double potential_LJn6_r2_p ( double r2 , int n , double eps , double sigma ) {
-
-    double ir = 1.0 / sqrt(r2), ir2 = 1.0/r2, ir4 = ir2*ir2;
-    double sigma2 = sigma * sigma, sigma6 = sigma2 * sigma2 * sigma2;
-
-    return eps * (n / (n - 6)) * pow( n/6 , 6 / (n-6) ) *
-        ( -0.5 * n * pow( sigma * ir , n ) * ir2 - 3 * sigma6 * ir4 * ir4 );
-
-    }
-    
-double potential_LJn6_r2_6p ( double r2 , int n , double eps , double sigma ) {
-
-    double t38, t50, t49, t48, t40, t2, t4, t5, t6, t12, t16;
-    double t21, t25, t27, t32, t36, t41, t47, t51;
-
-    t38 = 1/(n-6.0);
-    t50 = 6.0*t38;
-    t49 = 2.0*t38;
-    t48 = n*t38;
-    t40 = r2*r2;
-    t2 = pow(46656.0,-1.0*t38);
-    t4 = pow(n,1.0*t50);
-    t5 = sigma*sigma;
-    t6 = t5*t5;
-    t12 = pow(n,1.0*(-5.0+n)*t50);
-    t16 = pow(n,1.0*(-24.0+5.0*n)*t38);
-    t21 = pow(n,3.0*(-4.0+n)*t38);
-    t25 = pow(n,1.0*(-3.0+n)*t49);
-    t27 = pow(n,1.0*t48);
-    t32 = pow(n,1.0*(-9.0+2.0*n)*t49);
-    t36 = sqrt(r2);
-    t41 = pow(sigma/t36,1.0*n);
-    t47 = t40*t40;
-    t51 = t47*t47;
-    
-    return eps*t2*(-1290240.0*t4*t6*t5+(t12+30.0*t16+1800.0*t21+4384.0*t25+
-        3840.0*t27+340.0*t32)*r2*t40*t41)/r2/t51*t48/64.0;
-        
-    }
-    
-double potential_Coulomb_r2 ( double r2 ) {
-
-    return 1.0 / sqrt(r2);
-
-    }
-    
-double potential_Coulomb_r2_p ( double r2 ) {
-
-    double ir2 = 1.0 / r2;
-
-    return 0.5 * ir2 * sqrt(ir2);
-
-    }
-    
-double potential_Coulomb_r2_6p ( double r2 ) {
-
-    double ir2 = 1.0 / r2, ir6 = ir2 * ir2 * ir2;
-
-    return 162.421875 * ir6 * sqrt(ir2);
-
-    }
-    
 inline double potential_Ewald ( double r , double kappa ) {
 
     return erfc( kappa * r ) / r;
 
     }
     
+/**
+ * @brief The short-range part of an Ewald summation (first derivative).
+ *
+ * @param r The interaction radius.
+ * @param kappa The screening length of the Ewald summation.
+ *
+ * @return The first derivative of the potential @f$ \frac{\mbox{erfc}( \kappa r )}{r} @f$
+ *      evaluated at @c r.
+ */
+
 inline double potential_Ewald_p ( double r , double kappa ) {
 
     double r2 = r * r, ir = 1.0 / r, ir2 = ir * ir;
@@ -281,6 +197,16 @@ inline double potential_Ewald_p ( double r , double kappa ) {
 
     }
     
+/**
+ * @brief The short-range part of an Ewald summation (sixth derivative).
+ *
+ * @param r The interaction radius.
+ * @param kappa The screening length of the Ewald summation.
+ *
+ * @return The sixth derivative of the potential @f$ \frac{\mbox{erfc}( \kappa r )}{r} @f$
+ *      evaluated at @c r.
+ */
+
 inline double potential_Ewald_6p ( double r , double kappa ) {
 
     double r2 = r*r, ir2 = 1.0 / r2, r4 = r2*r2, ir4 = ir2*ir2, ir6 = ir2*ir4;
@@ -293,83 +219,34 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
     return 720.0*t6/r*ir6+(1440.0*ir6+(960.0*ir4+(384.0*ir2+(144.0+(-128.0*r2+64.0*kappa2*r4)*kappa2)*kappa2)*kappa2)*kappa2)*kappa*isqrtpi*t23;
     
     }
-    
-double potential_Ewald_r2 ( double r2 , double kappa ) {
+        
 
-    double r = sqrt(r2);
+/** 
+ * @brief Evaluates the given potential at the given point (interpolated).
+ *
+ * @param p The #potential to be evaluated.
+ * @param r2 The radius at which it is to be evaluated, squared.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ */
 
-    return erfc( kappa * r ) / r;
-
-    }
-    
-double potential_Ewald_r2_p ( double r2 , double kappa ) {
-
-    double r = sqrt(r2), ir2 = 1.0 / r2;
-    const double isqrtpi = 0.56418958354775628695;
-
-    return -exp( -kappa*kappa * r2 ) * kappa * ir2 * isqrtpi -
-        0.5 * erfc( kappa * r ) * ir2 / r;
-
-    }
-    
-double potential_Ewald_r2_6p ( double r2 , double kappa ) {
-
-    double r = sqrt(r2), ir2 = 1.0 / r2, r4 = r2*r2, r6 = r2*r4, r8 = r4*r4, r12 = r6*r6;
-    double kappa2 = kappa*kappa, kappa3 = kappa*kappa2, kappa5 = kappa2*kappa3;
-    double t2, t15, t40;
-    const double isqrtpi = 0.56418958354775628695;
-
-    t2 = erfc(kappa*r);
-    t15 = 1.0/r8;
-    t40 = exp(-kappa2*r2);
-    return 10395.0/64.0*t2/r4/r*t15+(10395.0/32.0*kappa/r12+(693.0/8.0*kappa5+3465.0/16.0*kappa3*ir2)*t15+(99.0/4.0/r6+(kappa2*ir2+11.0/2.0/r4)*kappa2)*kappa2*kappa5)*t40*isqrtpi;
-
-    }
-    
-    
-
-/*////////////////////////////////////////////////////////////////////////////// */
-/* void potential_eval */
-//
-/* evaluates the given potential at the given point. */
-/*////////////////////////////////////////////////////////////////////////////// */
-
-#ifdef USE_SINGLE
-/* inline */ void potential_eval ( struct potential *p , float r2 , float *e , float *f ) {
+void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
 
     int ind, k;
-    float x, ee, eff, c[potential_degree+1], r = sqrt(r2);
+    FPTYPE x, ee, eff, *c, r = sqrt(r2);
     
-    /* is r in the house? */
-    /* if ( r < p->a || r > p->b ) */
-    /*     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
-    
-    /* compute the index */
-    ind = p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]);
-    
-    /* adjust x to the interval */
-    x = (r - p->mi[ind]) * p->hi[ind];
-    
-    /* get the table offset */
-    for ( k = 0 ; k <= potential_degree ; k++ )
-        c[k] = p->c[ind * (potential_degree + 1) + k];
-    
-    /* compute the potential and its derivative */
-    ee = c[0] * x + c[1];
-    eff = c[0];
-    for ( k = 2 ; k <= potential_degree ; k++ ) {
-        eff = eff * x + ee;
-        ee = ee * x + c[k];
-        }
-
-    /* store the result */
-    *e = ee; *f = eff * p->hi[ind];    
-    }
-#else    
-/* inline */ void potential_eval ( struct potential *p , double r2 , double *e , double *f ) {
-
-    int ind, k;
-    double x, ee, eff, *c, r = sqrt(r2);
+    /* Get r for the right type. */
+    #ifdef FPTYPE_SINGLE
+        r = sqrtf(r2);
+    #else
+        r = sqrt(r2);
+    #endif
     
     /* is r in the house? */
     /* if ( r < p->a || r > p->b ) */
@@ -393,17 +270,26 @@ double potential_Ewald_r2_6p ( double r2 , double kappa ) {
         }
 
     /* store the result */
-    *e = ee; *f = eff * p->hi[ind];    
+    *e = ee; *f = eff * p->hi[ind];
+        
     }
-#endif
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* struct potential *potential_create_Ewald */
-//
-/* creates a potential structure representing an Ewald real-space potential with the */
-/* charge product q and the screening distance kappa in the interval [a,b] */
-/* to the specified tolerance tol. */
-/*////////////////////////////////////////////////////////////////////////////// */
+
+/**
+ * @brief Creates a #potential representing the real-space part of an Ewald 
+ *      potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param q The charge scaling of the potential.
+ * @param kappa The screening distance of the Ewald potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ q\frac{\mbox{erfc}(\kappa r}{r} @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
 
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol ) {
 
@@ -440,16 +326,26 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
     }
     
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* struct potential *potential_createLJ126_Ewald */
-//
-/* creates a potential structure representing a Lennard-Jones 12-6 interaction */
-/* with the parameters A and B and an Ewald real-space potential with the */
-/* charge product q and the screening distance kappa in the interval [a,b] */
-/* to the specified tolerance tol. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Creates a #potential representing the sum of a
+ *      12-6 Lennard-Jones potential and the real-space part of an Ewald 
+ *      potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param q The charge scaling of the potential.
+ * @param kappa The screening distance of the Ewald potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
 
-struct potential *potential_createLJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol ) {
+struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol ) {
 
     struct potential *p;
     
@@ -487,15 +383,23 @@ struct potential *potential_createLJ126_Ewald ( double a , double b , double A ,
     }
     
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* struct potential *potential_createLJ126 */
-//
-/* creates a potential structure representing a Lennard-Jones 12-6 interaction */
-/* with the parameters A and B in the interval [a,b] to the specified tolerance */
-/* tol. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Creates a #potential representing a 12-6 Lennard-Jones potential
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ *
+ */
 
-struct potential *potential_createLJ126 ( double a , double b , double A , double B , double tol ) {
+struct potential *potential_create_LJ126 ( double a , double b , double A , double B , double tol ) {
 
     struct potential *p;
     
@@ -541,28 +445,45 @@ struct potential *potential_createLJ126 ( double a , double b , double A , doubl
     }
     
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int potential_init */
-//
-/* initialize the potential with the given function 'f', its derivative 'fp' */
-/* and it's 6th derivative 'f6p' to the absolute tolerance 'tol' in the */
-/* interval [a,b]. the optimal number of intervals and mapping is chosen */
-/* automatically. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Construct a #potential from the given function.
+ *
+ * @param p A pointer to an empty #potential.
+ * @param f A pointer to the potential function to be interpolated.
+ * @param fp A pointer to the first derivative of @c f.
+ * @param f6p A pointer to the sixth derivative of @c f.
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param tol The absolute tolerance to which the interpolation should match
+ *      the exact potential.
+ *
+ * @return #potential_err_ok or <0 on error (see #potential_err).
+ *
+ * Computes an interpolated potential function from @c f in @c [a,b] to the
+ * absolute tolerance @c tol.
+ *
+ * The sixth derivative @c f6p is used to compute the optimal node
+ * distribution. If @c f6p is @c NULL, the derivative is approximated
+ * numerically.
+ */
 
-int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , double a , double b , double tol ) {
+int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol ) {
 
-    double alpha, w;
+    FPTYPE alpha, w;
     int l = potential_ivalsmin, r = potential_ivalsmax, m;
-    double err_l, err_r, err_m;
-    double *xi_l, *xi_r, *xi_m;
-    double *c_l, *c_r, *c_m;
+    FPTYPE err_l, err_r, err_m;
+    FPTYPE *xi_l, *xi_r, *xi_m;
+    FPTYPE *c_l, *c_r, *c_m;
     int i, k;
-    double e;
+    FPTYPE e;
 
     /* check inputs */
-    if ( p == NULL || f == NULL || fp == NULL || f6p == NULL )
+    if ( p == NULL || f == NULL || fp == NULL )
         return potential_err = potential_err_null;
+        
+    /* check if we have a user-specified 6th derivative or not. */
+    if ( f6p == NULL )
+        return potential_err = potential_err_nyi;
         
     /* set the boundaries */
     p->a = a; p->b = b;
@@ -579,11 +500,11 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     
     /* compute the smallest interpolation... */
     /* printf("potential_init: trying l=%i...\n",l); fflush(stdout); */
-    xi_l = (double *)malloc( sizeof(double) * (l + 1) );
-    c_l = (double *)malloc( sizeof(double) * l * (potential_degree+1) );
+    xi_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l + 1) );
+    c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * l * (potential_degree+1) );
     for ( i = 0 ; i <= l ; i++ ) {
         xi_l[i] = a + (b - a) * i / l;
-        while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > 3 * l * DBL_EPSILON )
+        while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > 3 * l * FPTYPE_EPSILON )
             xi_l[i] += e / (l * (p->alpha[1] + 2*xi_l[i]*p->alpha[2]));
         }
     if ( potential_getcoeffs(f,fp,xi_l,l,c_l,&err_l) < 0 )
@@ -595,8 +516,8 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         p->n = l;
         p->c = c_l;
         p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
-        p->mi = (double *)malloc( sizeof(double) * l );
-        p->hi = (double *)malloc( sizeof(double) * l );
+        p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * l );
+        p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * l );
         for ( k = 0 ; k < l ; k++ ) {
             p->mi[k] = 0.5 * (xi_l[k] + xi_l[k+1]);
             p->hi[k] = 2.0 / (xi_l[k+1] - xi_l[k]);
@@ -610,11 +531,11 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     
         /* compute the larger interpolation... */
         /* printf("potential_init: trying r=%i...\n",r); fflush(stdout); */
-        xi_r = (double *)malloc( sizeof(double) * (r + 1) );
-        c_r = (double *)malloc( sizeof(double) * r * (potential_degree+1) );
+        xi_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r + 1) );
+        c_r = (FPTYPE *)malloc( sizeof(FPTYPE) * r * (potential_degree+1) );
         for ( i = 0 ; i <= r ; i++ ) {
             xi_r[i] = a + (b - a) * i / r;
-            while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > 3 * r * DBL_EPSILON )
+            while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > 3 * r * FPTYPE_EPSILON )
                 xi_r[i] += e / (r * (p->alpha[1] + 2*xi_r[i]*p->alpha[2]));
             }
         if ( potential_getcoeffs(f,fp,xi_r,r,c_r,&err_r) < 0 )
@@ -643,11 +564,11 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         
         /* construct that interpolation */
         /* printf("potential_init: trying m=%i...\n",m); fflush(stdout); */
-        xi_m = (double *)malloc( sizeof(double) * (m + 1) );
-        c_m = (double *)malloc( sizeof(double) * m * (potential_degree+1) );
+        xi_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m + 1) );
+        c_m = (FPTYPE *)malloc( sizeof(FPTYPE) * m * (potential_degree+1) );
         for ( i = 0 ; i <= m ; i++ ) {
             xi_m[i] = a + (b - a) * i / m;
-            while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > 3 * m * DBL_EPSILON )
+            while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > 3 * m * FPTYPE_EPSILON )
                 xi_m[i] += e / (m * (p->alpha[1] + 2*xi_m[i]*p->alpha[2]));
             }
         if ( potential_getcoeffs(f,fp,xi_m,m,c_m,&err_m) < 0 )
@@ -675,8 +596,8 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->n = r;
     p->c = c_r;
     p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
-    p->mi = (double *)malloc( sizeof(double) * r );
-    p->hi = (double *)malloc( sizeof(double) * r );
+    p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * r );
+    p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * r );
     for ( k = 0 ; k < r ; k++ ) {
         p->mi[k] = 0.5 * (xi_r[k] + xi_r[k+1]);
         p->hi[k] = 2.0 / (xi_r[k+1] - xi_r[k]);
@@ -690,20 +611,35 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     }
     
     
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int potential_getcoeffs */
-//
-/* compute the coefficients of the function 'f' with derivative 'fp' */
-/* over the 'n' intervals between the 'xi' and store an estimate of the */
-/* maximum absolute interpolation error in 'err'. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Compute the interpolation coefficients over a given set of nodes.
+ * 
+ * @param f Pointer to the function to be interpolated.
+ * @param fp Pointer to the first derivative of @c f.
+ * @param xi Pointer to an array of nodes between whicht the function @c f
+ *      will be interpolated.
+ * @param n Number of nodes in @c xi.
+ * @param c Pointer to an array in which to store the interpolation
+ *      coefficients.
+ * @param err Pointer to a floating-point value in which an approximation of
+ *      the interpolation error is stored.
+ *
+ * @return #potential_err_ok or < 0 on error (see #potential_err).
+ *
+ * Compute the coefficients of the function @c f with derivative @c fp
+ * over the @c n intervals between the @c xi and store an estimate of the
+ * maximum absolute interpolation error in @c err.
+ *
+ * The array to which @c c points must be large enough to hold at least
+ * #potential_degree x @c n values of type #FPTYPE.
+ */
 
-int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , double *xi , int n , double *c , double *err ) {
+int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYPE *xi , int n , FPTYPE *c , FPTYPE *err ) {
 
     int i, j, k, ind;
-    double phi[7], cee[6], fa, fb, dfa, dfb;
-    double h, m, w, e, x;
-    double fx[potential_N];
+    FPTYPE phi[7], cee[6], fa, fb, dfa, dfb;
+    FPTYPE h, m, w, e, x;
+    FPTYPE fx[potential_N];
 
     /* check input sanity */
     if ( f == NULL || fp == NULL || xi == NULL || err == NULL )
@@ -785,13 +721,20 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , doubl
     }
     
     
-/*////////////////////////////////////////////////////////////////////////////// */
-/* double potential_getastar */
-//
-/* compute the optimal mapping i = floor( n*(alpha x + (1-alpha )x^2 )) for */
-/* the given function (i.e. its sixth derivative). */
-/*////////////////////////////////////////////////////////////////////////////// */
-
+/**
+ * @brief Compute the parameter @f$\alpha@f$ for the optimal node distribution.
+ *
+ * @param f6p Pointer to a function representing the 6th derivative of the
+ *      interpoland.
+ * @param a Left limit of the interpolation.
+ * @param b Right limit of the interpolation.
+ *
+ * @return The computed value for @f$\alpha@f$.
+ *
+ * The value @f$\alpha@f$ is computed using Brent's algortihm to 4 decimal
+ * digits.
+ */
+ 
 double potential_getalpha ( double (*f6p)( double ) , double a , double b ) {
 
     double xi[potential_N], fx[potential_N];

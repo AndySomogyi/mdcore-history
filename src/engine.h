@@ -18,6 +18,10 @@
  ******************************************************************************/
 
 
+/* Local includes. */
+#include "fptype.h"
+
+
 /* engine error codes */
 #define engine_err_ok                    0
 #define engine_err_null                  -1
@@ -30,43 +34,45 @@
 /* some constants */
 
 
-/* the last error */
+/** ID of the last error. */
 extern int engine_err;
 
 
-/* the engine structure */
+/** The #engine structure. */
 struct engine {
 
-    /* the space on which to work */
+    /** The space on which to work */
     struct space s;
     
-    /* time variables */
+    /** Time variables */
     int time;
     double dt;
     
-    /* what is the maximum nr of types? */
+    /** What is the maximum nr of types? */
     int max_type;
+    
+    /** The particle types. */
     struct part_type *types;
     
-    /* the interaction matrix */
+    /** The interaction matrix */
     struct potential **p;
     
-    /* mutexes, conditions and counters for the barrier */
+    /** Mutexes, conditions and counters for the barrier */
 	pthread_mutex_t barrier_mutex;
 	pthread_cond_t barrier_cond;
 	pthread_cond_t done_cond;
     int barrier_count;
     
-    /* nr of runners */
+    /** Nr of runners */
     int nr_runners;
     
-    /* the runners */
+    /** The runners */
     struct runner *runners;
     
-    /* the data buffers */
-    double *xbuff, *vbuff, *fbuff;
+    /** The data buffers */
+    FPTYPE *xbuff, *vbuff, *fbuff;
     
-    /* data for the improved pair search */
+    /** Data for the improved pair search */
     char *M;
     int *nneigh, *cellpairs, *cell_count, *runner_count;
     int *owner, *owns, nr_pairs;
