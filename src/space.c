@@ -45,7 +45,7 @@ int space_err = space_err_ok;
 int space_maketuples ( struct space *s ) {
 
     int size, *w, w_max;
-    int i, j, k, newid;
+    int i, j, k;
     struct celltuple *t;
     struct cellpair *p, temppair;
     
@@ -60,7 +60,7 @@ int space_maketuples ( struct space *s ) {
     s->nr_tuples = 0;
         
     /* Allocate the vector w. */
-    if ( ( w = (int *)alloca( sizeof(int) * s->nr_pairs ) ) == NULL )
+    if ( ( w = (int *)alloca( sizeof(int) * s->nr_cells ) ) == NULL )
         return space_err = space_err_malloc;
     s->next_pair = 0;
         
@@ -92,61 +92,80 @@ int space_maketuples ( struct space *s ) {
         printf("space_maketuples: starting tuple %i with pair [%i,%i].\n",
             s->nr_tuples-1 , p->i , p->j );
             
-        /* Fill the weights for the remaining pairs. */
-        w_max = s->next_pair;
+        /* Fill the weights for the cells. */
+        bzero( w , sizeof(int) * s->nr_cells );
+        for ( k = 0 ; k < t->n ; k++ )
+            w[ t->cellid[k] ] = -1;
         for ( k = s->next_pair ; k < s->nr_pairs ; k++ ) {
-            w[k] = 0;
             for ( i = 0 ; i < t->n ; i++ ) {
-                if ( s->pairs[k].i == t->cellid[i] )
-                    w[k] += 1;
-                if ( s->pairs[k].j == t->cellid[i] )
-                    w[k] += 1;
+                if ( s->pairs[k].i == t->cellid[i] && w[ s->pairs[k].j ] >= 0 )
+                    w[ s->pairs[k].j ] += 1;
+                if ( s->pairs[k].j == t->cellid[i] && w[ s->pairs[k].i ] >= 0 )
+                    w[ s->pairs[k].i ] += 1;
                 }
-            if ( w[w_max] < w[k] )
-                w_max = k;
             }
             
-        /* While there is still room in this tuple... */
-        while ( t->n < space_maxtuples && s->next_pair < s->nr_pairs ) {
-        
-            /* If there are no pairs that will add to this tuple, bail. */
-            if ( w[w_max] == 0 )
-                break;
-                
-            /* Add this pair to the tuple. */
-            p = &( s->pairs[ w_max ] );
-            newid = -1;
-            for ( j = 0 ; j < t->n && t->cellid[j] != p->i ; j++ )
-            if ( j == t->n )
-                newid = t->cellid[ t->n++ ] = p->i;
-            for ( k = 0 ; k < t->n && t->cellid[k] != p->j ; k++ )
-            if ( k == t->n )
-                newid = t->cellid[ t->n++ ] = p->j;
-            t->pairs |= ( 1 << ( k * space_maxtuples + j ) ) | ( 1 << ( j * space_maxtuples + k ) );
-            printf("space_maketuples: adding pair [%i,%i] to tuple %i (w[%i]=%i).\n",
-                p->i, p->j, s->nr_tuples-1 , w_max , w[w_max] );
+        /* Find the cell with the maximum weight. */
+        w_max = 0;
+        for ( k = 1 ; k < s->nr_cells ; k++ )
+            if ( w[k] > w[w_max] )
+                w_max = k;
             
-            /* If this pair was not at the top of the list, swap it there. */
-            if ( w_max != s->next_pair ) {
-                temppair = s->pairs[ s->next_pair ];
-                s->pairs[ s->next_pair ] = s->pairs[ w_max ];
-                s->pairs[ w_max ] = temppair;
-                }
+        /* While there is still another cell that can be added... */
+        while ( w[w_max] > 0 && t->n < space_maxtuples && s->next_pair < s->nr_pairs ) {
+        
+            printf("space_maketuples: adding cell %i to tuple %i (w[%i]=%i).\n",
+                w_max, s->nr_tuples-1, w_max, w[w_max] );
+            
+            /* Add this cell to the tuple. */
+            t->cellid[ t->n++ ] = w_max;
+        
+            /* Look for pairs that contain w_max and someone from the tuple. */
+            for ( k = s->next_pair ; k < s->nr_pairs ; k++ ) {
+            
+                /* Get this pair. */
+                p = &( s->pairs[ k ] );
                 
-            /* Move the next_pair pointer. */
-            s->next_pair += 1;
+                /* Get the tuple indices of the cells in this pair. */
+                for ( i = 0 ; i < t->n && t->cellid[i] != p->i ; i++ );
+                for ( j = 0 ; j < t->n && t->cellid[j] != p->j ; j++ );
+                
+                /* If this pair is not in the tuple, skip it. */
+                if ( i == t->n || j == t->n )
+                    continue;
+
+                /* Add this pair to the tuple. */
+                t->pairs |= ( 1 << ( i * space_maxtuples + j ) ) | ( 1 << ( j * space_maxtuples + i ) );
+                printf("space_maketuples: adding pair [%i,%i] to tuple %i (w[%i]=%i).\n",
+                    p->i, p->j, s->nr_tuples-1 , w_max , w[w_max] );
+
+                /* If this pair was not at the top of the list, swap it there. */
+                if ( k != s->next_pair ) {
+                    temppair = s->pairs[ s->next_pair ];
+                    s->pairs[ s->next_pair ] = s->pairs[ k ];
+                    s->pairs[ k ] = temppair;
+                    }
+
+                /* Move the next_pair pointer. */
+                s->next_pair += 1;
+                
+                }
             
             /* Update the weights and get the ID of the new max. */
-            w_max = s->next_pair;
+            w[ w_max ] = -1;
             for ( k = s->next_pair ; k < s->nr_pairs ; k++ ) {
-                if ( s->pairs[k].i == newid )
-                    w[k] += 1;
-                if ( s->pairs[k].j == newid )
-                    w[k] += 1;
-                if ( w[k] > w[w_max] )
-                    w_max = k;
+                if ( s->pairs[k].i == w_max && w[ s->pairs[k].j ] >= 0 )
+                    w[ s->pairs[k].j ] += 1;
+                if ( s->pairs[k].j == w_max && w[ s->pairs[k].i ] >= 0 )
+                    w[ s->pairs[k].i ] += 1;
                 }
         
+            /* Find the cell with the maximum weight. */
+            w_max = 0;
+            for ( k = 1 ; k < s->nr_cells ; k++ )
+                if ( w[k] > w[w_max] )
+                    w_max = k;
+            
             }
     
         }
@@ -367,25 +386,22 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
 
 int space_releasepair ( struct space *s , struct cellpair *p ) {
 
-    /* try to get a hold of the cells mutex */
-	if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
-        return space_err_pthread;
-        
-    /* release the given pair */
-    s->cells_taboo[ p->i ] -= 1;
-    s->cells_taboo[ p->j ] -= 1;
+    int count = 0;
+
+    /* release the cells in the given pair */
+    count += ( --(s->cells_taboo[ p->i ]) == 0 );
+    count += ( --(s->cells_taboo[ p->j ]) == 0 );
     
     /* send a strong signal to anybody waiting on pairs... */
-    if ( s->cells_taboo[ p->i ] == 0 )
-        if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+    if ( count ) {
+	    if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
             return space_err_pthread;
-    if ( p->i != p->j && s->cells_taboo[ p->j ] == 0 )
-        if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+        while ( count-- )
+            if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+                return space_err_pthread;
+	    if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
             return space_err_pthread;
-    
-    /* let go of the cells mutex */
-	if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
-        return space_err_pthread;
+        }
     
     /* all is well... */
     return space_err_ok;
