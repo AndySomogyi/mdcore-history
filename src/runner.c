@@ -629,7 +629,7 @@ int runner_run ( struct runner *r ) {
 
     /* check the inputs */
     if ( r == NULL )
-        return runner_err = runner_err_ok;
+        return runner_err = runner_err_null;
         
     /* give a hoot */
     printf("runner_run: runner %i is up and running...\n",r->id); fflush(stdout);
@@ -661,7 +661,7 @@ int runner_run ( struct runner *r ) {
                         return runner_err;
 
                 /* release this pair */
-                if ( space_releasepair( &(r->e->s) , finger ) < 0 )
+                if ( space_releasepair( &(r->e->s) , finger->i , finger->j ) < 0 )
                     return runner_err_space;
 
                 }
@@ -676,6 +676,113 @@ int runner_run ( struct runner *r ) {
         if ( err < 0 )
             return runner_err = runner_err_space;
     
+        }
+
+    /* end well... */
+    return runner_err_ok;
+
+    }
+
+    
+/**
+ * @brief The #runner's main routine (#celltuple model).
+ *
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having passed, calls #space_gettuple until there are no
+ * tuples available.
+ */
+
+int runner_run_tuples ( struct runner *r ) {
+
+    int res, i, j, k, ci, cj;
+    struct celltuple t;
+    FPTYPE shift[3];
+    struct space *s;
+    struct engine *e;
+
+    /* check the inputs */
+    if ( r == NULL )
+        return runner_err = runner_err_null;
+        
+    /* Remember who the engine and the space are. */
+    e = r->e;
+    s = &(r->e->s);
+        
+    /* give a hoot */
+    printf("runner_run: runner %i is up and running (tuples)...\n",r->id); fflush(stdout);
+    
+    /* main loop, in which the runner should stay forever... */
+    while ( 1 ) {
+    
+        /* wait at the engine barrier */
+        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
+        if ( engine_barrier(e) < 0 )
+            return r->err = runner_err_engine;
+                        
+        /* Loop over tuples. */
+        while ( 1 ) {
+        
+            /* Get a tuple. */
+            if ( ( res = space_gettuple( s , r->id , &t ) ) < 0 )
+                return r->err = runner_err_space;
+                
+            /* If there were no tuples left, bail. */
+            if ( res < 1 )
+                break;
+                
+            /* Loop over all pairs in this tuple. */
+            for ( i = 0 ; i < t.n ; i++ ) { 
+                        
+                /* Get the cell ID. */
+                ci = t.cellid[i];
+                    
+                for ( j = i ; j < t.n ; j++ ) {
+                
+                    /* Is this pair active? */
+                    if ( !( t.pairs & ( 1 << ( i * space_maxtuples + j ) ) ) )
+                        continue;
+                        
+                    /* Get the cell ID. */
+                    cj = t.cellid[j];
+
+                    /* Compute the shift between ci and cj. */
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        shift[k] = s->cells[cj].origin[k] - s->cells[ci].origin[k];
+                        if ( shift[k] * 2 > s->dim[k] )
+                            shift[k] -= s->dim[k];
+                        else if ( shift[k] * 2 < -s->dim[k] )
+                            shift[k] += s->dim[k];
+                        }
+                    
+                    /* is this cellpair playing with itself? */
+                    if ( ci == cj ) {
+                        if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                            return runner_err;
+                        }
+
+                    /* nope, good cell-on-cell action. */
+                    else
+                        if ( runner_sortedpair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                            return runner_err;
+
+                    /* release this pair */
+                    if ( space_releasepair( s , ci , cj ) < 0 )
+                        return runner_err_space;
+                        
+                    }
+                    
+                }
+
+            }
+
+        /* give the reaction count */
+        /* printf("runner_run: last count was %u.\n",runner_rcount); */
+            
         }
 
     /* end well... */
@@ -710,7 +817,7 @@ int runner_run_queue ( struct runner *r ) {
 
     /* check the inputs */
     if ( r == NULL )
-        return runner_err = runner_err_ok;
+        return runner_err_null;
         
     /* give a hoot */
     printf("runner_run: runner %i is up and running...\n",r->id); fflush(stdout);
@@ -721,7 +828,7 @@ int runner_run_queue ( struct runner *r ) {
         /* wait at the engine barrier */
         /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
         if ( engine_barrier(r->e) < 0)
-            return runner_err = runner_err_engine;
+            return r->err = runner_err_engine;
                         
         /* while i can still get a pair... */
         /* printf("runner_run: runner %i passed barrier, getting pairs...\n",r->id); */
@@ -763,7 +870,7 @@ int runner_run_queue ( struct runner *r ) {
                 
                 /* release free cells, if any */
                 if ( engine_releasepairs( r->e , r ) != 0 )
-                    return runner_err_engine;
+                    return r->err = runner_err_engine;
 
                 }
 
@@ -775,7 +882,7 @@ int runner_run_queue ( struct runner *r ) {
         /* did things go wrong? */
         /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
         if ( err < 0 )
-            return runner_err = runner_err_space;
+            return r->err = runner_err_space;
     
         }
 
@@ -957,9 +1064,11 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_static,r) != 0)
 		    return runner_err = runner_err_pthread;
     #else
-	    /* if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_queue,r) != 0) */
-		/*     return runner_err = runner_err_pthread; */
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run,r) != 0)
+	    /* if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_queue,r) != 0)
+		    return runner_err = runner_err_pthread; */
+	    /* if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run,r) != 0)
+		    return runner_err = runner_err_pthread; */
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0)
 		    return runner_err = runner_err_pthread;
     #endif
     

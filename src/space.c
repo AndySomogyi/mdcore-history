@@ -35,7 +35,89 @@
 int space_err = space_err_ok;
 
 
-/** @brief generate the list of #celltuple.
+/**
+ * @brief Get the next free #cekktuple from the space.
+ * 
+ * @param s The #space in which to look for tuples.
+ * @param id The calling #runner ID.
+ * @param out A pointer to a #celltuple in which to copy the result.
+ *
+ * @return The number of #celltuples found or 0 if the list is empty and
+ *      < 0 on error (see #space_err).
+ */
+ 
+int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
+
+    int i, j, k;
+    struct celltuple *t, temp;
+
+    /* Try to get a hold of the cells mutex */
+	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+		return space_err = space_err_pthread;
+        
+    /* Main loop, while there are still tuples left. */
+    while ( s->next_tuple < s->nr_tuples ) {
+    
+        /* Loop over all tuples. */
+        for ( k = s->next_tuple ; k < s->nr_tuples ; k++ ) {
+        
+            /* Put a t on this tuple. */
+            t = &( s->tuples[k] );
+            
+            /* Check if all the cells of this tuple are free. */
+            for ( i = 0 ; i < t->n ; i++ )
+                if ( s->cells_taboo[ t->cellid[i] ] != 0 )
+                    break;
+            if ( i < t->n )
+                continue;
+                
+            /* If so, mark-off the cells pair by pair. */
+            for ( i = 0 ; i < t->n ; i++ )
+                for ( j = i ; j < t->n ; j++ )
+                    if ( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) {
+                        s->cells_taboo[ t->cellid[i] ] += 1;
+                        s->cells_taboo[ t->cellid[j] ] += 1;
+                        }
+                        
+            /* Copy this tuple out. */
+            *out = *t;
+            
+            /* Swap this tuple to the top of the list. */
+            if ( k != s->next_tuple ) {
+                temp = s->tuples[ k ];
+                s->tuples[ k ] = s->tuples[ s->next_tuple ];
+                s->tuples[ s->next_tuple ] = temp;
+                s->nr_swaps += 1;
+                }
+                
+            /* Increase the top of the list. */
+            s->next_tuple += 1;
+            
+            /* And leave. */
+	        if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+		        return space_err = space_err_pthread;
+            return 1;
+        
+            }
+            
+        /* If we got here without catching anything, wait for a sign. */
+        s->nr_stalls += 1;
+        if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
+            return space_err = space_err_pthread;
+    
+        }
+        
+    /* Release the cells mutex */
+	if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+		return space_err = space_err_pthread;
+        
+    /* Bring good tidings. */
+    return space_err_ok;
+        
+    }
+
+
+/** @brief Generate the list of #celltuple.
  * 
  * @param s Pointer to the #space to make tuples for.
  *
@@ -204,6 +286,7 @@ int space_prepare ( struct space *s ) {
 
     /* re-set next_pair */
     s->next_pair = 0;
+    s->next_tuple = 0;
     s->nr_swaps = 0;
     s->nr_stalls = 0;
     
@@ -373,7 +456,8 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
  * @brief Free the cells involved in the current pair.
  *
  * @param s The #space to operate on.
- * @param p the #cellpair to release.
+ * @param ci ID of the first cell.
+ * @param cj ID of the second cell.
  *
  * @returns #space_err_ok or < 0 on error (see #space_err).
  *
@@ -384,13 +468,13 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
  * @c cellpairs_avail is signaled twice.
  */
 
-int space_releasepair ( struct space *s , struct cellpair *p ) {
+int space_releasepair ( struct space *s , int ci , int cj ) {
 
     int count = 0;
 
     /* release the cells in the given pair */
-    count += ( --(s->cells_taboo[ p->i ]) == 0 );
-    count += ( --(s->cells_taboo[ p->j ]) == 0 );
+    count += ( --(s->cells_taboo[ ci ]) == 0 );
+    count += ( --(s->cells_taboo[ cj ]) == 0 );
     
     /* send a strong signal to anybody waiting on pairs... */
     if ( count ) {

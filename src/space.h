@@ -156,8 +156,9 @@ struct celltuple {
 /* associated functions */
 int space_init ( struct space *s , const double *origin , const double *dim , double cutoff , unsigned int period );
 struct cellpair *space_getpair ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
-int space_releasepair ( struct space *s , struct cellpair *p );
+int space_releasepair ( struct space *s , int ci , int cj );
 int space_shuffle ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
 int space_prepare ( struct space *s );
 int space_maketuples ( struct space *s );
+int space_gettuple ( struct space *s , int id , struct celltuple *out );
