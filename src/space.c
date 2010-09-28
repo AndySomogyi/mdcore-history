@@ -89,8 +89,8 @@ int space_maketuples ( struct space *s ) {
             }
         else
             t->pairs = 1;
-        printf("space_maketuples: starting tuple %i with pair [%i,%i].\n",
-            s->nr_tuples-1 , p->i , p->j );
+        /* printf("space_maketuples: starting tuple %i with pair [%i,%i].\n",
+            s->nr_tuples-1 , p->i , p->j ); */
             
         /* Fill the weights for the cells. */
         bzero( w , sizeof(int) * s->nr_cells );
@@ -114,8 +114,8 @@ int space_maketuples ( struct space *s ) {
         /* While there is still another cell that can be added... */
         while ( w[w_max] > 0 && t->n < space_maxtuples && s->next_pair < s->nr_pairs ) {
         
-            printf("space_maketuples: adding cell %i to tuple %i (w[%i]=%i).\n",
-                w_max, s->nr_tuples-1, w_max, w[w_max] );
+            /* printf("space_maketuples: adding cell %i to tuple %i (w[%i]=%i).\n",
+                w_max, s->nr_tuples-1, w_max, w[w_max] ); */
             
             /* Add this cell to the tuple. */
             t->cellid[ t->n++ ] = w_max;
@@ -136,8 +136,8 @@ int space_maketuples ( struct space *s ) {
 
                 /* Add this pair to the tuple. */
                 t->pairs |= ( 1 << ( i * space_maxtuples + j ) ) | ( 1 << ( j * space_maxtuples + i ) );
-                printf("space_maketuples: adding pair [%i,%i] to tuple %i (w[%i]=%i).\n",
-                    p->i, p->j, s->nr_tuples-1 , w_max , w[w_max] );
+                /* printf("space_maketuples: adding pair [%i,%i] to tuple %i (w[%i]=%i).\n",
+                    p->i, p->j, s->nr_tuples-1 , w_max , w[w_max] ); */
 
                 /* If this pair was not at the top of the list, swap it there. */
                 if ( k != s->next_pair ) {
@@ -171,7 +171,7 @@ int space_maketuples ( struct space *s ) {
         }
         
     /* Dump the list of tuples. */
-    for ( i = 0 ; i < s->nr_tuples ; i++ ) {
+    /* for ( i = 0 ; i < s->nr_tuples ; i++ ) {
         t = &( s->tuples[i] );
         printf("space_maketuples: tuple %i has pairs:",i);
         for ( k = 0 ; k < t->n ; k++ )
@@ -179,7 +179,7 @@ int space_maketuples ( struct space *s ) {
                 if ( t->pairs & ( 1 << ( k * space_maxtuples + j ) ) )
                     printf(" [%i,%i]", t->cellid[j], t->cellid[k] );
         printf("\n");
-        }
+        } */
         
     /* If we made it up to here, we're done! */
     return space_err_ok;
