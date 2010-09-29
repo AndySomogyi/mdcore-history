@@ -95,10 +95,6 @@ int engine_step ( struct engine *e ) {
     if ( space_prepare( &(e->s) ) != space_err_ok )
         return engine_err_space;
         
-    /* prepare the pairs */
-    if ( engine_initpairs( e ) < 0 )
-        return engine_err;
-    
     /* open the door for the runners */
     e->barrier_count *= -1;
     if (pthread_cond_broadcast(&e->barrier_cond) != 0)
