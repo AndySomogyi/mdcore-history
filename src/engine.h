@@ -87,6 +87,3 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
 int engine_start ( struct engine *e , int nr_runners );
 int engine_barrier ( struct engine *e );
 int engine_step ( struct engine *e );
-int engine_initpairs ( struct engine *e );
-int engine_releasepairs ( struct engine *e , struct runner *r );
-int engine_getpairs ( struct engine *e , struct runner *r , int wait );

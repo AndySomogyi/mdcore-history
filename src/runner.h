@@ -46,11 +46,6 @@
 /* the last error */
 extern int runner_err;
 
-/* queue element */
-struct qcell {
-    int i, j;
-    };
-    
 /* the runner structure */
 struct runner {
 
@@ -79,14 +74,6 @@ struct runner {
         struct celldata *celldata;
         
     #endif
-    
-    /* data for the pair queue */
-    struct qcell queue[runner_qlen];
-    int free, first, next, count, count_free;
-
-    /* mutex and condition for the queue */
-    pthread_mutex_t queue_mutex;
-    pthread_cond_t queue_avail;
     
     /** ID of the last error on this runner. */
     int err;

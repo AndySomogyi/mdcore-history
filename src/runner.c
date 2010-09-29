@@ -792,107 +792,6 @@ int runner_run_tuples ( struct runner *r ) {
 
     
 /**
- * @brief The #runner's main routine (#engine queue model).
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, calls #engine_getpairs until there are no pairs
- * available.
- *
- * This routine uses the #engine's queueing model to allocate cell pairs
- * to the runners.
- *
- * @sa #runner_run.
- */
-
-int runner_run_queue ( struct runner *r ) {
-
-    int count, err = 0;
-    struct cell *ci, *cj;
-    int k;
-    FPTYPE shift[3];
-
-    /* check the inputs */
-    if ( r == NULL )
-        return runner_err_null;
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running...\n",r->id); fflush(stdout);
-    
-    /* main loop, in which the runner should stay forever... */
-    while ( 1 ) {
-    
-        /* wait at the engine barrier */
-        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
-        if ( engine_barrier(r->e) < 0)
-            return r->err = runner_err_engine;
-                        
-        /* while i can still get a pair... */
-        /* printf("runner_run: runner %i passed barrier, getting pairs...\n",r->id); */
-        while ( ( count = engine_getpairs( r->e , r , 1 ) ) > 0 ) {
-
-            /* while there are pairs in the queue... */
-            while ( r->count > 0 ) {
-            
-                /* get ci and cj */
-                ci = &( r->e->s.cells[ r->queue[ r->first ].i ] );
-                cj = &( r->e->s.cells[ r->queue[ r->first ].j ] );
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    shift[k] = cj->origin[k] - ci->origin[k];
-                    if ( shift[k] * 2 > r->e->s.dim[k] )
-                        shift[k] -= r->e->s.dim[k];
-                    else if ( shift[k] * 2 < -r->e->s.dim[k] )
-                        shift[k] += r->e->s.dim[k];
-                    }
-                /* printf("runner_run_queue: working on cell pair [%i,%i]: [ %e , %e , %e ]\n", */
-                /*     r->queue[ r->first ].i, r->queue[ r->first ].j, */
-                /*     shift[0], shift[1], shift[2] ); fflush(stdout); */
-                r->first = ( r->first + 1 ) % runner_qlen;
-                r->count -= 1;
-
-                /* is this cellpair playing with itself? */
-                if ( ci == cj ) {
-                    if ( runner_dopair( r , ci , cj , shift ) < 0 )
-                        return runner_err;
-                    }
-
-                /* nope, good cell-on-cell action. */
-                else
-                    if ( runner_sortedpair( r , ci , cj , shift ) < 0 )
-                        return runner_err;
-                   
-                    
-                /* free it */
-                r->count_free += 1;
-                
-                /* release free cells, if any */
-                if ( engine_releasepairs( r->e , r ) != 0 )
-                    return r->err = runner_err_engine;
-
-                }
-
-            }
-
-        /* give the reaction count */
-        /* printf("runner_run: last count was %u.\n",runner_rcount); */
-            
-        /* did things go wrong? */
-        /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
-        if ( err < 0 )
-            return r->err = runner_err_space;
-    
-        }
-
-    /* end well... */
-    return runner_err_ok;
-
-    }
-
-    
-/**
  * @brief Initialize the runner associated to the given engine.
  * 
  * @param r The #runner to be initialized.
@@ -921,16 +820,6 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->e = e;
     r->id = id;
     
-    /* init the pair queue */
-    r->first = 0;
-    r->free = 0;
-    r->next = 0;
-    r->count = 0;
-    r->count_free = 0;
-    if ( pthread_mutex_init( &r->queue_mutex , NULL ) != 0 ||
-         pthread_cond_init( &r->queue_avail , NULL ) != 0 )
-        return runner_err = runner_err_pthread;
-        
     #ifdef CELL
     
         /* if this has not been done before, init the runner data */
@@ -1064,8 +953,6 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_static,r) != 0)
 		    return runner_err = runner_err_pthread;
     #else
-	    /* if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_queue,r) != 0)
-		    return runner_err = runner_err_pthread; */
 	    /* if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run,r) != 0)
 		    return runner_err = runner_err_pthread; */
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0)
