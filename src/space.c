@@ -36,13 +36,13 @@ int space_err = space_err_ok;
 
 
 /**
- * @brief Get the next free #cekktuple from the space.
+ * @brief Get the next free #celltuple from the space.
  * 
  * @param s The #space in which to look for tuples.
  * @param id The calling #runner ID.
  * @param out A pointer to a #celltuple in which to copy the result.
  *
- * @return The number of #celltuples found or 0 if the list is empty and
+ * @return The number of #celltuple found or 0 if the list is empty and
  *      < 0 on error (see #space_err).
  */
  

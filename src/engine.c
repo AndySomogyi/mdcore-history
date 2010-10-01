@@ -41,11 +41,16 @@
 int engine_err = engine_err_ok;
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int engine_start */
-//
-/* init and start the runners */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Start the runners in the given #engine.
+ *
+ * @param e The #engine to start.
+ * @param nr_runners The number of runners start.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Allocates and starts the specified number of #runner.
+ */
 
 int engine_start ( struct engine *e , int nr_runners ) {
 
@@ -75,11 +80,21 @@ int engine_start ( struct engine *e , int nr_runners ) {
     }
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int engine_step */
-//
-/* wait at the barrier in the given engine */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Run the engine for a single time step.
+ *
+ * @param e The #engine on which to run.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * This routine advances the timestep counter by one, prepares the #space
+ * for a timestep, releases the #runner's associated with the #engine
+ * and waits for them to finnish.
+ *
+ * Once all the #runner's are done, the particle velocities and positions
+ * are updated and the particles are re-sorted in the #space.
+ */
+/* TODO: Should the velocities and positions really be updated here? */
 
 int engine_step ( struct engine *e ) {
 
@@ -127,11 +142,17 @@ int engine_step ( struct engine *e ) {
     }
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int engine_barrier */
-//
-/* wait at the barrier in the given engine */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Barrier routine to hold the @c runners back.
+ *
+ * @param e The #engine to wait on.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * After being initialized, and after every timestep, every #runner
+ * calls this routine which blocks until all the runners have returned
+ * and the #engine signals the next timestep.
+ */
 
 int engine_barrier ( struct engine *e ) {
 
@@ -170,13 +191,24 @@ int engine_barrier ( struct engine *e ) {
 	}
 	
 	
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int engine_init */
-//
-/* initialize the engine with the given dimensions. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Initialize an #engine with the given data.
+ *
+ * @param e The #engine to initialize.
+ * @param origin An array of three doubles containing the cartesian origin
+ *      of the space.
+ * @param dim An array of three doubles containing the size of the space.
+ * @param cutoff The maximum interaction cutoff to use.
+ * @param period A bitmask describing the periodicity of the domain
+ *      (see #space_periodic_full).
+ * @param max_type The maximum number of particle types that will be used
+ *      by this engine.
+ * @param flags Bit-mask containing the flags for this engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
 
-int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type ) {
+int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags ) {
 
     /* make sure the inputs are ok */
     if ( e == NULL || origin == NULL || dim == NULL )
@@ -185,6 +217,9 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     /* init the space with the given parameters */
     if ( space_init( &(e->s) ,origin , dim , cutoff , period ) < 0 )
         return engine_err_space;
+        
+    /* Set the flags. */
+    e->flags = flags;
         
     /* init the data for the pair finding algorithm */
     if ( ( e->M = (char *)malloc( sizeof(char) * e->s.nr_cells * e->s.nr_cells ) ) == NULL ||

@@ -32,6 +32,13 @@
 
 
 /* some constants */
+#define engine_flag_none                 0
+#define engine_flag_tuples               1
+#define engine_flag_static               2
+#define engine_flag_localparts           4
+#define engine_flag_cell                 8
+#define engine_flag_usePPU               16
+#define engine_flag_GPU                  32
 
 
 /** ID of the last error. */
@@ -40,6 +47,9 @@ extern int engine_err;
 
 /** The #engine structure. */
 struct engine {
+
+    /** Some flags controlling how this engine works. */
+    unsigned int flags;
 
     /** The space on which to work */
     struct space s;
@@ -83,7 +93,7 @@ struct engine {
     
 
 /* associated functions */
-int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type );
+int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags );
 int engine_start ( struct engine *e , int nr_runners );
 int engine_barrier ( struct engine *e );
 int engine_step ( struct engine *e );

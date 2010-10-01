@@ -31,24 +31,26 @@ CFLAGS=-Wall
 dnl find and test the compiler
 AC_PROG_CC
 AC_LANG_C
+AX_CC_MAXOPT
+AX_FUNC_POSIX_MEMALIGN
+AX_GCC_ARCHFLAG([no])
+AX_EXT
 
 dnl autoconf stuff
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
 AC_HEADER_STDC
 
-dnl Check for pthreads
-ACX_PTHREAD([LIBS="$PTHREAD_LIBS $LIBS"
-      CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
-      CC="$PTHREAD_CC"
-      LDFLAGS="$PTHREAD_LIBS $LIBS"],
-      AC_MSG_ERROR([Could not find a working version of
-      the pthread library. If you have installed them in a
-      non-standard location, please set CFLAGS and/or LDFLAGS
-      accordingly.]))
-
 dnl check for the libraries we will need
 AC_CHECK_LIB(m,sqrt,,AC_MSG_ERROR(something is wrong with the math library!))
+
+dnl Check for pthreads
+ACX_PTHREAD([LIBS="$PTHREAD_LIBS $LIBS" CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
+    CC="$PTHREAD_CC" LDFLAGS="$PTHREAD_LIBS $LIBS"],
+    AC_MSG_ERROR([Could not find a working version of
+    the pthread library. Make sure you have the library and header files installed
+    or use CPPFLAGS and LDFLAGS if the library is installed in a
+    non-standard location.]))
 
 dnl make the documentation
 DX_INIT_DOXYGEN(mdcore,doc/Doxyfile,doc/)

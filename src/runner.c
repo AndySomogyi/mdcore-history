@@ -99,16 +99,20 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     if ( cell_i->count == 0 || cell_j->count == 0 )
         return runner_err_ok;
     
-    /* set pointers to the particle lists */
-    #ifdef PARTS_LOCAL
+    /* Make local copies of the parts if requested. */
+    if ( r->e->flags & engine_flag_localparts ) {
+    
+        /* set pointers to the particle lists */
         parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
         parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
         memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
         memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
-    #else
+        }
+        
+    else {
         parts_i = cell_i->parts;
         parts_j = cell_j->parts;
-    #endif
+        }
         
     /* start by filling the particle ids of both cells into ind and d */
     temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
@@ -239,7 +243,9 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     
         } /* loop over all particles */
         
-    #ifdef PARTS_LOCAL
+    /* Write local data back if needed. */
+    if ( r->e->flags & engine_flag_localparts ) {
+    
         /* copy the particle data back */
         for ( i = 0 ; i < cell_i->count ; i++ ) {
             cell_i->parts[i].f[0] = parts_i[i].f[0];
@@ -251,7 +257,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             cell_j->parts[i].f[1] = parts_j[i].f[1];
             cell_j->parts[i].f[2] = parts_j[i].f[2];
             }
-    #endif
+        }
         
     /* since nothing bad happened to us... */
     return runner_err_ok;
@@ -291,18 +297,22 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     s = &(eng->s);
     cutoff2 = s->cutoff2;
         
-    /* set pointers to the particle lists */
-    #ifdef PARTS_LOCAL
+    /* Make local copies of the parts if requested. */
+    if ( r->e->flags & engine_flag_localparts ) {
+    
+        /* set pointers to the particle lists */
         parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
         memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
         if ( cell_i != cell_j ) {
             parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
             memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
             }
-    #else
+        }
+        
+    else {
         parts_i = cell_i->parts;
         parts_j = cell_j->parts;
-    #endif
+        }
         
     /* is this a genuine pair or a cell against itself */
     if ( cell_i == cell_j ) {
@@ -410,7 +420,9 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
         }
         
-    #ifdef PARTS_LOCAL
+    /* Write local data back if needed. */
+    if ( r->e->flags & engine_flag_localparts ) {
+    
         /* copy the particle data back */
         for ( i = 0 ; i < cell_i->count ; i++ ) {
             cell_i->parts[i].f[0] = parts_i[i].f[0];
@@ -423,7 +435,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 cell_j->parts[i].f[1] = parts_j[i].f[1];
                 cell_j->parts[i].f[2] = parts_j[i].f[2];
                 }
-    #endif
+        }
         
     /* all is well that ends ok */
     return runner_err_ok;
@@ -949,15 +961,18 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     #endif
     
     /* init the thread */
-    #ifdef STATIC_SCHEDULING
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_static,r) != 0)
+    if ( e->flags & engine_flag_cell ) {
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell,r) != 0)
 		    return runner_err = runner_err_pthread;
-    #else
-	    /* if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run,r) != 0)
-		    return runner_err = runner_err_pthread; */
+        }
+    else if ( e->flags & engine_flag_tuples ) {
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0)
 		    return runner_err = runner_err_pthread;
-    #endif
+        }
+    else {
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run,r) != 0)
+		    return runner_err = runner_err_pthread;
+        }
     
     /* all is well... */
     return runner_err_ok;
