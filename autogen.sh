@@ -27,5 +27,5 @@ autoconf
 autoheader
 
 # run automake
-automake --add-missing
+automake --add-missing --copy
 
