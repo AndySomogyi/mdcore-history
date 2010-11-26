@@ -93,6 +93,12 @@ int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
             /* Increase the top of the list. */
             s->next_tuple += 1;
             
+            /* If this was the last tuple, broadcast to all waiting
+                runners to go home. */
+            if ( s->next_tuple == s->nr_tuples )
+                if (pthread_cond_broadcast(&s->cellpairs_avail) != 0)
+                    return space_err_pthread;
+            
             /* And leave. */
 	        if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
 		        return space_err = space_err_pthread;
