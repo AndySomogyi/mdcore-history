@@ -1,3 +1,21 @@
+/*******************************************************************************
+ * This file is part of mdcore.
+ * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * 
+ ******************************************************************************/
 
 // include some standard headers
 #include <stdio.h>
@@ -254,17 +272,17 @@ int main ( int argc , char *argv[] ) {
         // shake the water molecules
         for ( j = 0 ; j < nr_mols ; j++ ) {
         
-            // unpack the data
+            // unwrap the data
+            space_getpos( &(e.s) , j*3 , new_O );
+            space_getpos( &(e.s) , j*3+1 , new_H1 );
+            space_getpos( &(e.s) , j*3+2 , new_H2 );
             for ( k = 0 ; k < 3 ; k++ ) {
-                new_O[k] = e.s.partlist[j*3]->x[k] + e.s.celllist[j*3]->origin[k];
                 old_O[k] = new_O[k] - e.dt * e.s.partlist[j*3]->v[k];
-                new_H1[k] = e.s.partlist[j*3+1]->x[k] + e.s.celllist[j*3+1]->origin[k];
                 if ( new_H1[k] - new_O[k] > e.s.dim[k] * 0.5 )
                     new_H1[k] -= e.s.dim[k];
                 else if ( new_H1[k] - new_O[k] < -e.s.dim[k] * 0.5 )
                     new_H1[k] += e.s.dim[k];
                 old_H1[k] = new_H1[k] - e.dt * e.s.partlist[j*3+1]->v[k];
-                new_H2[k] = e.s.partlist[j*3+2]->x[k] + e.s.celllist[j*3+2]->origin[k];
                 if ( new_H2[k] - new_O[k] > e.s.dim[k] * 0.5 )
                     new_H2[k] -= e.s.dim[k];
                 else if ( new_H2[k] - new_O[k] < -e.s.dim[k] * 0.5 )
@@ -319,7 +337,7 @@ int main ( int argc , char *argv[] ) {
                     
                 }
                 
-            // write the positions back
+            // wrap the positions back
             for ( k = 0 ; k < 3 ; k++ ) {
             
                 // write O

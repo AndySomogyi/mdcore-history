@@ -22,9 +22,13 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../src -O2 $(CFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = test
+bin_PROGRAMS = test btree_test
 
-# Sources for fun_test
+# Sources for test
 test_SOURCES = test.c
 test_LDADD = ../src/.libs/libmdcore.a
+
+# Sources for fun_test
+btree_test_SOURCES = btree_test.c
+btree_test_LDADD = ../src/.libs/libmdcore.a
 
