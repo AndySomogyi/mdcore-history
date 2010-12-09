@@ -123,7 +123,8 @@ int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
     }
 
 
-/** @brief Generate the list of #celltuple.
+/**
+ * @brief Generate the list of #celltuple.
  * 
  * @param s Pointer to the #space to make tuples for.
  *

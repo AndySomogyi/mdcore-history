@@ -28,6 +28,7 @@
 #endif
 
 /* include local headers */
+#include "errs.h"
 #include "fptype.h"
 #include "part.h"
 #include "cell.h"
@@ -39,6 +40,87 @@
 
 /** ID of the last error. */
 int engine_err = engine_err_ok;
+
+
+/* the error macro. */
+#define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+
+/* list of error messages. */
+char *engine_err_msg[7] = {
+	"Nothing bad happened.",
+    "An unexpected NULL pointer was encountered.",
+    "A call to malloc failed, probably due to insufficient memory.",
+    "An error occured when calling a space function.",
+    "A call to a pthread routine failed.",
+    "An error occured when calling a runner function.",
+    "One or more values were outside of the allowed range."
+	};
+
+
+/**
+ * @brief Add a type definition.
+ *
+ * @param e The #engine.
+ * @param id The particle type ID.
+ * @param mass The particle type mass.
+ * @param charge The particle type charge.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * The particle type ID must be an integer greater or equal to 0
+ * and less than the value @c max_type specified in #engine_init.
+ */
+ 
+int engine_addtype ( struct engine *e , int id , double mass , double charge ) {
+
+    /* check for nonsense. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    if ( id < 0 || id >= e->max_type )
+        return error(engine_err_range);
+    
+    /* set the type. */
+    e->types[id].mass = mass;
+    e->types[id].imass = 1.0 / mass;
+    e->types[id].charge = charge;
+    
+    /* bring good tidings. */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Add an interaction potential.
+ *
+ * @param e The #engine.
+ * @param p The #potential to add to the #engine.
+ * @param i ID of particle type for this interaction.
+ * @param j ID of second particle type for this interaction.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Adds the given potential for pairs of particles of type @c i and @c j,
+ * where @c i and @c j may be the same type ID.
+ */
+ 
+int engine_addpot ( struct engine *e , struct potential *p , int i , int j ) {
+
+    /* check for nonsense. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    if ( i < 0 || i >= e->max_type || j < 0 || j >= e->max_type )
+        return error(engine_err_range);
+        
+    /* store the potential. */
+    e->p[ i * e->max_type + j ] = p;
+    if ( i != j )
+        e->p[ j * e->max_type + i ] = p;
+        
+    /* end on a good note. */
+    return engine_err_ok;
+
+    }
 
 
 /**

@@ -31,6 +31,7 @@
 #endif
 
 // include local headers
+#include "errs.h"
 #include "part.h"
 #include "potential.h"
 #include "cell.h"
@@ -140,19 +141,23 @@ int main ( int argc , char *argv[] ) {
     // return 0;
         
     
-    // register these potentials.
-    /* TODO: actually write a function in the engine for this. */
-    e.p[0] = pot_OO;
-    e.p[3] = pot_HH;
-    e.p[1] = pot_OH;
-    e.p[2] = pot_OH;
-    e.types[0].mass = 15.9994;
-    e.types[0].imass = 1.0 / 15.9994;
-    e.types[0].charge = -0.8476;
-    e.types[1].mass = 1.00794;
-    e.types[1].imass = 1.0 / 1.00794;
-    e.types[1].charge = 0.4238;
+    /* register the particle types. */
+    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 ) < 0 ||
+         engine_addtype( &e , 1 , 1.00794 , 0.4238 ) < 0 ) {
+        printf("main: call to engine_addtype failed.\n");
+        errs_dump(stdout);
+        return 1;
+        }
         
+    // register these potentials.
+    if ( engine_addpot( &e , pot_OO , 0 , 0 ) < 0 ||
+         engine_addpot( &e , pot_HH , 1 , 1 ) < 0 ||
+         engine_addpot( &e , pot_OH , 0 , 1 ) < 0 ) {
+        printf("main: call to engine_addpot failed.\n");
+        errs_dump(stdout);
+        return 1;
+        }
+    
     // set fields for all particles
     srand(6178);
     p_O.type = 0;

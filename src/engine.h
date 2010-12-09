@@ -29,6 +29,7 @@
 #define engine_err_space                 -3
 #define engine_err_pthread               -4
 #define engine_err_runner                -5
+#define engine_err_range                 -6
 
 
 /* some constants */
@@ -97,3 +98,5 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
 int engine_start ( struct engine *e , int nr_runners );
 int engine_barrier ( struct engine *e );
 int engine_step ( struct engine *e );
+int engine_addpot ( struct engine *e , struct potential *p , int i , int j );
+int engine_addtype ( struct engine *e , int id , double mass , double charge );
