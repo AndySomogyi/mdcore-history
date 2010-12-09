@@ -23,7 +23,7 @@ AM_CFLAGS = $(SIMD_FLAGS) $(CFLAGS)
 
 # Build the libchebfun library
 lib_LTLIBRARIES = libmdcore.la
-libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c
+libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
 
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h

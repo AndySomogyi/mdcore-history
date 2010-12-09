@@ -17,43 +17,19 @@
  * 
  ******************************************************************************/
 
+/* Some defines. */
+#define errs_maxstack                           100
 
-/* include some standard header files */
-#include <stdlib.h>
-#include <math.h>
-
-/* include local headers */
-#include "part.h"
+#define errs_err_ok                             0
+#define errs_err_io                             -1
 
 
-/** ID of the last error */
-int part_err = part_err_ok;
+/* Global variables. */
+extern int errs_err;
+extern const char *errs_err_msg[];
 
 
-/**
- * @brief Initialize a #part.
- *
- * @param p The #part to be initialized.
- * @param vid The virtual id of this #part.
- * @param type The numerical id of the particle type.
- * @param flags The particle flags.
- *
- * @return #part_err_ok or < 0 on error (see #part_err).
- *
- */
-
-int part_init ( struct part *p , int vid , int type , unsigned int flags ) {
-
-    /* check inputs */
-    if ( p == NULL )
-        return part_err = part_err_null;
-        
-    /* Set the paticle data. */
-    p->vid = vid;
-    p->type = type;
-    p->flags = flags;
-        
-    /* all is well... */
-    return part_err_ok;
-
-    }
+/* Functions. */
+int errs_register( int id , const char *msg , int line , const char *func , char *file );
+int errs_dump( FILE *out );
+void errs_clear( );

@@ -74,7 +74,7 @@ struct part {
     #endif
     
     /** Particle id and type */
-    int id, type;
+    int id, vid, type;
     
     /** Particle flags */
     unsigned int flags;
@@ -95,4 +95,4 @@ struct part_type {
 
 
 /* associated functions */
-int part_init ( struct part *p );
+int part_init ( struct part *p , int vid , int type , unsigned int flags );

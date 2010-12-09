@@ -162,3 +162,5 @@ int space_addpart ( struct space *s , struct part *p , double *x );
 int space_prepare ( struct space *s );
 int space_maketuples ( struct space *s );
 int space_gettuple ( struct space *s , int id , struct celltuple *out );
+int space_getpos ( struct space *s , int id , double *x );
+int space_setpos ( struct space *s , int id , double *x );

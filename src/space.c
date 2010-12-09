@@ -429,6 +429,8 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
         s->partlist = temp;
         s->celllist = tempc;
         }
+        
+    /* Create the local id of this part. */
     p->id = s->nr_parts++;
         
     /* get the hypothetical cell coordinate */
@@ -455,6 +457,36 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
     /* end well */
     return space_err_ok;
 
+    }
+    
+    
+/**
+ * @brief Get the absolute position of a particle
+ *
+ * @param s The #space in which the particle resides.
+ * @param id The local id of the #part.
+ * @param x A pointer to a vector of at least three @c doubles in
+ *      which to store the particle position.
+ *
+ */
+ 
+int space_getpos ( struct space *s , int id , double *x ) {
+
+    int k;
+
+    /* Sanity check. */
+    if ( s == NULL || x == NULL )
+        return space_err = space_err_null;
+    if ( id >= s->nr_parts )
+        return space_err = space_err_range;
+        
+    /* Copy the position to x. */
+    for ( k = 0 ; k < 3 ; k++ )
+        x[k] = s->partlist[id]->x[k] + s->celllist[id]->origin[k];
+        
+    /* All is well... */
+    return space_err_ok;
+    
     }
 
 
