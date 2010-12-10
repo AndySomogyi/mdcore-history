@@ -6,7 +6,6 @@ Things that need to be done, in no particular order:
 * 2010/12/03: Somehow add bonded interactions to cell pairs or some
               mechanism to treat bonds, angles and torsions in parallel
 * 2010/12/03: Keep track of particles that wander into a ghost layer
-              or out of the domain.
-* 2010/12/03: Add more elaborate error reporting mechanism (e.g. as in
-              libchebfun).
-* 2010/12/09: Add SSE2 vectorization, check speedup for single and double.
+              or out of the domain (is this really needed?).
+* 2010/12/09: Add SSE2 vectorization for double.
+* 2010/12/10: Add OpenMP to configure script.
