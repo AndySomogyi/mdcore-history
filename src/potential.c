@@ -23,8 +23,15 @@
 #include <stdio.h>
 #include <math.h>
 #include <float.h>
+#ifdef __SSE__
+    #include <xmmintrin.h>
+#endif
+#ifdef __SSE2__
+    #include <emmintrin.h>
+#endif
 
 /* include local headers */
+#include "errs.h"
 #include "fptype.h"
 #include "potential.h"
 
@@ -33,6 +40,19 @@
 int potential_err = potential_err_ok;
 
 
+/* the error macro. */
+#define error(id)				( potential_err = errs_register( id , potential_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+
+/* list of error messages. */
+char *potential_err_msg[5] = {
+	"Nothing bad happened.",
+    "An unexpected NULL pointer was encountered.",
+    "A call to malloc failed, probably due to insufficient memory.",
+    "The requested value was out of bounds.",
+    "Not yet implemented.",
+	};
+    
+    
 /**
  * @brief Evaluates the given potential at the given radius explicitly.
  * 
@@ -222,6 +242,75 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
         
 
 /** 
+ * @brief Evaluates the given potential at a set of points (interpolated).
+ *
+ * @param p The #potential to be evaluated.
+ * @param r2 The radius at which it is to be evaluated, squared.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ * 
+ * This function is only available if mdcore was compiled with SSE2!
+ */
+
+#if defined(__SSE__) && defined(FPTYPE_SINGLE)
+void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
+
+    int ind[4], j, k;
+    union {
+        __v4sf v;
+        float f[4];
+        } alpha0, alpha1, alpha2, rind, mi, hi, x, ee, eff, c, r;
+    float *data[4];
+    
+    /* Get r . */
+    r.v = _mm_sqrt_ps( _mm_load_ps( r2 ) );
+    
+    /* compute the index */
+    alpha0.v = _mm_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1.v = _mm_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    rind.v = _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) );
+    for ( k = 0 ; k < 4 ; k++ )
+        ind[k] = rind.f[k];
+    
+    /* adjust x to the interval */
+    for ( k = 0 ; k < 4 ; k++ ) {
+        mi.f[k] = p[k]->mi[ind[k]];
+        hi.f[k] = p[k]->hi[ind[k]];
+        }
+    /* mi.v = _mm_setr_ps( p[0]->mi[ind[0]] , p[1]->mi[ind[1]] , p[2]->mi[ind[2]] , p[3]->mi[ind[3]] );
+    hi.v = _mm_setr_ps( p[0]->hi[ind[0]] , p[1]->hi[ind[1]] , p[2]->hi[ind[2]] , p[3]->hi[ind[3]] ); */
+    x.v = _mm_mul_ps( _mm_sub_ps( r.v , mi.v ) , hi.v );
+    
+    /* get the table offset */
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->c[ ind[k] * (potential_degree + 1) ] );
+    
+    /* compute the potential and its derivative */
+    eff.v = _mm_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    c.v = _mm_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    ee.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , c.v );
+    for ( j = 2 ; j <= potential_degree ; j++ ) {
+        c.v = _mm_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
+        ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c.v );
+        }
+
+    /* store the result */
+    _mm_store_ps( e , ee.v );
+    _mm_store_ps( f , _mm_mul_ps( eff.v , hi.v ) );
+        
+    }
+#endif
+
+
+/** 
  * @brief Evaluates the given potential at the given point (interpolated).
  *
  * @param p The #potential to be evaluated.
@@ -239,7 +328,7 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
 void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
 
     int ind, k;
-    FPTYPE x, ee, eff, *c, r = sqrt(r2);
+    FPTYPE x, ee, eff, *c, r;
     
     /* Get r for the right type. */
     #ifdef FPTYPE_SINGLE
@@ -310,7 +399,7 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
         
     /* allocate the potential */
     if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
-        potential_err = potential_err_malloc;
+        error(potential_err_malloc);
         return NULL;
         }
         
@@ -367,7 +456,7 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
         
     /* allocate the potential */
     if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
-        potential_err = potential_err_malloc;
+        error(potential_err_malloc);
         return NULL;
         }
         
@@ -429,7 +518,7 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
         
     /* allocate the potential */
     if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
-        potential_err = potential_err_malloc;
+        error(potential_err_malloc);
         return NULL;
         }
         
@@ -479,11 +568,11 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
 
     /* check inputs */
     if ( p == NULL || f == NULL || fp == NULL )
-        return potential_err = potential_err_null;
+        return error(potential_err_null);
         
     /* check if we have a user-specified 6th derivative or not. */
     if ( f6p == NULL )
-        return potential_err = potential_err_nyi;
+        return error(potential_err_nyi);
         
     /* set the boundaries */
     p->a = a; p->b = b;
@@ -643,7 +732,7 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
 
     /* check input sanity */
     if ( f == NULL || fp == NULL || xi == NULL || err == NULL )
-        return potential_err = potential_err_null;
+        return error(potential_err_null);
         
     /* init the maximum interpolation error */
     *err = 0.0;

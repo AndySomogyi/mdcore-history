@@ -82,6 +82,9 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol );
 void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
+#if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+#endif
 
 /* helper functions */
 double potential_LJ126 ( double r , double A , double B );

@@ -164,3 +164,4 @@ int space_maketuples ( struct space *s );
 int space_gettuple ( struct space *s , int id , struct celltuple *out );
 int space_getpos ( struct space *s , int id , double *x );
 int space_setpos ( struct space *s , int id , double *x );
+int space_flush ( struct space *s );

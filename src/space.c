@@ -26,6 +26,7 @@
 #include <math.h>
 
 /* include local headers */
+#include "errs.h"
 #include "part.h"
 #include "cell.h"
 #include "space.h"
@@ -33,6 +34,46 @@
 
 /* the last error */
 int space_err = space_err_ok;
+
+
+/* the error macro. */
+#define error(id)				( space_err = errs_register( id , space_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+
+/* list of error messages. */
+char *space_err_msg[6] = {
+	"Nothing bad happened.",
+    "An unexpected NULL pointer was encountered.",
+    "A call to malloc failed, probably due to insufficient memory.",
+    "An error occured when calling a cell function.",
+    "A call to a pthread routine failed.",
+    "One or more values were outside of the allowed range."
+	};
+
+
+/**
+ * @brief Clear all particles from this #space.
+ *
+ * @param s The #space to flush.
+ *
+ * @return #space_err_ok or < 0 on error (see #space_err).
+ */
+ 
+int space_flush ( struct space *s ) {
+
+    int cid;
+
+    /* check input. */
+    if ( s == NULL )
+        return error(space_err_null);
+        
+    /* loop through the cells. */
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+        s->cells[cid].count = 0;
+        
+    /* done for now. */
+    return space_err_ok;
+
+    }
 
 
 /**
@@ -53,7 +94,7 @@ int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
 
     /* Try to get a hold of the cells mutex */
 	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
-		return space_err = space_err_pthread;
+		return error(space_err_pthread);
         
     /* Main loop, while there are still tuples left. */
     while ( s->next_tuple < s->nr_tuples ) {
@@ -97,11 +138,11 @@ int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
                 runners to go home. */
             if ( s->next_tuple == s->nr_tuples )
                 if (pthread_cond_broadcast(&s->cellpairs_avail) != 0)
-                    return space_err_pthread;
+                    return error(space_err_pthread);
             
             /* And leave. */
 	        if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
-		        return space_err = space_err_pthread;
+		        return error(space_err_pthread);
             return 1;
         
             }
@@ -109,13 +150,13 @@ int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
         /* If we got here without catching anything, wait for a sign. */
         s->nr_stalls += 1;
         if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
-            return space_err = space_err_pthread;
+            return error(space_err_pthread);
     
         }
         
     /* Release the cells mutex */
 	if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
-		return space_err = space_err_pthread;
+		return error(space_err_pthread);
         
     /* Bring good tidings. */
     return space_err_ok;
@@ -140,17 +181,17 @@ int space_maketuples ( struct space *s ) {
     
     /* Check for bad input. */
     if ( s == NULL )
-        return space_err = space_err_null;
+        return error(space_err_null);
         
     /* Guess the size of the tuple array and allocate it. */
     size = s->nr_pairs / space_maxtuples;
     if ( ( s->tuples = (struct celltuple *)malloc( sizeof(struct celltuple) * size ) ) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     s->nr_tuples = 0;
         
     /* Allocate the vector w. */
     if ( ( w = (int *)alloca( sizeof(int) * s->nr_cells ) ) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     s->next_pair = 0;
         
     /* While there are still pairs that are not part of a tuple... */
@@ -159,7 +200,7 @@ int space_maketuples ( struct space *s ) {
         /* Is the array of tuples long enough? */
         if ( s->nr_tuples >= size ) {
             if ( ( t = (struct celltuple *)malloc( sizeof(struct celltuple) * (size + 20) ) ) == NULL )
-                return space_err = space_err_malloc;
+                return error(space_err_malloc);
             memcpy( t , s->tuples , sizeof(struct celltuple) * size );
             size += 20;
             free( s->tuples );
@@ -414,15 +455,15 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
 
     /* check input */
     if ( s == NULL || p == NULL || x == NULL )
-        return space_err = space_err_null;
+        return error(space_err_null);
         
     /* do we need to extend the partlist? */
     if ( s->nr_parts == s->size_parts ) {
         s->size_parts += space_partlist_incr;
         if ( ( temp = (struct part **)malloc( sizeof(struct part *) * s->size_parts ) ) == NULL )
-            return space_err = space_err_malloc;
+            return error(space_err_malloc);
         if ( ( tempc = (struct cell **)malloc( sizeof(struct cell *) * s->size_parts ) ) == NULL )
-            return space_err = space_err_malloc;
+            return error(space_err_malloc);
         memcpy( temp , s->partlist , sizeof(struct part *) * s->nr_parts );
         memcpy( tempc , s->celllist , sizeof(struct cell *) * s->nr_parts );
         free( s->partlist );
@@ -441,7 +482,7 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
     /* is this particle within the space? */
     for ( k = 0 ; k < 3 ; k++ )
         if ( ind[k] < 0 || ind[k] >= s->cdim[k] )
-            return space_err = space_err_range;
+            return error(space_err_range);
             
     /* get the appropriate cell */
     cid = space_cellid(s,ind[0],ind[1],ind[2]);
@@ -452,7 +493,7 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
         
     /* delegate the particle to the cell */
     if ( ( s->partlist[p->id] = cell_add(&s->cells[cid],p) ) == NULL )
-        return space_err = space_err_cell;
+        return error(space_err_cell);
     s->celllist[p->id] = &( s->cells[cid] );
     
     /* end well */
@@ -477,9 +518,9 @@ int space_getpos ( struct space *s , int id , double *x ) {
 
     /* Sanity check. */
     if ( s == NULL || x == NULL )
-        return space_err = space_err_null;
+        return error(space_err_null);
     if ( id >= s->nr_parts )
-        return space_err = space_err_range;
+        return error(space_err_range);
         
     /* Copy the position to x. */
     for ( k = 0 ; k < 3 ; k++ )
@@ -518,12 +559,12 @@ int space_releasepair ( struct space *s , int ci , int cj ) {
     /* send a strong signal to anybody waiting on pairs... */
     if ( count ) {
 	    if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
-            return space_err_pthread;
+            return error(space_err_pthread);
         while ( count-- )
             if (pthread_cond_signal(&s->cellpairs_avail) != 0)
-                return space_err_pthread;
+                return error(space_err_pthread);
 	    if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
-            return space_err_pthread;
+            return error(space_err_pthread);
         }
     
     /* all is well... */
@@ -716,7 +757,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
 
     /* check inputs */
     if ( s == NULL || origin == NULL || dim == NULL )
-        return space_err = space_err_null;
+        return error(space_err_null);
         
     /* set origin and compute the dimensions */
     for ( i = 0 ; i < 3 ; i++ ) {
@@ -736,7 +777,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     s->nr_cells = s->cdim[0] * s->cdim[1] * s->cdim[2];
     s->cells = (struct cell *)malloc( sizeof(struct cell) * s->nr_cells );
     if ( s->cells == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
         
     /* get the dimensions of each cell */
     for ( i = 0 ; i < 3 ; i++ ) {
@@ -752,14 +793,14 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
             for ( l[2] = 0 ; l[2] < s->cdim[2] ; l[2]++ ) {
                 o[2] = origin[2] + l[2] * s->h[2];
                 if ( cell_init( &(s->cells[space_cellid(s,l[0],l[1],l[2])]) , l , o , s->h ) < 0 )
-                    return space_err = space_err_cell;
+                    return error(space_err_cell);
                 }
             }
         }
         
     /* allocate the cell pairs array (pessimistic guess) */
     if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * s->nr_cells * 14 )) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     
     /* fill the cell pairs array */
     s->nr_pairs = 0;
@@ -870,10 +911,10 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         
     /* allocate and init the taboo-list */
     if ( (s->cells_taboo = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     bzero( s->cells_taboo , sizeof(char) * s->nr_pairs );
     if ( (s->cells_owner = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     bzero( s->cells_owner , sizeof(char) * s->nr_pairs );
     
     /* Make the list of celltuples. */
@@ -882,16 +923,16 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     
     /* allocate the initial partlist */
     if ( ( s->partlist = (struct part **)malloc( sizeof(struct part *) * space_partlist_incr ) ) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     if ( ( s->celllist = (struct cell **)malloc( sizeof(struct cell *) * space_partlist_incr ) ) == NULL )
-        return space_err = space_err_malloc;
+        return error(space_err_malloc);
     s->nr_parts = 0;
     s->size_parts = space_partlist_incr;
     
     /* init the cellpair mutexes */
     if (pthread_mutex_init(&s->cellpairs_mutex,NULL) != 0 ||
         pthread_cond_init(&s->cellpairs_avail,NULL) != 0)
-        return space_err = space_err_pthread;
+        return error(space_err_pthread);
         
     /* all is well that ends well... */
     return space_err_ok;

@@ -20,6 +20,7 @@
 
 /* include some standard header files */
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 #ifdef CELL
@@ -28,9 +29,24 @@
     #define mfc_ceil128(v) (((v) + 127) & ~127)
 #endif
 
+/* macro to algin memory sizes to a multiple of cell_partalign. */
+#define align_ceil(v) (((v) + (cell_partalign-1) ) & ~(cell_partalign-1))
+
 /* include local headers */
+#include "errs.h"
 #include "part.h"
 #include "cell.h"
+
+
+/* the error macro. */
+#define error(id)				( cell_err = errs_register( id , cell_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+
+/* list of error messages. */
+char *cell_err_msg[3] = {
+	"Nothing bad happened.",
+    "An unexpected NULL pointer was encountered.",
+    "A call to malloc failed, probably due to insufficient memory."
+	};
 
 
 /* the last error */
@@ -46,34 +62,24 @@ int cell_err = cell_err_ok;
 
 struct part *cell_add ( struct cell *c , struct part *p ) {
 
-    #ifdef CELL
-        struct part *temp;
-    #endif
+    struct part *temp;
 
     /* check inputs */
     if ( c == NULL || p == NULL ) {
-        cell_err = cell_err_null;
+        error(cell_err_null);
         return NULL;
         }
         
     /* is there room for this particle? */
     if ( c->count == c->size ) {
-        #ifdef CELL
-            if ( ( temp = (struct part *)malloc_align( mfc_ceil128( sizeof(struct part) * ( c->size + cell_incr ) ) , 7 ) ) == NULL ) {
-                cell_err = cell_err_malloc;
-                return NULL;
-                }
-            memcpy( temp , c->parts , sizeof(struct part) * c->count );
-            free_align( c->parts );
-            c->parts = temp;
-            c->size += cell_incr;
-        #else
-            c->size += cell_incr;
-            if ( ( c->parts = (struct part *)realloc( c->parts , sizeof(struct part) * c->size ) ) == NULL ) {
-                cell_err = cell_err_malloc;
-                return NULL;
-                }
-        #endif
+        if ( posix_memalign( (void **)&temp , cell_partalign , align_ceil( sizeof(struct part) * ( c->size + cell_incr ) ) ) != 0 ) {
+            error(cell_err_malloc);
+            return NULL;
+            }
+        memcpy( temp , c->parts , sizeof(struct part) * c->count );
+        free( c->parts );
+        c->parts = temp;
+        c->size += cell_incr;
         }
         
     /* store this particle */
@@ -97,7 +103,7 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
 
     /* check inputs */
     if ( c == NULL || loc == NULL || origin == NULL || dim == NULL )
-        return cell_err = cell_err_null;
+        return error(cell_err_null);
         
     /* store values */
     for ( i = 0 ; i < 3 ; i++ ) {
@@ -107,12 +113,8 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
         }
         
     /* allocate the particle pointers */
-    #if CELL
-    if ( (c->parts = (struct part *)malloc_align( mfc_ceil128( sizeof(struct part) * cell_default_size ) , 7 ) ) == NULL )
-    #else
-    if ( (c->parts = (struct part *)malloc( sizeof(struct part) * cell_default_size ) ) == NULL )
-    #endif
-        return cell_err_malloc;
+    if ( posix_memalign( (void **)&(c->parts) , cell_partalign , align_ceil( sizeof(struct part) * cell_default_size ) ) != 0 )
+        return error(cell_err_malloc);
     c->size = cell_default_size;
     c->count = 0;
         

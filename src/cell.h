@@ -28,6 +28,14 @@
 #define cell_default_size               10
 #define cell_incr                       10
 
+/** Alignment when allocating parts. */
+#ifdef CELL
+    #define cell_partalign                  128
+#else
+    #define cell_partalign                  16
+#endif
+
+/** Cell flags */
 #define cell_flag_none                  0
 #define cell_flag_ghost                 1
 #define cell_flag_wait                  2

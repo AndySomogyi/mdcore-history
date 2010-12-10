@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the debug flag to the whole thing
-AM_CFLAGS = $(SIMD_FLAGS) $(CFLAGS)
+AM_CFLAGS = $(SIMD_FLAGS) $(CFLAGS) -DFPTYPE_SINGLE
 
 # Build the libchebfun library
 lib_LTLIBRARIES = libmdcore.la

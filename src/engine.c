@@ -55,6 +55,106 @@ char *engine_err_msg[7] = {
     "An error occured when calling a runner function.",
     "One or more values were outside of the allowed range."
 	};
+    
+    
+/**
+ * @brief Unload a set of particle data from the #engine.
+ *
+ * @param e The #engine.
+ * @param x An @c N times 3 array of the particle positions.
+ * @param v An @c N times 3 array of the particle velocities.
+ * @param type A vector of length @c N of the particle type IDs.
+ * @param flags A vector of length @c N of the particle flags.
+ * @param N the maximum number of particles.
+ *
+ * @return The number of particles unloaded or < 0 on
+ *      error (see #engine_err).
+ *
+ * The fields @c x, @c v, @c type and/or @c flags may be NULL.
+ */
+ 
+int engine_unload ( struct engine *e , double *x , double *v , int *type , unsigned int *flags , int N ) {
+
+    struct part *p;
+    struct cell *c;
+    int j, k, pid;
+    
+    /* check the inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    if ( N < e->s.nr_parts )
+        return error(engine_err_range);
+        
+    /* loop over the entries. */
+    for ( k = 0 ; k < e->s.nr_parts ; k++ ) {
+    
+        /* get a handle on the particle. */
+        p = e->s.partlist[k];
+        c = e->s.celllist[k];
+        pid = p->id;
+        
+        /* get this particle's data, where requested. */
+        if ( x != NULL )
+            for ( j = 0 ; j < 3 ; j++ )
+                x[pid*3+j] = c->origin[j] + p->x[j];
+        if ( v != NULL)
+            for ( j = 0 ; j < 3 ; j++ )
+                v[pid*3+j] = p->v[j];
+        if ( type != NULL )
+            type[pid] = p->type;
+        if ( flags != NULL )
+            flags[pid] = p->flags;
+    
+        }
+        
+    /* to the pub! */
+    return e->s.nr_parts;
+
+    }
+
+
+/**
+ * @brief Load a set of particle data.
+ *
+ * @param e The #engine.
+ * @param x An @c N times 3 array of the particle positions.
+ * @param v An @c N times 3 array of the particle velocities.
+ * @param type A vector of length @c N of the particle type IDs.
+ * @param flags A vector of length @c N of the particle flags.
+ * @param N the number of particles to load.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_load ( struct engine *e , double *x , double *v , int *type , unsigned int *flags , int N ) {
+
+    struct part p;
+    int k, pid;
+    
+    /* check the inputs. */
+    if ( e == NULL || x == NULL || v == NULL || type == NULL || flags == NULL )
+        return error(engine_err_null);
+        
+    /* loop over the entries. */
+    for ( pid = 0 ; pid < N ; pid++ ) {
+    
+        /* set the particle data. */
+        p.id = pid;
+        p.flags = flags[pid];
+        p.type = type[pid];
+        for ( k = 0 ; k < 3 ; k++ )
+            p.v[k] = v[pid*3+k];
+            
+        /* add the part to the space. */
+        if ( space_addpart( &e->s , &p , &x[3*pid] ) < 0 )
+            return error(engine_err_space);
+    
+        }
+        
+    /* to the pub! */
+    return engine_err_ok;
+
+    }
 
 
 /**
@@ -141,20 +241,20 @@ int engine_start ( struct engine *e , int nr_runners ) {
     /* allocate data for the improved pair search */
     if ( ( e->runner_count = (int *)malloc( sizeof(int) * nr_runners ) ) == NULL ||
          ( e->owns = (int *)malloc( sizeof(int) * nr_runners * runner_qlen * 2 ) ) == NULL )
-        return engine_err = engine_err_malloc;
+        return error(engine_err_malloc);
 
     /* allocate and initialize the runners */
     e->nr_runners = nr_runners;
     if ( (e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
-        return engine_err = engine_err_malloc;
+        return error(engine_err_malloc);
     for ( i = 0 ; i < nr_runners ; i++ )
         if ( runner_init(&e->runners[i],e,i) < 0 )
-            return engine_err = engine_err_runner;
+            return error(engine_err_runner);
             
     /* wait for the runners to be in place */
     while (e->barrier_count != e->nr_runners)
         if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-            return engine_err = engine_err_pthread;
+            return error(engine_err_pthread);
         
     /* all is well... */
     return engine_err_ok;
@@ -190,17 +290,17 @@ int engine_step ( struct engine *e ) {
     
     /* prepare the space */
     if ( space_prepare( &(e->s) ) != space_err_ok )
-        return engine_err_space;
+        return error(engine_err_space);
         
     /* open the door for the runners */
     e->barrier_count *= -1;
     if (pthread_cond_broadcast(&e->barrier_cond) != 0)
-        return engine_err_pthread;
+        return error(engine_err_pthread);
         
     /* wait for the runners to come home */
     while (e->barrier_count < e->nr_runners)
         if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-            return engine_err_pthread;
+            return error(engine_err_pthread);
     
     /* update the particle velocities and positions */
     for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
@@ -216,7 +316,7 @@ int engine_step ( struct engine *e ) {
         
     /* re-shuffle the space (every particle in its box) */
     if ( space_shuffle( &(e->s) ) != space_err_ok )
-        return engine_err_space;
+        return error(engine_err_space);
     
     /* return quietly */
     return engine_err_ok;
@@ -240,32 +340,32 @@ int engine_barrier ( struct engine *e ) {
 
     /* lock the barrier mutex */
 	if (pthread_mutex_lock(&e->barrier_mutex) != 0)
-		return engine_err_pthread;
+		return error(engine_err_pthread);
 	
     /* wait for the barrier to close */
 	while (e->barrier_count < 0)
 		if (pthread_cond_wait(&e->barrier_cond,&e->barrier_mutex) != 0)
-			return engine_err_pthread;
+			return error(engine_err_pthread);
 	
     /* if i'm the last thread in, signal that the barrier is full */
 	if (++e->barrier_count == e->nr_runners) {
 		if (pthread_cond_signal(&e->done_cond) != 0)
-			return engine_err_pthread;
+			return error(engine_err_pthread);
 		}
 
     /* wait for the barrier to re-open */
 	while (e->barrier_count > 0)
 		if (pthread_cond_wait(&e->barrier_cond,&e->barrier_mutex) != 0)
-			return engine_err_pthread;
+			return error(engine_err_pthread);
 				
     /* if i'm the last thread out, signal to those waiting to get back in */
 	if (++e->barrier_count == 0)
 		if (pthread_cond_broadcast(&e->barrier_cond) != 0)
-			return engine_err_pthread;
+			return error(engine_err_pthread);
 			
     /* free the barrier mutex */
 	if (pthread_mutex_unlock(&e->barrier_mutex) != 0)
-		return engine_err_pthread;
+		return error(engine_err_pthread);
 		
     /* all is well... */
 	return engine_err_ok;
@@ -294,11 +394,11 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
 
     /* make sure the inputs are ok */
     if ( e == NULL || origin == NULL || dim == NULL )
-        return engine_err = engine_err_null;
+        return error(engine_err_null);
         
     /* init the space with the given parameters */
     if ( space_init( &(e->s) ,origin , dim , cutoff , period ) < 0 )
-        return engine_err_space;
+        return error(engine_err_space);
         
     /* Set the flags. */
     e->flags = flags;
@@ -309,30 +409,30 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
          ( e->nneigh = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL ||
          ( e->cell_count = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL ||
          ( e->owner = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL )
-        return engine_err = engine_err_malloc;
+        return error(engine_err_malloc);
     if ( pthread_mutex_init( &e->getpairs_mutex , NULL ) != 0 ||
          pthread_cond_init( &e->getpairs_avail , NULL ) != 0 )
-        return engine_err = engine_err_pthread;
+        return error(engine_err_pthread);
         
     /* set the maximum nr of types */
     e->max_type = max_type;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )
-        return engine_err_malloc;
+        return error(engine_err_malloc);
     
     /* allocate the interaction matrix */
     if ( (e->p = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type )) == NULL)
-        return engine_err_malloc;
+        return error(engine_err_malloc);
         
     /* init the barrier variables */
     e->barrier_count = 0;
 	if (pthread_mutex_init(&e->barrier_mutex,NULL) != 0 ||
 		pthread_cond_init(&e->barrier_cond,NULL) != 0 ||
 		pthread_cond_init(&e->done_cond,NULL) != 0)
-		return engine_err = engine_err_pthread;
+		return error(engine_err_pthread);
         
     /* init the barrier */
     if (pthread_mutex_lock(&e->barrier_mutex) != 0)
-        return engine_err = engine_err_pthread;
+        return error(engine_err_pthread);
     e->barrier_count = 0;
         
     /* all is well... */

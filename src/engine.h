@@ -100,3 +100,5 @@ int engine_barrier ( struct engine *e );
 int engine_step ( struct engine *e );
 int engine_addpot ( struct engine *e , struct potential *p , int i , int j );
 int engine_addtype ( struct engine *e , int id , double mass , double charge );
+int engine_load ( struct engine *e , double *x , double *v , int *type , unsigned int *flags , int N );
+int engine_unload ( struct engine *e , double *x , double *v , int *type , unsigned int *flags , int N );
