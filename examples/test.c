@@ -51,11 +51,10 @@ int main ( int argc , char *argv[] ) {
     // const int nr_mols = 16128, nx = 26;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
-    double epot, ekin, v2, temp, ee, eff;
+    double epot, ekin, v2, temp;
     struct engine e;
     struct part p_O, p_H;
     struct potential *pot_OO, *pot_OH, *pot_HH;
-    struct cellpair cp;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
     double v_OH1[3], v_OH2[3], v_HH[3];
@@ -77,6 +76,7 @@ int main ( int argc , char *argv[] ) {
     printf("main: initializing the engine... "); fflush(stdout);
     if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , engine_flag_tuples ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
         return 1;
         }
     printf("done.\n"); fflush(stdout);
@@ -98,6 +98,7 @@ int main ( int argc , char *argv[] ) {
     // initialize the O-H potential
     if ( ( pot_OH = potential_create_Ewald( 0.04 , 1.0 , -0.35921288 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
+        errs_dump(stdout);
         return 1;
         }
     printf("main: constructed OH-potential with %i intervals.\n",pot_OH->n); fflush(stdout);
@@ -111,6 +112,7 @@ int main ( int argc , char *argv[] ) {
     // initialize the H-H potential
     if ( ( pot_HH = potential_create_Ewald( 0.04 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
+        errs_dump(stdout);
         return 1;
         }
     printf("main: constructed HH-potential with %i intervals.\n",pot_HH->n); fflush(stdout);
@@ -124,6 +126,7 @@ int main ( int argc , char *argv[] ) {
     // initialize the O-O potential
     if ( ( pot_OO = potential_create_LJ126_Ewald( 0.2 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
+        errs_dump(stdout);
         return 1;
         }
     printf("main: constructed OO-potential with %i intervals.\n",pot_OO->n); fflush(stdout);
@@ -190,6 +193,7 @@ int main ( int argc , char *argv[] ) {
                 vtot[0] += p_O.v[0]; vtot[1] += p_O.v[1]; vtot[2] += p_O.v[2];
                 if ( space_addpart( &(e.s) , &p_O , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
+                    errs_dump(stdout);
                     return 1;
                     }
                 x[0] += 0.1;
@@ -197,6 +201,7 @@ int main ( int argc , char *argv[] ) {
                 p_H.v[0] = p_O.v[0]; p_H.v[1] = p_O.v[1]; p_H.v[2] = p_O.v[2];
                 if ( space_addpart( &(e.s) , &p_H , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
+                    errs_dump(stdout);
                     return 1;
                     }
                 x[0] -= 0.13333;
@@ -204,6 +209,7 @@ int main ( int argc , char *argv[] ) {
                 p_H.id = 3 * (k + nx * ( j + nx * i )) + 2;
                 if ( space_addpart( &(e.s) , &p_H , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
+                    errs_dump(stdout);
                     return 1;
                     }
                 x[0] += 0.03333;
@@ -241,11 +247,13 @@ int main ( int argc , char *argv[] ) {
     #ifdef CELL
         if ( engine_start( &e , nr_runners ) != 0 ) {
             printf("main: engine_start failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
             return 1;
             }
     #else
         if ( engine_start( &e , nr_runners ) != 0 ) {
             printf("main: engine_start failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
             return 1;
             }
     #endif
@@ -265,7 +273,7 @@ int main ( int argc , char *argv[] ) {
         #endif
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-            fflush(stdout);
+            errs_dump(stdout);
             return 1;
             }
         #ifdef CELL
@@ -374,6 +382,7 @@ int main ( int argc , char *argv[] ) {
         // re-shuffle the space just to be sure...
         if ( space_shuffle( &e.s ) < 0 ) {
             printf("main: space_shuffle failed with space_err=%i.\n",space_err);
+            errs_dump(stdout);
             return 1;
             }
             
