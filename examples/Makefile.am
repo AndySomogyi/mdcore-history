@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the source directory and debug to CFLAGS
-AM_CFLAGS = -g -I../src -O2 $(CFLAGS)
+AM_CFLAGS = -g -I../src -O2 $(CFLAGS) -DFPTYPE_SINGLE -lprofiler -fopenmp
 
 # Set-up the library
 bin_PROGRAMS = test btree_test

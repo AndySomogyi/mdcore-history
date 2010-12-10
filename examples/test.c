@@ -226,7 +226,7 @@ int main ( int argc , char *argv[] ) {
         printf("main: setup took %.3f ms.\n",(double)(toc-tic) / 25000);
     #else
         toc = getticks();
-        printf("main: setup took %.3f ms.\n",elapsed(toc,tic) / 2300000);
+        printf("main: setup took %.3f ms.\n",elapsed(toc,tic) / 2501000);
     #endif
     
     // did the user specify a number of runners?
@@ -275,6 +275,7 @@ int main ( int argc , char *argv[] ) {
         #endif
         
         // shake the water molecules
+        #pragma omp for private(k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
         for ( j = 0 ; j < nr_mols ; j++ ) {
         
             // unwrap the data
@@ -332,9 +333,9 @@ int main ( int argc , char *argv[] ) {
                     }
                     
                 // check the tolerances
-                if ( fabs( d_OH1 - 0.1*0.1 ) < 1e-8 &&
-                    fabs( d_OH2 - 0.1*0.1 ) < 1e-8 &&  
-                    fabs( d_HH - 0.1633*0.1633 ) < 1e-8 )
+                if ( fabs( d_OH1 - 0.1*0.1 ) < 1e-10 &&
+                    fabs( d_OH2 - 0.1*0.1 ) < 1e-10 &&  
+                    fabs( d_HH - 0.1633*0.1633 ) < 1e-10 )
                     break;
                     
                 // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));
@@ -398,7 +399,7 @@ int main ( int argc , char *argv[] ) {
         w = sqrt( 1.0 + 0.1 * ( 300.0 / temp - 1.0 ) );
 
         // compute the molecular heat
-        if ( i < 5000 ) {
+        if ( i < 10000 ) {
         
             // scale the COM-velocities
             for ( j = 0 ; j < nr_mols ; j++ ) {
