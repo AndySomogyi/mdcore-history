@@ -36,8 +36,6 @@
 #define runner_bitesize                  3
 #ifdef CELL
     #define runner_qlen                  6
-#else
-    #define runner_qlen                  4
 #endif
 #define runner_maxparts                  400
 #define runner_maxqstack                 100
@@ -89,7 +87,7 @@ struct runner {
 
 /* associated functions */
 int runner_init ( struct runner *r , struct engine *e , int id );
-int runner_run ( struct runner *r );
+int runner_run_pairs ( struct runner *r );
 int runner_run_tuples ( struct runner *r );
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );

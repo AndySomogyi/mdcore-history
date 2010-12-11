@@ -1093,7 +1093,7 @@ int runner_run_cell ( struct runner *r ) {
  * available.
  */
 
-int runner_run ( struct runner *r ) {
+int runner_run_pairs ( struct runner *r ) {
 
     int err = 0;
     struct cellpair *p = NULL;
@@ -1292,8 +1292,10 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->e = e;
     r->id = id;
     
-    #ifdef CELL
+    /* If this runner will run on an SPU, it needs to init some data. */
+    if ( e->flags & engine_flag_cell ) {
     
+        #ifdef CELL
         /* if this has not been done before, init the runner data */
         if ( data == NULL ) {
     
@@ -1409,7 +1411,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
             return spe_context_run( r->spe , &(r->entry) , 0 , r->data , (void *)(unsigned long long)size_data , NULL );
             }
         
-        /* start the runner with a pointer to the data */
+        /* start the SPU with a pointer to the data */
         r->entry = SPE_DEFAULT_ENTRY;
 	    if (pthread_create(&r->spe_thread,NULL,(void *(*)(void *))dummy,r) != 0)
 		    return error(runner_err_pthread);
@@ -1417,20 +1419,29 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
         /* wait until the SPU is ready... */
         if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
             return runner_err_spe;
-    
-    #endif
-    
-    /* init the thread */
-    if ( e->flags & engine_flag_cell ) {
+            
+        /* start the runner. */
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell,r) != 0)
 		    return error(runner_err_pthread);
+            
+        #else
+        
+            /* if not compiled for cell, then this option is not available. */
+            return error(runner_err_unavail);
+        
+        #endif
+        
         }
+    
+    /* init the thread using tuples. */
     else if ( e->flags & engine_flag_tuples ) {
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0)
 		    return error(runner_err_pthread);
         }
+        
+    /* default: use the normal pair-list instead. */
     else {
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run,r) != 0)
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_pairs,r) != 0)
 		    return error(runner_err_pthread);
         }
     
