@@ -35,7 +35,7 @@ libmdcore_la_LDFLAGS = -version-info 0:0:0
 
 # Set-up for single-precision case
 libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
-libmdcore_single_la_CFLAGS = $(AM_CFLAGS) -DFPTYPE_SINGLE
+libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
 libmdcore_single_la_LDFLAGS = -version-info 0:0:0
 
 # Show the way...

@@ -1,7 +1,7 @@
 
 # Should we do anything at all?
-CELLTOP =
-ifdef CELLTOP 
+HAVE_CELL = 
+ifdef HAVE_CELL
 
     # Targets
     PROGRAM_spu := runner_spu

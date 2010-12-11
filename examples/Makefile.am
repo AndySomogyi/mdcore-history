@@ -26,12 +26,11 @@ bin_PROGRAMS = test test_single btree_test
 
 # Sources for test
 test_SOURCES = test.c
-test_CFLAGS = $(AM_CFLAGS) -lprofiler -fopenmp
 test_LDADD = ../src/.libs/libmdcore.a
 
 # Sources for test_single
 test_single_SOURCES = test.c
-test_single_CFLAGS = $(AM_CFLAGS) -DFPTYPE_SINGLE -lprofiler -fopenmp
+test_single_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
 test_single_LDADD = ../src/.libs/libmdcore_single.a
 
 # Sources for fun_test

@@ -29,7 +29,7 @@ AM_CONFIG_HEADER(config.h)
 CFLAGS="-Wall -g $CFLAGS"
 
 # find and test the compiler
-AC_PROG_CC
+AM_PROG_CC_C_O
 AC_LANG_C
 AX_CC_MAXOPT
 AX_FUNC_POSIX_MEMALIGN
