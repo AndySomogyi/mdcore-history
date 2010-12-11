@@ -18,16 +18,25 @@
 # Automake stuff
 AUTOMAKE_OPTIONS=gnu
 
-# Add the debug flag to the whole thing
-AM_CFLAGS = $(SIMD_FLAGS) $(CFLAGS) -DFPTYPE_SINGLE
-
-# Build the libchebfun library
-lib_LTLIBRARIES = libmdcore.la
-libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
+# Set-up CFLAGS for all targets
+AM_CFLAGS = $(SIMD_FLAGS) $(CFLAGS)
 
 # List required headers
-include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h
+include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h errs.h
 
-# Assign a "safe" version number
+# Build the libchebfun libraries
+lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
+
+
+# Set-up for general (double-precision) case
+libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
 libmdcore_la_LDFLAGS = -version-info 0:0:0
 
+
+# Set-up for single-precision case
+libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
+libmdcore_single_la_CFLAGS = $(AM_CFLAGS) -DFPTYPE_SINGLE
+libmdcore_single_la_LDFLAGS = -version-info 0:0:0
+
+# Show the way...
+SUBDIRS = spu

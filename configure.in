@@ -53,25 +53,29 @@ ACX_PTHREAD([LIBS="$PTHREAD_LIBS $LIBS" CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
     or use CPPFLAGS and LDFLAGS if the library is installed in a
     non-standard location.]))
     
+    
 # Check for CUDA
 AC_ARG_WITH([cuda],
-    [  --with-cuda=PATH        prefix where cuda is installed [default=auto]])
-if test -n "$with_cuda"
-then
-    CUDA_CFLAGS="-I$with_cuda/include"
-    CUDA_LIBS="-L$with_cuda/lib -lcuda -lcudart"
-    NVCC="$with_cuda/bin/nvcc"
-else
-    AC_CHECK_PROG([NVCC],nvcc)
-    if test -n "$NVCC"
-    then
-        CUDA_CFLAGS="-I/usr/local/cuda/include"
-        CUDA_LIBS="-L/usr/local/cuda/lib -lcuda -lcudart"
-    fi
-fi
-if test -n "$NVCC"; then
-    AC_DEFINE([HAVE_CUDA],[true],[The cuda compiler is installed.])
-fi
+    [AS_HELP_STRING([--with-cuda=PATH],[prefix where cuda is installed @<:@default=auto@:>@])],
+    [if test "x$with_cuda" != "xno"
+     then
+        if test "x$with_cuda" != "xyes"
+        then
+            CUDA_CFLAGS="-I$with_cuda/include"
+            CUDA_LIBS="-L$with_cuda/lib -lcuda -lcudart"
+            NVCC="$with_cuda/bin/nvcc"
+        else
+            AC_CHECK_PROG([NVCC],nvcc)
+            if test -n "$NVCC"
+            then
+                CUDA_CFLAGS="-I/usr/local/cuda/include"
+                CUDA_LIBS="-L/usr/local/cuda/lib -lcuda -lcudart"
+            fi
+        fi
+        if test -n "$NVCC"; then
+            AC_DEFINE([HAVE_CUDA],[true],[The cuda compiler is installed.])
+        fi
+    fi])
 AC_SUBST(CUDA_CFLAGS)
 AC_SUBST(CUDA_LIBS)
 AC_SUBST(NVCC)
@@ -79,18 +83,26 @@ AC_SUBST(NVCC)
 
 # Check for CELL
 AC_ARG_WITH([cell],
-    [  --with-cell=PATH        prefix where the IBM Cell-SDK is installed [default=auto]])
-if test -n "$with_cell"
-then
-    PPUGCC="$with_cell/toolchain/bin/ppu-gcc"
-    SPUGCC="$with_cell/toolchain/bin/spu-gcc"
-else
-    AC_CHECK_PROG([PPUGCC],ppu-gcc)
-    AC_CHECK_PROG([SPUGCC],spu-gcc)
-fi
-if test -n "$PPUGCC"; then
-    AC_DEFINE([HAVE_CELL],[true],[The Cell/BE Toolchain appears to be present.])
-fi
+    [AS_HELP_STRING([--with-cell=PATH],[prefix where the IBM Cell-SDK and toolchain are installed @<:@default=/opt/cell@:>@])],
+    [if test "x$with_cell" != "xno"
+     then
+        if test "x$with_cell" != "xyes"
+        then
+            CELLTOP="$with_cell"
+        else
+            CELLTOP="/opt/cell"
+        fi
+        AC_CHECK_PROG([PPUGCC],ppu-gcc,$CELLTOP/toolchain/bin/ppu-gcc,[],[$CELLTOP/toolchain/bin])
+        AC_CHECK_PROG([SPUGCC],spu-gcc,$CELLTOP/toolchain/bin/spu-gcc,[],[$CELLTOP/toolchain/bin])
+        if test x"$PPUGCC" == "x"; then
+            AC_ERROR([Could not find the ppu-gcc compiler in $CELLTOP/toolchain/bin/])
+        fi
+        if test x"$SPUGCC" == "x"; then
+            AC_ERROR([Could not find the spu-gcc compiler in $CELLTOP/toolchain/bin/])
+        fi
+        AC_DEFINE([HAVE_CELL],[true],[The Cell/BE Toolchain appears to be present.])
+     fi])
+AC_SUBST(CELLTOP)
 AC_SUBST(PPUGCC)
 AC_SUBST(SPUGCC)
 
@@ -99,5 +111,5 @@ AC_SUBST(SPUGCC)
 DX_INIT_DOXYGEN(mdcore,doc/Doxyfile,doc/)
 
 # generate the Makefiles
-AC_OUTPUT(Makefile src/Makefile examples/Makefile doc/Makefile)
+AC_OUTPUT(Makefile src/Makefile src/spu/Makefile examples/Makefile doc/Makefile)
 

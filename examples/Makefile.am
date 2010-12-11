@@ -19,14 +19,20 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the source directory and debug to CFLAGS
-AM_CFLAGS = -g -I../src -O2 $(CFLAGS) -DFPTYPE_SINGLE -lprofiler -fopenmp
+AM_CFLAGS = -g -I../src -O2 $(CFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = test btree_test
+bin_PROGRAMS = test test_single btree_test
 
 # Sources for test
 test_SOURCES = test.c
+test_CFLAGS = $(AM_CFLAGS) -lprofiler -fopenmp
 test_LDADD = ../src/.libs/libmdcore.a
+
+# Sources for test_single
+test_single_SOURCES = test.c
+test_single_CFLAGS = $(AM_CFLAGS) -DFPTYPE_SINGLE -lprofiler -fopenmp
+test_single_LDADD = ../src/.libs/libmdcore_single.a
 
 # Sources for fun_test
 btree_test_SOURCES = btree_test.c

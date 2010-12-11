@@ -9,3 +9,11 @@ Things that need to be done, in no particular order:
               or out of the domain (is this really needed?).
 * 2010/12/09: Add SSE2 vectorization for double.
 * 2010/12/10: Add OpenMP to configure script.
+* 2010/12/11: Add Cell/BE to the configure script, modify the spu/Makefile
+              to make a Makefile.in using whatever directory the Cell/BE
+              toolkit is in.
+* 2010/12/11: Let the Cell/BE version also use tuples (is this really
+              necessary?).
+* 2010/12/11: Create PPU runners if all SPUs are full in CELL mode (check
+              return value of spe_context_create to see when this is the
+              case).
