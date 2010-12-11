@@ -238,11 +238,6 @@ int engine_start ( struct engine *e , int nr_runners ) {
 
     int i;
 
-    /* allocate data for the improved pair search */
-    if ( ( e->runner_count = (int *)malloc( sizeof(int) * nr_runners ) ) == NULL ||
-         ( e->owns = (int *)malloc( sizeof(int) * nr_runners * runner_qlen * 2 ) ) == NULL )
-        return error(engine_err_malloc);
-
     /* allocate and initialize the runners */
     e->nr_runners = nr_runners;
     if ( (e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
@@ -402,17 +397,6 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         
     /* Set the flags. */
     e->flags = flags;
-        
-    /* init the data for the pair finding algorithm */
-    if ( ( e->M = (char *)malloc( sizeof(char) * e->s.nr_cells * e->s.nr_cells ) ) == NULL ||
-         ( e->cellpairs = (int *)malloc( sizeof(int) * e->s.nr_cells * 27 ) ) == NULL ||
-         ( e->nneigh = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL ||
-         ( e->cell_count = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL ||
-         ( e->owner = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL )
-        return error(engine_err_malloc);
-    if ( pthread_mutex_init( &e->getpairs_mutex , NULL ) != 0 ||
-         pthread_cond_init( &e->getpairs_avail , NULL ) != 0 )
-        return error(engine_err_pthread);
         
     /* set the maximum nr of types */
     e->max_type = max_type;

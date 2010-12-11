@@ -80,16 +80,6 @@ struct engine {
     /** The runners */
     struct runner *runners;
     
-    /** The data buffers */
-    FPTYPE *xbuff, *vbuff, *fbuff;
-    
-    /** Data for the improved pair search */
-    char *M;
-    int *nneigh, *cellpairs, *cell_count, *runner_count;
-    int *owner, *owns, nr_pairs;
-    pthread_mutex_t getpairs_mutex;
-    pthread_cond_t getpairs_avail;
-    
     };
     
 
