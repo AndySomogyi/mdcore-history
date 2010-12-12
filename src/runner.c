@@ -115,6 +115,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         int lo, hi;
         } qstack[runner_maxqstack];
     struct part *parts_i, *parts_j;
+    double epot = 0.0;
     
     /* get the space and cutoff */
     eng = r->e;
@@ -263,7 +264,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        cell_i->epot += e[l];
+                        epot += e[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             effi[l][k] += -f[l] * dxq[l*3+k];
                             effj[l][k] += f[l] * dxq[l*3+k];
@@ -293,7 +294,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
 
         /* for each entry, update the forces and energy */
         for ( l = 0 ; l < icount ; l++ ) {
-            cell_i->epot += e[l];
+            epot += e[l];
             for ( k = 0 ; k < 3 ; k++ ) {
                 effi[l][k] += -f[l] * dxq[l*3+k];
                 effj[l][k] += f[l] * dxq[l*3+k];
@@ -318,6 +319,9 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             }
         }
         
+    /* store the amassed potential energy. */
+    cell_i->epot += epot;
+        
     /* since nothing bad happened to us... */
     return runner_err_ok;
 
@@ -338,6 +342,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         int lo, hi;
         } qstack[runner_maxqstack];
     struct part *parts_i, *parts_j;
+    double epot = 0.0;
     
     /* get the space and cutoff */
     eng = r->e;
@@ -485,7 +490,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
                     }
                     
                 /* tabulate the energy */
-                cell_i->epot += e;
+                epot += e;
                 
                 }
         
@@ -508,6 +513,9 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             cell_j->parts[i].f[2] = parts_j[i].f[2];
             }
         }
+        
+    /* store the amassed potential energy. */
+    cell_i->epot += epot;
         
     /* since nothing bad happened to us... */
     return runner_err_ok;
@@ -547,6 +555,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     struct potential *potq[4];
     struct engine *eng;
     struct part *parts_i, *parts_j = NULL;
+    double epot = 0.0;
     
     /* get the space and cutoff */
     eng = r->e;
@@ -616,7 +625,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        cell_i->epot += e[l];
+                        epot += e[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             effi[l][k] += -f[l] * dxq[l*3+k];
                             effj[l][k] += f[l] * dxq[l*3+k];
@@ -680,7 +689,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        cell_i->epot += e[l];
+                        epot += e[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             effi[l][k] += -f[l] * dxq[l*3+k];
                             effj[l][k] += f[l] * dxq[l*3+k];
@@ -710,7 +719,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
         /* for each entry, update the forces and energy */
         for ( l = 0 ; l < icount ; l++ ) {
-            cell_i->epot += e[l];
+            epot += e[l];
             for ( k = 0 ; k < 3 ; k++ ) {
                 effi[l][k] += -f[l] * dxq[l*3+k];
                 effj[l][k] += f[l] * dxq[l*3+k];
@@ -736,6 +745,9 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 }
         }
         
+    /* store the amassed potential energy. */
+    cell_i->epot += epot;
+        
     /* all is well that ends ok */
     return runner_err_ok;
 
@@ -750,6 +762,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     struct potential *pot;
     struct engine *eng;
     struct part *parts_i, *parts_j = NULL;
+    double epot = 0.0;
 
     /* get the space and cutoff */
     eng = r->e;
@@ -818,7 +831,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     }
                     
                 /* tabulate the energy */
-                cell_i->epot += e;
+                epot += e;
                 
                 } /* loop over all other particles */
         
@@ -871,7 +884,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     }
                 
                 /* tabulate the energy */
-                cell_i->epot += e;
+                epot += e;
                 
                 } /* loop over all other particles */
         
@@ -895,6 +908,9 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 cell_j->parts[i].f[2] = parts_j[i].f[2];
                 }
         }
+        
+    /* store the amassed potential energy. */
+    cell_i->epot += epot;
         
     /* all is well that ends ok */
     return runner_err_ok;
