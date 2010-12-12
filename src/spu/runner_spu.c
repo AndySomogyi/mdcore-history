@@ -250,7 +250,7 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
     //     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b);
     
     // compute the index
-    ind = p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]);
+    ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
     // get a pointer to the data for this interval
     data = &( p->data[ 8 * ind ] );
@@ -267,7 +267,8 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
         }
 
     // store the result
-    *e = ee; *f = eff * data[1];    
+    *e = ee; *f = eff * data[1];
+    
     }
 #else
 inline void potential_eval ( struct potential *p , float r2 , float *e , float *f ) {
@@ -280,7 +281,7 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
     //     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b);
     
     // compute the index
-    ind = p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]);
+    ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
     // get a pointer to the data for this interval
     data = &( p->data[ 8 * ind ] );
@@ -297,7 +298,8 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
         }
 
     // store the result
-    *e = ee; *f = eff * data[1];    
+    *e = ee; *f = eff * data[1];
+    
     }
 #endif
 

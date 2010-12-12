@@ -547,7 +547,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     struct potential *potq[4];
     struct engine *eng;
     struct part *parts_i, *parts_j = NULL;
-
+    
     /* get the space and cutoff */
     eng = r->e;
     s = &(eng->s);
@@ -1124,17 +1124,17 @@ int runner_run_pairs ( struct runner *r ) {
                 /* is this cellpair playing with itself? */
                 if ( finger->i == finger->j ) {
                     if ( runner_dopair( r , &(r->e->s.cells[finger->i]) , &(r->e->s.cells[finger->j]) , finger->shift ) < 0 )
-                        return runner_err;
+                        return error(runner_err);
                     }
 
                 /* nope, good cell-on-cell action. */
                 else
                     if ( runner_sortedpair( r , &(r->e->s.cells[finger->i]) , &(r->e->s.cells[finger->j]) , finger->shift ) < 0 )
-                        return runner_err;
+                        return error(runner_err);
 
                 /* release this pair */
                 if ( space_releasepair( &(r->e->s) , finger->i , finger->j ) < 0 )
-                    return runner_err_space;
+                    return error(runner_err_space);
 
                 }
 
@@ -1234,17 +1234,17 @@ int runner_run_tuples ( struct runner *r ) {
                     /* is this cellpair playing with itself? */
                     if ( ci == cj ) {
                         if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return runner_err;
+                            return error(runner_err);
                         }
 
                     /* nope, good cell-on-cell action. */
                     else
                         if ( runner_sortedpair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return runner_err;
+                            return error(runner_err);
 
                     /* release this pair */
                     if ( space_releasepair( s , ci , cj ) < 0 )
-                        return runner_err_space;
+                        return error(runner_err_space);
                         
                     }
                     
@@ -1304,7 +1304,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
                 for ( j = i ; j < e->max_type ; j++ )
                     if ( e->p[ i * e->max_type + j ] != NULL ) {
                         nr_pots += 1;
-                        size_pots += e->p[ i * e->max_type + j ]->n;
+                        size_pots += e->p[ i * e->max_type + j ]->n + 1;
                         }
 
             /* the main data consists of a pointer to the cell data (64 bit), */
@@ -1361,7 +1361,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
                         *((float *)finger) = p->alpha[0]; finger += sizeof(float);
                         *((float *)finger) = p->alpha[1]; finger += sizeof(float);
                         *((float *)finger) = p->alpha[2]; finger += sizeof(float);
-                        for ( k = 0 ; k < p->n ; k++ ) {
+                        for ( k = 0 ; k <= p->n ; k++ ) {
                             *((float *)finger) = p->mi[k]; finger += sizeof(float);
                             *((float *)finger) = p->hi[k]; finger += sizeof(float);
                             *((float *)finger) = p->c[k*6+0]; finger += sizeof(float);

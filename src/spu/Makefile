@@ -1,6 +1,6 @@
 
 # Should we do anything at all?
-CELLTOP = /opt/cell
+CELLTOP = 
 ifdef CELLTOP
 
     # Targets

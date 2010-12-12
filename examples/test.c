@@ -32,6 +32,7 @@
 
 // include local headers
 #include "errs.h"
+#include "fptype.h"
 #include "part.h"
 #include "potential.h"
 #include "cell.h"
@@ -52,6 +53,7 @@ int main ( int argc , char *argv[] ) {
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp;
+    FPTYPE ee, eff;
     struct engine e;
     struct part p_O, p_H;
     struct potential *pot_OO, *pot_OH, *pot_HH;
@@ -96,7 +98,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the O-H potential
-    if ( ( pot_OH = potential_create_Ewald( 0.04 , 1.0 , -0.35921288 , 3.0 , 1.0e-3 ) ) == NULL ) {
+    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -110,7 +112,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the H-H potential
-    if ( ( pot_HH = potential_create_Ewald( 0.04 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-3 ) ) == NULL ) {
+    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -124,7 +126,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the O-O potential
-    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.2 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-3 ) ) == NULL ) {
+    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -136,12 +138,16 @@ int main ( int argc , char *argv[] ) {
         pot_OO->alpha[1] = 2.619222661792581e-03;
         pot_OO->alpha[2] = 7.1842576e-01;
     #endif
-    // for ( i = 0 ; i < 1000 ; i++ ) {
-    //     temp = 0.3 + (double)i/1000 * 0.7;
-    //     potential_eval( &pot , temp*temp , &ee , &eff );
-    //     printf("%e %e %e %e\n", temp , ee , eff , dfdr( temp ) );
-    //     }
-    // return 0;
+    
+    /* dump the potential to make sure its ok... 
+    for ( i = 0 ; i < 1000 ; i++ ) {
+        temp = 0.2 + (double)i/1000 * 0.8;
+        potential_eval( pot_OO , temp*temp , &ee , &eff );
+        printf("%23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
+             potential_LJ126(temp,2.637775819766153e-06,2.619222661792581e-03) + 7.1842576e-01*potential_Ewald(temp,3.0) ,
+             potential_LJ126_p(temp,2.637775819766153e-06,2.619222661792581e-03) + 7.1842576e-01*potential_Ewald_p(temp,3.0) );
+        }
+    return 0; */
         
     
     /* register the particle types. */
@@ -188,7 +194,7 @@ int main ( int argc , char *argv[] ) {
                 p_O.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 p_O.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 p_O.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.7 / sqrt( p_O.v[0]*p_O.v[0] + p_O.v[1]*p_O.v[1] + p_O.v[2]*p_O.v[2] );
+                temp = 0.675 / sqrt( p_O.v[0]*p_O.v[0] + p_O.v[1]*p_O.v[1] + p_O.v[2]*p_O.v[2] );
                 p_O.v[0] *= temp; p_O.v[1] *= temp; p_O.v[2] *= temp;
                 vtot[0] += p_O.v[0]; vtot[1] += p_O.v[1]; vtot[2] += p_O.v[2];
                 if ( space_addpart( &(e.s) , &p_O , x ) != 0 ) {

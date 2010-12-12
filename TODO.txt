@@ -17,3 +17,4 @@ Things that need to be done, in no particular order:
 * 2010/12/11: Create PPU runners if all SPUs are full in CELL mode (check
               return value of spe_context_create to see when this is the
               case).
+* 2010/12/12: Test new shifted/linear potentials for Cell/BE (packing?)

@@ -118,6 +118,10 @@ void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE 
         eff += -p->alpha[2] * ir2;
     
         }
+        
+    /* store the potential and force. */
+    *e = ee;
+    *f = eff;
     
     }
 
@@ -275,7 +279,7 @@ void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e
     alpha0.v = _mm_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
     alpha1.v = _mm_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
     alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
-    rind.v = _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) );
+    rind.v = _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) );
     for ( k = 0 ; k < 4 ; k++ )
         ind[k] = rind.f[k];
     
@@ -342,7 +346,11 @@ void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) 
     /*     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
     
     /* compute the index */
-    ind = p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]);
+    #ifdef FPTYPE_SINGLE
+        ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    #else
+        ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    #endif
     
     /* adjust x to the interval */
     x = (r - p->mi[ind]) * p->hi[ind];
@@ -554,6 +562,8 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
  * The sixth derivative @c f6p is used to compute the optimal node
  * distribution. If @c f6p is @c NULL, the derivative is approximated
  * numerically.
+ *
+ * The zeroth interval contains a linear extension of @c f for values < a.
  */
 
 int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol ) {
@@ -590,13 +600,13 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     /* compute the smallest interpolation... */
     /* printf("potential_init: trying l=%i...\n",l); fflush(stdout); */
     xi_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l + 1) );
-    c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * l * (potential_degree+1) );
+    c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) * (potential_degree+1) );
     for ( i = 0 ; i <= l ; i++ ) {
         xi_l[i] = a + (b - a) * i / l;
         while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > 3 * l * FPTYPE_EPSILON )
             xi_l[i] += e / (l * (p->alpha[1] + 2*xi_l[i]*p->alpha[2]));
         }
-    if ( potential_getcoeffs(f,fp,xi_l,l,c_l,&err_l) < 0 )
+    if ( potential_getcoeffs(f,fp,xi_l,l,&c_l[potential_degree+1],&err_l) < 0 )
         return potential_err;
     /* fflush(stderr); printf("potential_init: err_l=%e.\n",err_l); */
         
@@ -605,12 +615,18 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         p->n = l;
         p->c = c_l;
         p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
-        p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * l );
-        p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * l );
+        p->alpha[0] += 1;
+        p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) );
+        p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) );
         for ( k = 0 ; k < l ; k++ ) {
-            p->mi[k] = 0.5 * (xi_l[k] + xi_l[k+1]);
-            p->hi[k] = 2.0 / (xi_l[k+1] - xi_l[k]);
+            p->mi[k+1] = 0.5 * (xi_l[k] + xi_l[k+1]);
+            p->hi[k+1] = 2.0 / (xi_l[k+1] - xi_l[k]);
             }
+        p->mi[0] = a; p->hi[0] = a;
+        p->c[potential_degree] = f(a);
+        p->c[potential_degree-1] = fp(a) / a;
+        for ( k = 0 ; k < potential_degree-1 ; k++ )
+            p->c[k] = 0.0;
         free(xi_l);
         return potential_err_ok;
         }
@@ -621,13 +637,13 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         /* compute the larger interpolation... */
         /* printf("potential_init: trying r=%i...\n",r); fflush(stdout); */
         xi_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r + 1) );
-        c_r = (FPTYPE *)malloc( sizeof(FPTYPE) * r * (potential_degree+1) );
+        c_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r+1) * (potential_degree+1) );
         for ( i = 0 ; i <= r ; i++ ) {
             xi_r[i] = a + (b - a) * i / r;
             while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > 3 * r * FPTYPE_EPSILON )
                 xi_r[i] += e / (r * (p->alpha[1] + 2*xi_r[i]*p->alpha[2]));
             }
-        if ( potential_getcoeffs(f,fp,xi_r,r,c_r,&err_r) < 0 )
+        if ( potential_getcoeffs(f,fp,xi_r,r,&c_r[potential_degree+1],&err_r) < 0 )
             return potential_err;
         /* printf("potential_init: err_r=%e.\n",err_r); fflush(stdout); */
             
@@ -654,13 +670,13 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         /* construct that interpolation */
         /* printf("potential_init: trying m=%i...\n",m); fflush(stdout); */
         xi_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m + 1) );
-        c_m = (FPTYPE *)malloc( sizeof(FPTYPE) * m * (potential_degree+1) );
+        c_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m+1) * (potential_degree+1) );
         for ( i = 0 ; i <= m ; i++ ) {
             xi_m[i] = a + (b - a) * i / m;
             while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > 3 * m * FPTYPE_EPSILON )
                 xi_m[i] += e / (m * (p->alpha[1] + 2*xi_m[i]*p->alpha[2]));
             }
-        if ( potential_getcoeffs(f,fp,xi_m,m,c_m,&err_m) < 0 )
+        if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_degree+1],&err_m) < 0 )
             return potential_err;
         /* printf("potential_init: err_m=%e.\n",err_m); fflush(stdout); */
             
@@ -685,12 +701,18 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->n = r;
     p->c = c_r;
     p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
-    p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * r );
-    p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * r );
+    p->alpha[0] += 1.0;
+    p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * (r+1) );
+    p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * (r+1) );
     for ( k = 0 ; k < r ; k++ ) {
-        p->mi[k] = 0.5 * (xi_r[k] + xi_r[k+1]);
-        p->hi[k] = 2.0 / (xi_r[k+1] - xi_r[k]);
+        p->mi[k+1] = 0.5 * (xi_r[k] + xi_r[k+1]);
+        p->hi[k+1] = 2.0 / (xi_r[k+1] - xi_r[k]);
         }
+    p->mi[0] = a; p->hi[0] = a;
+    p->c[potential_degree] = f(a);
+    p->c[potential_degree-1] = fp(a) / a;
+    for ( k = 0 ; k < potential_degree-1 ; k++ )
+        p->c[k] = 0.0;
     free(xi_r);
     free(xi_l); free(c_l);
         
