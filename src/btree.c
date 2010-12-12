@@ -384,7 +384,7 @@ int btree_dump ( struct btree *b , FILE *out ) {
         /* is this node a leaf? */
         if ( n->flags & btree_flag_leaf ) {
         
-            fprintf(out,"btree_dump: node %08x (leaf), fill=%i\n",(unsigned int)n,n->fill);
+            fprintf(out,"btree_dump: node %08x (leaf), fill=%i\n",(size_t)n,n->fill);
             fprintf(out,"btree_dump: keys = [ %3i ", n->keys[0] );
             for ( k = 1 ; k < n->fill ; k++ )
                 fprintf(out,", %3i " , n->keys[k] );
@@ -394,14 +394,14 @@ int btree_dump ( struct btree *b , FILE *out ) {
             
         else {
         
-            fprintf(out,"btree_dump: node %08x , fill=%i\n",(unsigned int)n,n->fill);
+            fprintf(out,"btree_dump: node %08x , fill=%i\n",(size_t)n,n->fill);
             fprintf(out,"btree_dump: keys = [ %3i ", n->keys[0] );
             for ( k = 1 ; k < n->fill ; k++ )
                 fprintf(out,", %3i " , n->keys[k] );
             fprintf(out,"]\n");
-            fprintf(out,"btree_dump: nodes = [ %08x ", (unsigned int)n->nodes[0] );
+            fprintf(out,"btree_dump: nodes = [ %08x ", (size_t)n->nodes[0] );
             for ( k = 1 ; k <= n->fill ; k++ )
-                fprintf(out,", %08x " , (unsigned int)n->nodes[k] );
+                fprintf(out,", %08x " , (size_t)n->nodes[k] );
             fprintf(out,"]\n\n");
             
             /* recurse. */

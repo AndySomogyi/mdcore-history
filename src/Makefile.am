@@ -35,8 +35,18 @@ libmdcore_la_LDFLAGS = -version-info 0:0:0
 
 # Set-up for single-precision case
 libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
+libmdcore_single_la_SHORTNAME = sp
 libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
 libmdcore_single_la_LDFLAGS = -version-info 0:0:0
+
+
+# Dummy target to make the Cell/BE version
+libmdcore_cell: *.[ch] spu/runner_spu-embed64.o
+	make -f Makefile.cell
+clean:
+	make -f Makefile.cell clean
+all: libmdcore_cell
+
 
 # Show the way...
 SUBDIRS = spu

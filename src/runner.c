@@ -1015,7 +1015,7 @@ int runner_run_cell ( struct runner *r ) {
                     /* printf("runner_run: runner %i got SPU response.\n",r->id); fflush(stdout); */
 
                     /* release the last pair */
-                    if ( space_releasepair( &(r->e->s) , p[runner_qlen-1] ) < 0 )
+                    if ( space_releasepair( &(r->e->s) , p[runner_qlen-1]->i , p[runner_qlen-1]->j ) < 0 )
                         return runner_err_space;
 
                     /* we've got one less... */
@@ -1050,7 +1050,7 @@ int runner_run_cell ( struct runner *r ) {
                 /* release the pairs still in the queue */
                 for ( k = 1 ; k < runner_qlen ; k++ )
                     if ( p[k] != NULL ) {
-                        if ( space_releasepair( &(r->e->s) , p[k] ) < 0 )
+                        if ( space_releasepair( &(r->e->s) , p[k]->i , p[k]->j ) < 0 )
                             return runner_err_space;
                         p[k] = NULL;
                         count -= 1;
