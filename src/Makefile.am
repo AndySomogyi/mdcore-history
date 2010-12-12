@@ -41,11 +41,17 @@ libmdcore_single_la_LDFLAGS = -version-info 0:0:0
 
 
 # Dummy target to make the Cell/BE version
+if HAVECELL
 libmdcore_cell: *.[ch] spu/runner_spu-embed64.o
 	make -f Makefile_cell
-clean:
+	mv libmdcore_cell.a .libs/
+clean_cell:
 	make -f Makefile_cell clean
+	rm -f ppu64_*.[ch]
+	rm -f .libs/libmdcore_cell.a
+clean-recursive: clean_cell
 all: libmdcore_cell
+endif
 
 # Show the way...
 SUBDIRS = spu

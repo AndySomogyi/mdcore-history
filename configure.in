@@ -105,7 +105,7 @@ AC_ARG_WITH([cell],
 AC_SUBST(CELLTOP)
 AC_SUBST(PPUGCC)
 AC_SUBST(SPUGCC)
-
+AM_CONDITIONAL([HAVECELL],[test -n "$CELLTOP"])
 
 # make the documentation
 DX_INIT_DOXYGEN(mdcore,doc/Doxyfile,doc/)
