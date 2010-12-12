@@ -42,11 +42,10 @@ libmdcore_single_la_LDFLAGS = -version-info 0:0:0
 
 # Dummy target to make the Cell/BE version
 libmdcore_cell: *.[ch] spu/runner_spu-embed64.o
-	make -f Makefile.cell
+	make -f Makefile_cell
 clean:
-	make -f Makefile.cell clean
+	make -f Makefile_cell clean
 all: libmdcore_cell
-
 
 # Show the way...
 SUBDIRS = spu
