@@ -20,9 +20,7 @@ LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g
 CC_OPT_LEVEL := -O3
 CFLAGS := -g -DCELL -DFPTYPE_SINGLE -fno-strict-aliasing
 
-# Rules for the object files
-
 # Footer
-CELL_TOP = $(CELLTOP)/sdk
+CELL_TOP = @CELLTOP@/sdk
 include $(CELL_TOP)/buildutils/make.footer
 

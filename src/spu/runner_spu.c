@@ -47,6 +47,10 @@
 #define potential_flag_Ewald                 2
 #define potential_flag_Coulomb               4
 
+// potential degree (this has to match potential.h!)
+#define potential_degree                     5
+#define potential_chunk                      (potential_degree+3)
+
 // declare the local types we will use
 struct potential {
     int n;
@@ -99,7 +103,7 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
     
     // get a pointer to the data for this interval
     for ( k = 0 ; k < 4 ; k++ )
-        data[k] = &( p[k]->data[ 8 * spu_extract( ind , k ) ] );
+        data[k] = &( p[k]->data[ potential_chunk * spu_extract( ind , k ) ] );
     
     // get mi and hi
     mi = _load_vec_float4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
@@ -113,7 +117,7 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
     ee = spu_mul( eff , x );
     c = _load_vec_float4( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
     ee = spu_add( ee , c );
-    for ( i = 4 ; i < 8 ; i++ ) {
+    for ( i = 4 ; i < potential_degree+3 ; i++ ) {
         eff = spu_madd( eff , x , ee );
         c = _load_vec_float4( data[0][i] , data[1][i] , data[2][i] , data[3][i] );
         ee = spu_madd( ee , x , c );
@@ -253,7 +257,7 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
     ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
     // get a pointer to the data for this interval
-    data = &( p->data[ 8 * ind ] );
+    data = &( p->data[ potential_chunk * ind ] );
     
     // adjust x to the interval
     x = (r - data[0]) * data[1];
@@ -261,7 +265,7 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
     // compute the potential and its derivative
     ee = data[2] * x + data[3];
     eff = data[2];
-    for ( k = 4 ; k < 8 ; k++ ) {
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
         ee = ee * x + data[k];
         }
@@ -284,7 +288,7 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
     ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
     // get a pointer to the data for this interval
-    data = &( p->data[ 8 * ind ] );
+    data = &( p->data[ potential_chunk * ind ] );
     
     // adjust x to the interval
     x = (r - data[0]) * data[1];
@@ -292,7 +296,7 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
     // compute the potential and its derivative
     ee = data[2] * x + data[3];
     eff = data[2];
-    for ( k = 4 ; k < 8 ; k++ ) {
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
         ee = ee * x + data[k];
         }
@@ -319,16 +323,17 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
     float cutoff, cutoff2;
     float d[2*maxparts], temp, pivot;
     int ind[2*maxparts], left[2*maxparts], count = 0, lcount = 0, pcount = 0;
-    int i, j, k, imax, qpos, lo, hi;
+    int i, j, k, imax, qpos, lo, hi, pjoff, emt;
     struct {
         short int lo, hi;
         } qstack[maxqstack];
     float r2;
-    vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, nshiftv, shiftv, tempv;
+    vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, nshiftv, shiftv, tempv, pjx;
     
     // get the space and cutoff
     cutoff = data->cutoff;
     cutoff2 = cutoff * cutoff;
+    emt = data->max_type;
         
     // init r2v and make the compiler happy
     r2v = spu_splats( 0.0f );
@@ -424,6 +429,8 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         
             // get a handle on this particle
             part_j = &( pj[ind[i]] );
+            pjx = spu_add( part_j->x , shiftv );
+            pjoff = emt * part_j->type;
         
             // loop over the left particles
             for ( j = lcount-1 ; j >= 0 ; j-- ) {
@@ -432,7 +439,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                 part_i = &( pi[left[j]] );
             
                 // get the distance between both particles
-                dx = spu_sub( spu_sub( part_i->x , part_j->x ) , shiftv );
+                dx = spu_sub( part_i->x , pjx );
                 r2 = _dot_product3( dx , dx );
                 
                 // is this within cutoff?
@@ -440,7 +447,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                     continue;
                 
                 // fetch the potential, if any
-                pot = data->p[ part_i->type * data->max_type + part_j->type ];
+                pot = data->p[ pjoff + part_i->type ];
                 if ( __builtin_expect( pot == NULL , 0 ) )
                     continue;
                     
@@ -507,12 +514,15 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
 
 void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift ) {
 
-    int i, j, k, count = 0;;
+    int i, j, k, count = 0, pioff, emt;
     float cutoff2 = data->cutoff * data->cutoff;
     float r2;
-    vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, shiftv, tempv;
+    vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, shiftv, tempv, pix;
     struct part *part_i, *part_j;
     struct potential *pot, *potv[4];
+    
+    // get some useful data
+    emt = data->max_type;
 
     // is this a genuine pair or a cell against itself
     if ( pj == NULL ) {
@@ -522,6 +532,8 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         
             // get the particle
             part_i = &( pi[i] );
+            pix = part_i->x;
+            pioff = part_i->type * emt;
         
             // loop over all other particles
             for ( j = 0 ; j < i ; j++ ) {
@@ -530,7 +542,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                 part_j = &( pi[j] );
                 
                 // get the distance between both particles
-                dx = spu_sub( part_i->x , part_j->x );
+                dx = spu_sub( pix , part_j->x );
                 r2 = _dot_product3( dx , dx );
                 
                 // is this within cutoff?
@@ -538,7 +550,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                 
                 // fetch the potential, if any
-                pot = data->p[ part_i->type * data->max_type + part_j->type ];
+                pot = data->p[ pioff + part_j->type ];
                 if ( __builtin_expect( pot == NULL , 0 ) )
                     continue;
                     
@@ -592,6 +604,8 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         
             // get the particle
             part_i = &( pi[i] );
+            pix = spu_sub( part_i->x , shiftv );
+            pioff = part_i->type * emt;
         
             // loop over all other particles
             for ( j = 0 ; j < nj ; j++ ) {
@@ -603,7 +617,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     printf("dopair: oops...\n");
 
                 // get the distance between both particles
-                dx = spu_sub( spu_sub( part_i->x , part_j->x ) , shiftv );
+                dx = spu_sub( pix , part_j->x );
                 r2 = _dot_product3( dx , dx );
                 
                 // is this within cutoff?
@@ -611,7 +625,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                 
                 // fetch the potential, if any
-                pot = data->p[ part_i->type * data->max_type + part_j->type ];
+                pot = data->p[ pioff + part_j->type ];
                 if ( __builtin_expect( pot == NULL , 0 ) )
                     continue;
                     
@@ -683,14 +697,14 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
     struct potential *pot;
     float cutoff, cutoff2;
     #ifdef USE_DOUBLES
-        double r2, dx[3], e, f;
+        double r2, dx[3], e, f, pjx[3];
     #else
-        float r2, dx[3], e, f;
+        float r2, dx[3], e, f, pjx[3];
     #endif
     float d[2*maxparts], temp, pivot;
     float shift[3];
     int ind[2*maxparts], left[2*maxparts], count = 0, lcount = 0;
-    int i, j, k, imax, qpos, lo, hi;
+    int i, j, k, imax, qpos, lo, hi, pjoff, emt;
     struct {
         int lo, hi;
         } qstack[maxqstack];
@@ -698,6 +712,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
     // get the space and cutoff
     cutoff = data->cutoff;
     cutoff2 = cutoff * cutoff;
+    emt = data->max_type;
         
     // start by filling the particle ids of both cells into ind and d
     temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
@@ -783,6 +798,10 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
         
             // get a handle on this particle
             part_j = &( pj[ind[i]] );
+            pjx[0] = part_j->x[0] + pshift[0];
+            pjx[1] = part_j->x[1] + pshift[1];
+            pjx[2] = part_j->x[2] + pshift[2];
+            pjoff = part_j->type * emt;
         
             // loop over the left particles
             for ( j = lcount-1 ; j >= 0 ; j-- ) {
@@ -792,7 +811,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
             
                 // get the distance between both particles
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - pshift[k];
+                    dx[k] = part_i->x[k] - pjx[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -801,7 +820,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
                     continue;
                 
                 // fetch the potential, if any
-                pot = data->p[ part_i->type * data->max_type + part_j->type ];
+                pot = data->p[ pjoff + part_i->type ];
                 if ( pot == NULL )
                     continue;
                     
@@ -836,15 +855,18 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
 
 void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift ) {
 
-    int i, j, k;
+    int i, j, k, pioff, emt;
     float cutoff2 = data->cutoff * data->cutoff;
     #ifdef USE_DOUBLES
-        double dx[3], r2, e, f;
+        double dx[3], r2, e, f, pix[3];
     #else
-        float dx[3], r2, e, f;
+        float dx[3], r2, e, f, pix[3];
     #endif
     struct part *part_i, *part_j;
     struct potential *pot;
+    
+    // get the max type
+    emt = data->max_type;
 
     // is this a genuine pair or a cell against itself
     if ( pj == NULL ) {
@@ -854,6 +876,10 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         
             // get the particle
             part_i = &(pi[i]);
+            pix[0] = part_i->x[0];
+            pix[1] = part_i->x[1];
+            pix[2] = part_i->x[2];
+            pioff = part_i->type * emt;
         
             // loop over all other particles
             for ( j = 0 ; j < i ; j++ ) {
@@ -863,7 +889,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                 
                 // get the distance between both particles
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k];
+                    dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -872,7 +898,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                 
                 // fetch the potential, if any
-                pot = data->p[ part_i->type * data->max_type + part_j->type ];
+                pot = data->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
                     
@@ -904,6 +930,10 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         
             // get the particle
             part_i = &(pi[i]);
+            pix[0] = part_i->x[0] - shift[0];
+            pix[1] = part_i->x[1] - shift[1];
+            pix[2] = part_i->x[2] - shift[2];
+            pioff = part_i->type * emt;
         
             // loop over all other particles
             for ( j = 0 ; j < nj ; j++ ) {
@@ -916,7 +946,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
 
                 // get the distance between both particles
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = ((float)(part_i->x[k] - part_j->x[k])) - shift[k];
+                    dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -925,7 +955,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                 
                 // fetch the potential, if any
-                pot = data->p[ part_i->type * data->max_type + part_j->type ];
+                pot = data->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
                     

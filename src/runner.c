@@ -101,8 +101,9 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     struct space *s;
     struct potential *potq[4];
     struct engine *eng;
-    int icount = 0;
+    int icount = 0, emt, pjoff;
     FPTYPE cutoff, cutoff2, r2, *effi[4], *effj[4];
+    FPTYPE pjx[3];
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
     FPTYPE e[4] __attribute__ ((aligned (16)));
     FPTYPE f[4] __attribute__ ((aligned (16)));
@@ -119,6 +120,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     
     /* get the space and cutoff */
     eng = r->e;
+    emt = eng->max_type;
     s = &(eng->s);
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
@@ -226,16 +228,20 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         
             /* get a handle on this particle */
             part_j = &( parts_j[ind[i]] );
+            pjx[0] = part_j->x[0] + pshift[0];
+            pjx[1] = part_j->x[1] + pshift[1];
+            pjx[2] = part_j->x[2] + pshift[2];
+            pjoff = part_j->type * emt;
         
             /* loop over the left particles */
             for ( j = lcount-1 ; j >= 0 ; j-- ) {
             
                 /* get a handle on the second particle */
                 part_i = &( parts_i[left[j]] );
-            
+                
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - pshift[k];
+                    dx[k] = part_i->x[k] - pjx[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -244,7 +250,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
                     continue;
                 
                 /* fetch the potential, if any */
-                potq[icount] = eng->p[ part_i->type * eng->max_type + part_j->type ];
+                potq[icount] = eng->p[ pjoff + part_i->type ];
                 if ( potq[icount] == NULL )
                     continue;
                 
@@ -334,8 +340,10 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     struct potential *pot;
     struct engine *eng;
     FPTYPE cutoff, cutoff2, r2, dx[3], e, f;
+    FPTYPE pjx[3];
     FPTYPE d[runner_maxparts], temp, pivot;
     FPTYPE shift[3];
+    int emt, pjoff;
     int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
@@ -346,6 +354,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     
     /* get the space and cutoff */
     eng = r->e;
+    emt = eng->max_type;
     s = &(eng->s);
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
@@ -453,6 +462,10 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         
             /* get a handle on this particle */
             part_j = &( parts_j[ind[i]] );
+            pjx[0] = part_j->x[0] + pshift[0];
+            pjx[1] = part_j->x[1] + pshift[1];
+            pjx[2] = part_j->x[2] + pshift[2];
+            pjoff = part_j->type * emt;
         
             /* loop over the left particles */
             for ( j = lcount-1 ; j >= 0 ; j-- ) {
@@ -462,7 +475,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - pshift[k];
+                    dx[k] = part_i->x[k] - pjx[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -471,7 +484,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
                     continue;
                 
                 /* fetch the potential, if any */
-                pot = eng->p[ part_i->type * eng->max_type + part_j->type ];
+                pot = eng->p[ pjoff + part_i->type ];
                 if ( pot == NULL )
                     continue;
                     
@@ -544,12 +557,12 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
-    int i, j, k, l, icount = 0;
+    int i, j, k, l, icount = 0, pioff, emt;
     FPTYPE cutoff2, r2, *effi[4], *effj[4];
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
     FPTYPE e[4] __attribute__ ((aligned (16)));
     FPTYPE f[4] __attribute__ ((aligned (16)));
-    FPTYPE dx[3], dxq[12];
+    FPTYPE dx[3], dxq[12], pix[3];
     struct space *s;
     struct part *part_i, *part_j;
     struct potential *potq[4];
@@ -559,6 +572,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     
     /* get the space and cutoff */
     eng = r->e;
+    emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
         
@@ -587,6 +601,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
+            pix[0] = part_i->x[0];
+            pix[1] = part_i->x[1];
+            pix[2] = part_i->x[2];
+            pioff = part_i->type * emt;
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
@@ -596,7 +614,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k];
+                    dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -605,7 +623,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     continue;
                 
                 /* fetch the potential, if any */
-                potq[icount] = eng->p[ part_i->type * eng->max_type + part_j->type ];
+                potq[icount] = eng->p[ pioff + part_j->type ];
                 if ( potq[icount] == NULL )
                     continue;
                     
@@ -651,6 +669,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
+            pix[0] = part_i->x[0] - shift[0];
+            pix[1] = part_i->x[1] - shift[1];
+            pix[2] = part_i->x[2] - shift[2];
+            pioff = part_i->type * emt;
             
             /* loop over all other particles */
             for ( j = 0 ; j < cell_j->count ; j++ ) {
@@ -660,7 +682,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - shift[k];
+                    dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -669,7 +691,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     continue;
                     
                 /* fetch the potential, if any */
-                potq[icount] = eng->p[ part_i->type * eng->max_type + part_j->type ];
+                potq[icount] = eng->p[ pioff + part_j->type ];
                 if ( potq[icount] == NULL )
                     continue;
                     
@@ -755,8 +777,8 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 #else
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
-    int i, j, k;
-    FPTYPE cutoff2, dx[3], r2, e, f;
+    int i, j, k, emt, pioff;
+    FPTYPE cutoff2, dx[3], r2, e, f, pix[3];
     struct space *s;
     struct part *part_i, *part_j;
     struct potential *pot;
@@ -766,6 +788,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
     /* get the space and cutoff */
     eng = r->e;
+    emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
         
@@ -794,6 +817,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
+            pix[0] = part_i->x[0];
+            pix[1] = part_i->x[1];
+            pix[2] = part_i->x[2];
+            pioff = part_i->type * emt;
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
@@ -803,7 +830,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k];
+                    dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -812,7 +839,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     continue;
                 
                 /* fetch the potential, if any */
-                pot = eng->p[ part_i->type * eng->max_type + part_j->type ];
+                pot = eng->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
                     
@@ -847,6 +874,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
+            pix[0] = part_i->x[0] - shift[0];
+            pix[1] = part_i->x[1] - shift[1];
+            pix[2] = part_i->x[2] - shift[2];
+            pioff = part_i->type * emt;
             
             /* loop over all other particles */
             for ( j = 0 ; j < cell_j->count ; j++ ) {
@@ -856,7 +887,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - part_j->x[k] - shift[k];
+                    dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
@@ -865,7 +896,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     continue;
                     
                 /* fetch the potential, if any */
-                pot = eng->p[ part_i->type * eng->max_type + part_j->type ];
+                pot = eng->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
                     
@@ -1216,7 +1247,7 @@ int runner_run_tuples ( struct runner *r ) {
         while ( 1 ) {
         
             /* Get a tuple. */
-            if ( ( res = space_gettuple( s , r->id , &t ) ) < 0 )
+            if ( ( res = space_gettuple( s , &t ) ) < 0 )
                 return r->err = runner_err_space;
                 
             /* If there were no tuples left, bail. */
@@ -1295,7 +1326,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
         static void *data = NULL;
         static int size_data = 0;
         void *finger;
-        int nr_pots = 0, size_pots = 0, *pots, i, j, k;
+        int nr_pots = 0, size_pots = 0, *pots, i, j, k, l;
         struct potential *p;
         unsigned int buff;
     #endif
@@ -1338,7 +1369,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
 
             /* finally, we append the data of each interval of each potential */
             /* which consists of eight floats */
-            size_data += size_pots * sizeof(float) * 8;
+            size_data += size_pots * sizeof(float) * (potential_degree+3);
             
             /* raise to multiple of 128 */
             if ( ( size_data & 127 ) > 0 )
@@ -1377,15 +1408,12 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
                         *((float *)finger) = p->alpha[0]; finger += sizeof(float);
                         *((float *)finger) = p->alpha[1]; finger += sizeof(float);
                         *((float *)finger) = p->alpha[2]; finger += sizeof(float);
+                        /* loop explicitly in case FPTYPE is not float. */
                         for ( k = 0 ; k <= p->n ; k++ ) {
-                            *((float *)finger) = p->mi[k]; finger += sizeof(float);
-                            *((float *)finger) = p->hi[k]; finger += sizeof(float);
-                            *((float *)finger) = p->c[k*6+0]; finger += sizeof(float);
-                            *((float *)finger) = p->c[k*6+1]; finger += sizeof(float);
-                            *((float *)finger) = p->c[k*6+2]; finger += sizeof(float);
-                            *((float *)finger) = p->c[k*6+3]; finger += sizeof(float);
-                            *((float *)finger) = p->c[k*6+4]; finger += sizeof(float);
-                            *((float *)finger) = p->c[k*6+5]; finger += sizeof(float);
+                            for ( l = 0 ; l < potential_degree + 3 ; l++ ) {
+                                *((float *)finger) = p->c[k*(potential_degree+3)+l];
+                                finger += sizeof(float);
+                                }
                             }
                         }
 

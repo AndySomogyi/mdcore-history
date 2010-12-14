@@ -32,9 +32,11 @@
 
 /* some constants */
 #define potential_degree                    5
+#define potential_chunk                     (potential_degree+3)
 #define potential_ivalsmin                  2
 #define potential_ivalsmax                  10
 #define potential_N                         100
+#define potential_align                     64
 
 
 /* potential flags */
@@ -66,9 +68,6 @@ struct potential {
     
     /** The coefficients. */
     FPTYPE *c;
-    
-    /** The interval centres and widths. */
-    FPTYPE *mi, *hi;
     
     };
     

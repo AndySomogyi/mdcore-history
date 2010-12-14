@@ -283,24 +283,24 @@ void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e
     for ( k = 0 ; k < 4 ; k++ )
         ind[k] = rind.f[k];
     
+    /* get the table offset */
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->c[ ind[k] * (potential_degree + 3) ] );
+    
     /* adjust x to the interval */
     for ( k = 0 ; k < 4 ; k++ ) {
-        mi.f[k] = p[k]->mi[ind[k]];
-        hi.f[k] = p[k]->hi[ind[k]];
+        mi.f[k] = data[k][0];
+        hi.f[k] = data[k][1];
         }
     /* mi.v = _mm_setr_ps( p[0]->mi[ind[0]] , p[1]->mi[ind[1]] , p[2]->mi[ind[2]] , p[3]->mi[ind[3]] );
     hi.v = _mm_setr_ps( p[0]->hi[ind[0]] , p[1]->hi[ind[1]] , p[2]->hi[ind[2]] , p[3]->hi[ind[3]] ); */
     x.v = _mm_mul_ps( _mm_sub_ps( r.v , mi.v ) , hi.v );
     
-    /* get the table offset */
-    for ( k = 0 ; k < 4 ; k++ )
-        data[k] = &( p[k]->c[ ind[k] * (potential_degree + 1) ] );
-    
     /* compute the potential and its derivative */
-    eff.v = _mm_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
-    c.v = _mm_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    eff.v = _mm_setr_ps( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    c.v = _mm_setr_ps( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
     ee.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , c.v );
-    for ( j = 2 ; j <= potential_degree ; j++ ) {
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
         c.v = _mm_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
         eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
         ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c.v );
@@ -352,22 +352,22 @@ void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) 
         ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     #endif
     
-    /* adjust x to the interval */
-    x = (r - p->mi[ind]) * p->hi[ind];
-    
     /* get the table offset */
-    c = &(p->c[ind * (potential_degree + 1)]);
+    c = &(p->c[ind * (potential_degree + 3)]);
+    
+    /* adjust x to the interval */
+    x = (r - c[0]) * c[1];
     
     /* compute the potential and its derivative */
-    ee = c[0] * x + c[1];
-    eff = c[0];
-    for ( k = 2 ; k <= potential_degree ; k++ ) {
+    ee = c[2] * x + c[3];
+    eff = c[2];
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
         ee = ee * x + c[k];
         }
 
     /* store the result */
-    *e = ee; *f = eff * p->hi[ind];
+    *e = ee; *f = eff * c[1];
         
     }
 
@@ -600,14 +600,16 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     /* compute the smallest interpolation... */
     /* printf("potential_init: trying l=%i...\n",l); fflush(stdout); */
     xi_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l + 1) );
-    c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) * (potential_degree+1) );
+    c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) * potential_chunk );
+    if ( posix_memalign( (void **)&c_l , potential_align , sizeof(FPTYPE) * (l+1) * potential_chunk ) < 0 )
+        return error(potential_err_malloc);
     for ( i = 0 ; i <= l ; i++ ) {
         xi_l[i] = a + (b - a) * i / l;
         while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > 3 * l * FPTYPE_EPSILON )
             xi_l[i] += e / (l * (p->alpha[1] + 2*xi_l[i]*p->alpha[2]));
         }
-    if ( potential_getcoeffs(f,fp,xi_l,l,&c_l[potential_degree+1],&err_l) < 0 )
-        return potential_err;
+    if ( potential_getcoeffs(f,fp,xi_l,l,&c_l[potential_chunk],&err_l) < 0 )
+        return error(potential_err);
     /* fflush(stderr); printf("potential_init: err_l=%e.\n",err_l); */
         
     /* if this interpolation is good enough, stop here! */
@@ -616,16 +618,14 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         p->c = c_l;
         p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
         p->alpha[0] += 1;
-        p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) );
-        p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) );
-        for ( k = 0 ; k < l ; k++ ) {
-            p->mi[k+1] = 0.5 * (xi_l[k] + xi_l[k+1]);
-            p->hi[k+1] = 2.0 / (xi_l[k+1] - xi_l[k]);
-            }
-        p->mi[0] = a; p->hi[0] = a;
-        p->c[potential_degree] = f(a);
-        p->c[potential_degree-1] = fp(a) / a;
-        for ( k = 0 ; k < potential_degree-1 ; k++ )
+        p->c[0] = a; p->c[1] = 1.0 / a;
+        p->c[potential_degree+2] = f(a);
+        p->c[potential_degree+1] = fp(a) * a;
+        p->c[potential_degree] = 0.0;
+        for ( k = 2 ; k <= potential_degree ; k++ )
+            p->c[potential_degree] += k * (k-1) * p->c[2*potential_chunk-k-1] * ( 1 - 2*(k%2) );
+        p->c[potential_degree] *= a * a * p->c[potential_degree+4] * p->c[potential_degree+4];
+        for ( k = 2 ; k < potential_degree ; k++ )
             p->c[k] = 0.0;
         free(xi_l);
         return potential_err_ok;
@@ -637,14 +637,15 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         /* compute the larger interpolation... */
         /* printf("potential_init: trying r=%i...\n",r); fflush(stdout); */
         xi_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r + 1) );
-        c_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r+1) * (potential_degree+1) );
+        if ( posix_memalign( (void **)&c_r , potential_align , sizeof(FPTYPE) * (r+1) * potential_chunk ) != 0 )
+            return error(potential_err_malloc);
         for ( i = 0 ; i <= r ; i++ ) {
             xi_r[i] = a + (b - a) * i / r;
             while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > 3 * r * FPTYPE_EPSILON )
                 xi_r[i] += e / (r * (p->alpha[1] + 2*xi_r[i]*p->alpha[2]));
             }
-        if ( potential_getcoeffs(f,fp,xi_r,r,&c_r[potential_degree+1],&err_r) < 0 )
-            return potential_err;
+        if ( potential_getcoeffs(f,fp,xi_r,r,&c_r[potential_chunk],&err_r) < 0 )
+            return error(potential_err);
         /* printf("potential_init: err_r=%e.\n",err_r); fflush(stdout); */
             
         /* if this is better than tolerance, break... */
@@ -670,14 +671,15 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         /* construct that interpolation */
         /* printf("potential_init: trying m=%i...\n",m); fflush(stdout); */
         xi_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m + 1) );
-        c_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m+1) * (potential_degree+1) );
+        if ( posix_memalign( (void **)&c_m , potential_align , sizeof(FPTYPE) * (m+1) * potential_chunk ) != 0 )
+            return error(potential_err_malloc);
         for ( i = 0 ; i <= m ; i++ ) {
             xi_m[i] = a + (b - a) * i / m;
             while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > 3 * m * FPTYPE_EPSILON )
                 xi_m[i] += e / (m * (p->alpha[1] + 2*xi_m[i]*p->alpha[2]));
             }
-        if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_degree+1],&err_m) < 0 )
-            return potential_err;
+        if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_chunk],&err_m) != 0 )
+            return error(potential_err);
         /* printf("potential_init: err_m=%e.\n",err_m); fflush(stdout); */
             
         /* go left? */
@@ -702,16 +704,14 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->c = c_r;
     p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
     p->alpha[0] += 1.0;
-    p->mi = (FPTYPE *)malloc( sizeof(FPTYPE) * (r+1) );
-    p->hi = (FPTYPE *)malloc( sizeof(FPTYPE) * (r+1) );
-    for ( k = 0 ; k < r ; k++ ) {
-        p->mi[k+1] = 0.5 * (xi_r[k] + xi_r[k+1]);
-        p->hi[k+1] = 2.0 / (xi_r[k+1] - xi_r[k]);
-        }
-    p->mi[0] = a; p->hi[0] = a;
-    p->c[potential_degree] = f(a);
-    p->c[potential_degree-1] = fp(a) / a;
-    for ( k = 0 ; k < potential_degree-1 ; k++ )
+    p->c[0] = a; p->c[1] = 1.0 / a;
+    p->c[potential_degree+2] = f(a);
+    p->c[potential_degree+1] = fp(a) * a;
+    p->c[potential_degree] = 0.0;
+    for ( k = 2 ; k <= potential_degree ; k++ )
+        p->c[potential_degree] += k * (k-1) * p->c[2*potential_chunk-k-1] * ( 1 - 2*(k%2) );
+    p->c[potential_degree] *= a * a * p->c[potential_chunk+1] * p->c[potential_chunk+1];
+    for ( k = 2 ; k < potential_degree ; k++ )
         p->c[k] = 0.0;
     free(xi_r);
     free(xi_l); free(c_l);
@@ -763,7 +763,7 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
     for ( i = 0 ; i < n ; i++ ) {
     
         /* set the initial index */
-        ind = i * (potential_degree + 1);
+        ind = i * (potential_degree + 3);
         
         /* get the interval centre and width */
         m = (xi[i] + xi[i+1]) / 2;
@@ -804,22 +804,24 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         cee[5] = -w;
         
         /* convert to monomials on the interval [-1,1] */
-        c[ind+5] = cee[0]/2 - cee[2] + cee[4];
-        c[ind+4] = cee[1] - 3*cee[3] + 5*cee[5];
-        c[ind+3] = 2*cee[2] - 8*cee[4];
-        c[ind+2] = 4*cee[3] - 20*cee[5];
-        c[ind+1] = 8*cee[4];
-        c[ind] = 16*cee[5];
+        c[ind+7] = cee[0]/2 - cee[2] + cee[4];
+        c[ind+6] = cee[1] - 3*cee[3] + 5*cee[5];
+        c[ind+5] = 2*cee[2] - 8*cee[4];
+        c[ind+4] = 4*cee[3] - 20*cee[5];
+        c[ind+3] = 8*cee[4];
+        c[ind+2] = 16*cee[5];
+        c[ind+1] = 1.0 / h;
+        c[ind] = m;
 
         /* compute a local error estimate (klutzy) */
         for ( k = 0 ; k < potential_N ; k++ ) {
             x = cos( k * M_PI / potential_N );
-            e = fabs( fx[k] - c[ind+5]
-                -x * ( c[ind+4] + 
+            e = fabs( fx[k] - c[ind+7]
+                -x * ( c[ind+6] + 
+                x * ( c[ind+5] + 
+                x * ( c[ind+4] + 
                 x * ( c[ind+3] + 
-                x * ( c[ind+2] + 
-                x * ( c[ind+1] + 
-                x * c[ind] )))) );
+                x * c[ind+2] )))) );
             if ( e > *err )
                 *err = e;
             }

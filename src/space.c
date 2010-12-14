@@ -80,14 +80,13 @@ int space_flush ( struct space *s ) {
  * @brief Get the next free #celltuple from the space.
  * 
  * @param s The #space in which to look for tuples.
- * @param id The calling #runner ID.
  * @param out A pointer to a #celltuple in which to copy the result.
  *
  * @return The number of #celltuple found or 0 if the list is empty and
  *      < 0 on error (see #space_err).
  */
  
-int space_gettuple ( struct space *s , int id , struct celltuple *out ) {
+int space_gettuple ( struct space *s , struct celltuple *out ) {
 
     int i, j, k;
     struct celltuple *t, temp;

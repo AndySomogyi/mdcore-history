@@ -1,20 +1,43 @@
 
 Things that need to be done, in no particular order:
 
+
+Things to do with useability
+
+* 2010/12/14: Find a way to set OMP_WAIT_POLICY=PASSIVE in test.c.
+
+
+Things to do with functionality:
+
 * 2010/12/03: Create an AVL-Tree or B-Tree to map particle vids to
               the actual particle data.
 * 2010/12/03: Somehow add bonded interactions to cell pairs or some
               mechanism to treat bonds, angles and torsions in parallel
 * 2010/12/03: Keep track of particles that wander into a ghost layer
               or out of the domain (is this really needed?).
-* 2010/12/09: Add SSE2 vectorization for double.
-* 2010/12/10: Add OpenMP to configure script.
-* 2010/12/11: Add Cell/BE to the configure script, modify the spu/Makefile
-              to make a Makefile.in using whatever directory the Cell/BE
-              toolkit is in.
 * 2010/12/11: Let the Cell/BE version also use tuples (is this really
               necessary?).
 * 2010/12/11: Create PPU runners if all SPUs are full in CELL mode (check
               return value of spe_context_create to see when this is the
               case).
+              
+              
+Things to do with the configuration process:
+
+* 2010/12/10: Add OpenMP to configure script.
+              
+             
+Things to do with testing:
+              
 * 2010/12/12: Test new shifted/linear potentials for Cell/BE (packing?)
+
+
+Thins to do with speed:
+
+* 2010/12/09: Add SSE2 vectorization for double.
+* 2010/12/14: Use local on-stack copy of eng->p in runner_dopair and
+              runner_sortedpair?
+* 2010/12/14: Write-back force of outer-loop particle only at the end
+              of the outer loop?
+* 2010/12/14: Make potential data aligned to 64-byte boundary s.t. the
+              data for each interval fits in a single cache line.

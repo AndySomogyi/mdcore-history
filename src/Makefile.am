@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
-AM_CFLAGS = $(SIMD_FLAGS) $(CFLAGS)
+AM_CFLAGS = -g $(SIMD_FLAGS) $(CFLAGS)
 
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h errs.h

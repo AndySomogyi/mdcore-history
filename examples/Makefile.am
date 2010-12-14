@@ -30,7 +30,7 @@ test_LDADD = ../src/.libs/libmdcore.a
 
 # Sources for test_single
 test_single_SOURCES = test.c
-test_single_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
+test_single_CFLAGS = -DFPTYPE_SINGLE -fopenmp $(AM_CFLAGS)
 test_single_LDADD = ../src/.libs/libmdcore_single.a
 
 # Sources for fun_test

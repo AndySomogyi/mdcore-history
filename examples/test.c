@@ -289,7 +289,7 @@ int main ( int argc , char *argv[] ) {
         #endif
         
         // shake the water molecules
-        #pragma omp for private(k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
+        #pragma omp parallel for schedule(dynamic,100), private(k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
         for ( j = 0 ; j < nr_mols ; j++ ) {
         
             // unwrap the data
