@@ -31,7 +31,7 @@
 /* particle flags */
 #define part_flag_none                  0
 #define part_flag_frozen                1
-#define part_falg_ghost                 2
+#define part_flag_ghost                 2
 
 
 /* default values */
@@ -73,11 +73,17 @@ struct part {
     
     #endif
     
+    /** individual particle charge, if needed. */
+    float charge;
+    
     /** Particle id and type */
-    int id, vid, type;
+    int id, vid;
+    
+    /** particle type. */
+    short int type;
     
     /** Particle flags */
-    unsigned int flags;
+    unsigned short int flags;
     
     };
     

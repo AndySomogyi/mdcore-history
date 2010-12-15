@@ -84,6 +84,9 @@ void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
 #endif
+#if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    void potential_eval_vec_double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+#endif
 
 /* helper functions */
 double potential_LJ126 ( double r , double A , double B );

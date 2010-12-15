@@ -94,256 +94,10 @@ char *runner_err_msg[9] = {
  * @sa #runner_dopair.
  */
  
-#if defined(__SSE__) && defined(FPTYPE_SINGLE)
 int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
 
     struct part *part_i, *part_j;
     struct space *s;
-    struct potential *potq[4];
-    struct engine *eng;
-    int icount = 0, emt, pjoff;
-    FPTYPE cutoff, cutoff2, r2, *effi[4], *effj[4];
-    FPTYPE pjx[3];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE e[4] __attribute__ ((aligned (16)));
-    FPTYPE f[4] __attribute__ ((aligned (16)));
-    FPTYPE dx[3], dxq[12];
-    FPTYPE d[runner_maxparts], temp, pivot;
-    FPTYPE shift[3];
-    int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
-    int i, j, k, l, imax, qpos, lo, hi;
-    struct {
-        int lo, hi;
-        } qstack[runner_maxqstack];
-    struct part *parts_i, *parts_j;
-    double epot = 0.0;
-    
-    /* get the space and cutoff */
-    eng = r->e;
-    emt = eng->max_type;
-    s = &(eng->s);
-    cutoff = s->cutoff;
-    cutoff2 = s->cutoff2;
-    
-    /* break early if one of the cells is empty */
-    if ( cell_i->count == 0 || cell_j->count == 0 )
-        return runner_err_ok;
-    
-    /* Make local copies of the parts if requested. */
-    if ( r->e->flags & engine_flag_localparts ) {
-    
-        /* set pointers to the particle lists */
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
-        memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
-        }
-        
-    else {
-        parts_i = cell_i->parts;
-        parts_j = cell_j->parts;
-        }
-        
-    /* start by filling the particle ids of both cells into ind and d */
-    temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
-    shift[0] = pshift[0]*temp; shift[1] = pshift[1]*temp; shift[2] = pshift[2]*temp;
-    for ( i = 0 ; i < cell_i->count ; i++ ) {
-        part_i = &( parts_i[i] );
-        ind[count] = -i - 1;
-        d[count] = part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2];
-        count += 1;
-        }
-    for ( i = 0 ; i < cell_j->count ; i++ ) {
-        part_i = &( parts_j[i] );
-        ind[count] = i;
-        d[count] = (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff;
-        count += 1;
-        }
-        
-    /* sort with quicksort */
-    qstack[0].lo = 0; qstack[0].hi = count - 1; qpos = 0;
-    while ( qpos >= 0 ) {
-        lo = qstack[qpos].lo; hi = qstack[qpos].hi;
-        qpos -= 1;
-        if ( hi - lo < 10 ) {
-            for ( i = lo ; i < hi ; i++ ) {
-                imax = i;
-                for ( j = i+1 ; j <= hi ; j++ )
-                    if ( d[j] > d[imax] )
-                        imax = j;
-                if ( imax != i ) {
-                    k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-                    temp = d[imax]; d[imax] = d[i]; d[i] = temp;
-                    }
-                }
-            }
-        else {
-            pivot = d[ ( lo + hi ) / 2 ];
-            i = lo; j = hi;
-            while ( i <= j ) {
-                while ( d[i] > pivot ) i++;
-                while ( d[j] < pivot ) j--;
-                if ( i <= j ) {
-                    if ( i < j ) {
-                        k = ind[i]; ind[i] = ind[j]; ind[j] = k;
-                        temp = d[i]; d[i] = d[j]; d[j] = temp;
-                        }
-                    i += 1; j -= 1;
-                    }
-                }
-            if ( lo < j ) {
-                qpos += 1;
-                qstack[qpos].lo = lo;
-                qstack[qpos].hi = j;
-                }
-            if ( i < hi ) {
-                qpos += 1;
-                qstack[qpos].lo = i;
-                qstack[qpos].hi = hi;
-                }
-            }
-        }
-        
-    /* sort with selection sort */
-    /* for ( i = 0 ; i < count-1 ; i++ ) { 
-        imax = i;
-        for ( j = i+1 ; j < count ; j++ )
-            if ( d[j] > d[imax] )
-                imax = j;
-        if ( imax != i ) {
-            k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-            temp = d[imax]; d[imax] = d[i]; d[i] = temp;
-            }
-        } */
-    
-    /* loop over the sorted list of particles */
-    for ( i = 0 ; i < count ; i++ ) {
-    
-        /* is this a particle from the left? */
-        if ( ind[i] < 0 )
-            left[lcount++] = -ind[i] - 1;
-            
-        /* it's from the right, interact with all left particles */
-        else {
-        
-            /* get a handle on this particle */
-            part_j = &( parts_j[ind[i]] );
-            pjx[0] = part_j->x[0] + pshift[0];
-            pjx[1] = part_j->x[1] + pshift[1];
-            pjx[2] = part_j->x[2] + pshift[2];
-            pjoff = part_j->type * emt;
-        
-            /* loop over the left particles */
-            for ( j = lcount-1 ; j >= 0 ; j-- ) {
-            
-                /* get a handle on the second particle */
-                part_i = &( parts_i[left[j]] );
-                
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - pjx[k];
-                    r2 += dx[k] * dx[k];
-                    }
-                    
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
-                    continue;
-                
-                /* fetch the potential, if any */
-                potq[icount] = eng->p[ pjoff + part_i->type ];
-                if ( potq[icount] == NULL )
-                    continue;
-                
-                /* add this interaction to the interaction queue. */
-                r2q[icount] = r2;
-                dxq[icount*3] = dx[0];
-                dxq[icount*3+1] = dx[1];
-                dxq[icount*3+2] = dx[2];
-                effi[icount] = part_i->f;
-                effj[icount] = part_j->f;
-                icount += 1;
-                    
-                /* evaluate the interactions if the queue is full. */
-                if ( icount == 4 ) {
-                
-                    potential_eval_vec_single( potq , r2q , e , f );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += e[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] += -f[l] * dxq[l*3+k];
-                            effj[l][k] += f[l] * dxq[l*3+k];
-                            }
-                        }
-                        
-                    /* re-set the counter. */
-                    icount = 0;
-                    
-                    }
-                    
-                }
-        
-            }
-    
-        } /* loop over all particles */
-        
-    /* are there any leftovers? */
-    if ( icount > 0 ) {
-    
-        /* copy the first potential to the last entries */
-        for ( k = icount ; k < 4 ; k++ )
-            potq[k] = potq[0];
-            
-        /* evaluate the potentials */
-        potential_eval_vec_single( potq , r2q , e , f );
-
-        /* for each entry, update the forces and energy */
-        for ( l = 0 ; l < icount ; l++ ) {
-            epot += e[l];
-            for ( k = 0 ; k < 3 ; k++ ) {
-                effi[l][k] += -f[l] * dxq[l*3+k];
-                effj[l][k] += f[l] * dxq[l*3+k];
-                }
-            }
-                    
-        }
-        
-    /* Write local data back if needed. */
-    if ( r->e->flags & engine_flag_localparts ) {
-    
-        /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
-            cell_i->parts[i].f[0] = parts_i[i].f[0];
-            cell_i->parts[i].f[1] = parts_i[i].f[1];
-            cell_i->parts[i].f[2] = parts_i[i].f[2];
-            }
-        for ( i = 0 ; i < cell_j->count ; i++ ) {
-            cell_j->parts[i].f[0] = parts_j[i].f[0];
-            cell_j->parts[i].f[1] = parts_j[i].f[1];
-            cell_j->parts[i].f[2] = parts_j[i].f[2];
-            }
-        }
-        
-    /* store the amassed potential energy. */
-    cell_i->epot += epot;
-        
-    /* since nothing bad happened to us... */
-    return runner_err_ok;
-
-    }
-#else
-int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
-
-    struct part *part_i, *part_j;
-    struct space *s;
-    struct potential *pot;
-    struct engine *eng;
-    FPTYPE cutoff, cutoff2, r2, dx[3], e, f;
-    FPTYPE pjx[3];
-    FPTYPE d[runner_maxparts], temp, pivot;
-    FPTYPE shift[3];
-    int emt, pjoff;
     int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
@@ -351,6 +105,32 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         } qstack[runner_maxqstack];
     struct part *parts_i, *parts_j;
     double epot = 0.0;
+    struct potential *pot;
+    struct engine *eng;
+    int emt, pjoff;
+    FPTYPE cutoff, cutoff2, r2, dx[3];
+    FPTYPE d[runner_maxparts], temp, pivot;
+    FPTYPE shift[3];
+    FPTYPE pjx[3];
+#if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    struct potential *potq[4];
+    int icount = 0, l;
+    FPTYPE *effi[4], *effj[4];
+    FPTYPE r2q[4] __attribute__ ((aligned (16)));
+    FPTYPE e[4] __attribute__ ((aligned (16)));
+    FPTYPE f[4] __attribute__ ((aligned (16)));
+    FPTYPE dxq[12];
+#elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    struct potential *potq[2];
+    int icount = 0, l;
+    FPTYPE *effi[2], *effj[2];
+    FPTYPE r2q[2] __attribute__ ((aligned (16)));
+    FPTYPE e[2] __attribute__ ((aligned (16)));
+    FPTYPE f[2] __attribute__ ((aligned (16)));
+    FPTYPE dxq[6];
+#else
+    FPTYPE e, f;
+#endif
     
     /* get the space and cutoff */
     eng = r->e;
@@ -472,7 +252,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             
                 /* get a handle on the second particle */
                 part_i = &( parts_i[left[j]] );
-            
+                
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = part_i->x[k] - pjx[k];
@@ -487,29 +267,121 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
                 pot = eng->p[ pjoff + part_i->type ];
                 if ( pot == NULL )
                     continue;
-                    
-                /* evaluate the interaction */
-                /* runner_rcount += 1; */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
+                
+                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    /* add this interaction to the interaction queue. */
+                    r2q[icount] = r2;
+                    dxq[icount*3] = dx[0];
+                    dxq[icount*3+1] = dx[1];
+                    dxq[icount*3+2] = dx[2];
+                    effi[icount] = part_i->f;
+                    effj[icount] = part_j->f;
+                    potq[icount] = pot;
+                    icount += 1;
+
+                    /* evaluate the interactions if the queue is full. */
+                    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+                        if ( icount == 4 ) {
+
+                            potential_eval_vec_single( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 4 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    effi[l][k] += -f[l] * dxq[l*3+k];
+                                    effj[l][k] += f[l] * dxq[l*3+k];
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+                        if ( icount == 2 ) {
+
+                            potential_eval_vec_double( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 2 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    effi[l][k] += -f[l] * dxq[l*3+k];
+                                    effj[l][k] += f[l] * dxq[l*3+k];
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #endif
                 #else
-                    potential_eval( pot , r2 , &e , &f );
+                    /* evaluate the interaction */
+                    /* runner_rcount += 1; */
+                    #ifdef EXPLICIT_POTENTIALS
+                        potential_eval_expl( pot , r2 , &e , &f );
+                    #else
+                        potential_eval( pot , r2 , &e , &f );
+                    #endif
+
+                    /* update the forces */
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        part_i->f[k] += -f * dx[k];
+                        part_j->f[k] += f * dx[k];
+                        }
+
+                    /* tabulate the energy */
+                    epot += e;
                 #endif
-                
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    part_i->f[k] += -f * dx[k];
-                    part_j->f[k] += f * dx[k];
-                    }
                     
-                /* tabulate the energy */
-                epot += e;
-                
                 }
         
             }
     
         } /* loop over all particles */
+        
+    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+        /* are there any leftovers? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entries */
+            for ( k = icount ; k < 4 ; k++ )
+                potq[k] = potq[0];
+
+            /* evaluate the potentials */
+            potential_eval_vec_single( potq , r2q , e , f );
+
+            /* for each entry, update the forces and energy */
+            for ( l = 0 ; l < icount ; l++ ) {
+                epot += e[l];
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    effi[l][k] += -f[l] * dxq[l*3+k];
+                    effj[l][k] += f[l] * dxq[l*3+k];
+                    }
+                }
+
+            }
+    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+        /* are there any leftovers (single entry)? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entry */
+            potq[1] = potq[0];
+
+            /* evaluate the potentials */
+            potential_eval_vec_double( potq , r2q , e , f );
+
+            /* update the forces and energy */
+            epot += e[0];
+            for ( k = 0 ; k < 3 ; k++ ) {
+                effi[0][k] += -f[0] * dxq[k];
+                effj[0][k] += f[0] * dxq[k];
+                }
+
+            }
+    #endif
         
     /* Write local data back if needed. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -534,7 +406,6 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     return runner_err_ok;
 
     }
-#endif
 
 
 /**
@@ -554,238 +425,35 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
  * @sa #runner_sortedpair.
  */
 
-#if defined(__SSE__) && defined(FPTYPE_SINGLE)
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
-
-    int i, j, k, l, icount = 0, pioff, emt;
-    FPTYPE cutoff2, r2, *effi[4], *effj[4];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE e[4] __attribute__ ((aligned (16)));
-    FPTYPE f[4] __attribute__ ((aligned (16)));
-    FPTYPE dx[3], dxq[12], pix[3];
-    struct space *s;
-    struct part *part_i, *part_j;
-    struct potential *potq[4];
-    struct engine *eng;
-    struct part *parts_i, *parts_j = NULL;
-    double epot = 0.0;
-    
-    /* get the space and cutoff */
-    eng = r->e;
-    emt = eng->max_type;
-    s = &(eng->s);
-    cutoff2 = s->cutoff2;
-        
-    /* Make local copies of the parts if requested. */
-    if ( r->e->flags & engine_flag_localparts ) {
-    
-        /* set pointers to the particle lists */
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
-        if ( cell_i != cell_j ) {
-            parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-            memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
-            }
-        }
-        
-    else {
-        parts_i = cell_i->parts;
-        parts_j = cell_j->parts;
-        }
-        
-    /* is this a genuine pair or a cell against itself */
-    if ( cell_i == cell_j ) {
-    
-        /* loop over all particles */
-        for ( i = 1 ; i < cell_i->count ; i++ ) {
-        
-            /* get the particle */
-            part_i = &(cell_i->parts[i]);
-            pix[0] = part_i->x[0];
-            pix[1] = part_i->x[1];
-            pix[2] = part_i->x[2];
-            pioff = part_i->type * emt;
-        
-            /* loop over all other particles */
-            for ( j = 0 ; j < i ; j++ ) {
-            
-                /* get the other particle */
-                part_j = &(cell_i->parts[j]);
-                
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
-                    
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
-                    continue;
-                
-                /* fetch the potential, if any */
-                potq[icount] = eng->p[ pioff + part_j->type ];
-                if ( potq[icount] == NULL )
-                    continue;
-                    
-                /* add this interaction to the interaction queue. */
-                r2q[icount] = r2;
-                dxq[icount*3] = dx[0];
-                dxq[icount*3+1] = dx[1];
-                dxq[icount*3+2] = dx[2];
-                effi[icount] = part_i->f;
-                effj[icount] = part_j->f;
-                icount += 1;
-                    
-                /* evaluate the interactions if the queue is full. */
-                if ( icount == 4 ) {
-                
-                    potential_eval_vec_single( potq , r2q , e , f );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += e[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] += -f[l] * dxq[l*3+k];
-                            effj[l][k] += f[l] * dxq[l*3+k];
-                            }
-                        }
-                        
-                    /* re-set the counter. */
-                    icount = 0;
-                    
-                    }
-                    
-                } /* loop over all other particles */
-        
-            } /* loop over all particles */
-    
-        }
-        
-    /* no, it's a genuine pair */
-    else {
-    
-        /* loop over all particles */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
-        
-            /* get the particle */
-            part_i = &(cell_i->parts[i]);
-            pix[0] = part_i->x[0] - shift[0];
-            pix[1] = part_i->x[1] - shift[1];
-            pix[2] = part_i->x[2] - shift[2];
-            pioff = part_i->type * emt;
-            
-            /* loop over all other particles */
-            for ( j = 0 ; j < cell_j->count ; j++ ) {
-            
-                /* get the other particle */
-                part_j = &(cell_j->parts[j]);
-
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
-                    
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
-                    continue;
-                    
-                /* fetch the potential, if any */
-                potq[icount] = eng->p[ pioff + part_j->type ];
-                if ( potq[icount] == NULL )
-                    continue;
-                    
-                /* add this interaction to the interaction queue. */
-                r2q[icount] = r2;
-                dxq[icount*3] = dx[0];
-                dxq[icount*3+1] = dx[1];
-                dxq[icount*3+2] = dx[2];
-                effi[icount] = part_i->f;
-                effj[icount] = part_j->f;
-                icount += 1;
-                    
-                /* evaluate the interactions if the queue is full. */
-                if ( icount == 4 ) {
-                
-                    potential_eval_vec_single( potq , r2q , e , f );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += e[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] += -f[l] * dxq[l*3+k];
-                            effj[l][k] += f[l] * dxq[l*3+k];
-                            }
-                        }
-                        
-                    /* re-set the counter. */
-                    icount = 0;
-                    
-                    }
-                    
-                } /* loop over all other particles */
-        
-            } /* loop over all particles */
-
-        }
-        
-    /* are there any leftovers? */
-    if ( icount > 0 ) {
-    
-        /* copy the first potential to the last entries */
-        for ( k = icount ; k < 4 ; k++ )
-            potq[k] = potq[0];
-            
-        /* evaluate the potentials */
-        potential_eval_vec_single( potq , r2q , e , f );
-
-        /* for each entry, update the forces and energy */
-        for ( l = 0 ; l < icount ; l++ ) {
-            epot += e[l];
-            for ( k = 0 ; k < 3 ; k++ ) {
-                effi[l][k] += -f[l] * dxq[l*3+k];
-                effj[l][k] += f[l] * dxq[l*3+k];
-                }
-            }
-                    
-        }
-        
-    /* Write local data back if needed. */
-    if ( r->e->flags & engine_flag_localparts ) {
-    
-        /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
-            cell_i->parts[i].f[0] = parts_i[i].f[0];
-            cell_i->parts[i].f[1] = parts_i[i].f[1];
-            cell_i->parts[i].f[2] = parts_i[i].f[2];
-            }
-        if ( cell_i != cell_j )
-            for ( i = 0 ; i < cell_j->count ; i++ ) {
-                cell_j->parts[i].f[0] = parts_j[i].f[0];
-                cell_j->parts[i].f[1] = parts_j[i].f[1];
-                cell_j->parts[i].f[2] = parts_j[i].f[2];
-                }
-        }
-        
-    /* store the amassed potential energy. */
-    cell_i->epot += epot;
-        
-    /* all is well that ends ok */
-    return runner_err_ok;
-
-    }
-#else
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
     int i, j, k, emt, pioff;
-    FPTYPE cutoff2, dx[3], r2, e, f, pix[3];
-    struct space *s;
-    struct part *part_i, *part_j;
-    struct potential *pot;
-    struct engine *eng;
-    struct part *parts_i, *parts_j = NULL;
+    FPTYPE cutoff2, r2, dx[3], pix[3];
     double epot = 0.0;
-
+    struct engine *eng;
+    struct part *part_i, *part_j, *parts_i, *parts_j = NULL;
+    struct potential *pot;
+    struct space *s;
+#if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    int l, icount = 0;
+    FPTYPE *effi[4], *effj[4];
+    FPTYPE r2q[4] __attribute__ ((aligned (16)));
+    FPTYPE e[4] __attribute__ ((aligned (16)));
+    FPTYPE f[4] __attribute__ ((aligned (16)));
+    FPTYPE dxq[12];
+    struct potential *potq[4];
+#elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    int l, icount = 0;
+    FPTYPE *effi[2], *effj[2];
+    FPTYPE r2q[2] __attribute__ ((aligned (16)));
+    FPTYPE e[2] __attribute__ ((aligned (16)));
+    FPTYPE f[2] __attribute__ ((aligned (16)));
+    FPTYPE dxq[6];
+    struct potential *potq[2];
+#else
+    FPTYPE e, f;
+#endif
+    
     /* get the space and cutoff */
     eng = r->e;
     emt = eng->max_type;
@@ -843,23 +511,75 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 if ( pot == NULL )
                     continue;
                     
-                /* evaluate the interaction */
-                /* runner_rcount += 1; */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
+                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    /* add this interaction to the interaction queue. */
+                    r2q[icount] = r2;
+                    dxq[icount*3] = dx[0];
+                    dxq[icount*3+1] = dx[1];
+                    dxq[icount*3+2] = dx[2];
+                    effi[icount] = part_i->f;
+                    effj[icount] = part_j->f;
+                    potq[icount] = pot;
+                    icount += 1;
+
+                    #if defined(FPTYPE_SINGLE)
+                        /* evaluate the interactions if the queue is full. */
+                        if ( icount == 4 ) {
+
+                            potential_eval_vec_single( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 4 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    effi[l][k] += -f[l] * dxq[l*3+k];
+                                    effj[l][k] += f[l] * dxq[l*3+k];
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #elif defined(FPTYPE_DOUBLE)
+                        /* evaluate the interactions if the queue is full. */
+                        if ( icount == 2 ) {
+
+                            potential_eval_vec_double( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 2 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    effi[l][k] += -f[l] * dxq[l*3+k];
+                                    effj[l][k] += f[l] * dxq[l*3+k];
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #endif
                 #else
-                    potential_eval( pot , r2 , &e , &f );
+                    /* evaluate the interaction */
+                    /* runner_rcount += 1; */
+                    #ifdef EXPLICIT_POTENTIALS
+                        potential_eval_expl( pot , r2 , &e , &f );
+                    #else
+                        potential_eval( pot , r2 , &e , &f );
+                    #endif
+
+                    /* update the forces */
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        part_i->f[k] += -f * dx[k];
+                        part_j->f[k] += f * dx[k];
+                        }
+
+                    /* tabulate the energy */
+                    epot += e;
                 #endif
-                
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    part_i->f[k] += -f * dx[k];
-                    part_j->f[k] += f * dx[k];
-                    }
                     
-                /* tabulate the energy */
-                epot += e;
-                
                 } /* loop over all other particles */
         
             } /* loop over all particles */
@@ -900,28 +620,121 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 if ( pot == NULL )
                     continue;
                     
-                /* evaluate the interaction */
-                /* runner_rcount += 1; */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
+                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    /* add this interaction to the interaction queue. */
+                    r2q[icount] = r2;
+                    dxq[icount*3] = dx[0];
+                    dxq[icount*3+1] = dx[1];
+                    dxq[icount*3+2] = dx[2];
+                    effi[icount] = part_i->f;
+                    effj[icount] = part_j->f;
+                    potq[icount] = pot;
+                    icount += 1;
+
+                    #if defined(FPTYPE_SINGLE)
+                        /* evaluate the interactions if the queue is full. */
+                        if ( icount == 4 ) {
+
+                            potential_eval_vec_single( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 4 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    effi[l][k] += -f[l] * dxq[l*3+k];
+                                    effj[l][k] += f[l] * dxq[l*3+k];
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #elif defined(FPTYPE_DOUBLE)
+                        /* evaluate the interactions if the queue is full. */
+                        if ( icount == 2 ) {
+
+                            potential_eval_vec_double( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 2 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    effi[l][k] += -f[l] * dxq[l*3+k];
+                                    effj[l][k] += f[l] * dxq[l*3+k];
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #endif
                 #else
-                    potential_eval( pot , r2 , &e , &f );
+                    /* evaluate the interaction */
+                    /* runner_rcount += 1; */
+                    #ifdef EXPLICIT_POTENTIALS
+                        potential_eval_expl( pot , r2 , &e , &f );
+                    #else
+                        potential_eval( pot , r2 , &e , &f );
+                    #endif
+
+                    /* update the forces */
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        part_i->f[k] += -f * dx[k];
+                        part_j->f[k] += f * dx[k];
+                        }
+
+                    /* tabulate the energy */
+                    epot += e;
                 #endif
-                
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    part_i->f[k] += -f * dx[k];
-                    part_j->f[k] += f * dx[k];
-                    }
-                
-                /* tabulate the energy */
-                epot += e;
-                
+                    
                 } /* loop over all other particles */
         
             } /* loop over all particles */
 
         }
+        
+    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+        /* are there any leftovers? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entries */
+            for ( k = icount ; k < 4 ; k++ )
+                potq[k] = potq[0];
+
+            /* evaluate the potentials */
+            potential_eval_vec_single( potq , r2q , e , f );
+
+            /* for each entry, update the forces and energy */
+            for ( l = 0 ; l < icount ; l++ ) {
+                epot += e[l];
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    effi[l][k] += -f[l] * dxq[l*3+k];
+                    effj[l][k] += f[l] * dxq[l*3+k];
+                    }
+                }
+
+            }
+    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+        /* are there any leftovers (single entry)? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entry */
+            potq[1] = potq[0];
+
+            /* evaluate the potentials */
+            potential_eval_vec_double( potq , r2q , e , f );
+
+            /* update the forces and energy */
+            epot += e[0];
+            for ( k = 0 ; k < 3 ; k++ ) {
+                effi[0][k] += -f[0] * dxq[k];
+                effj[0][k] += f[0] * dxq[k];
+                }
+
+            }
+    #endif
         
     /* Write local data back if needed. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -947,7 +760,6 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     return runner_err_ok;
 
     }
-#endif
 
 
 /**

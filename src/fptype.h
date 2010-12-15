@@ -27,6 +27,7 @@
         /** The default basic type is double. */
         typedef double FPTYPE;
         #define FPTYPE_EPSILON DBL_EPSILON
+        #define FPTYPE_DOUBLE
     #endif
     #define FPTYPE_DEFINED
 #endif
