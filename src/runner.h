@@ -90,4 +90,6 @@ int runner_init ( struct runner *r , struct engine *e , int id );
 int runner_run_pairs ( struct runner *r );
 int runner_run_tuples ( struct runner *r );
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
+int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
+int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );

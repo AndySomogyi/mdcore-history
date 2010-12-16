@@ -57,6 +57,45 @@ char *engine_err_msg[7] = {
 	};
     
     
+/** 
+ * @brief Set the explicit electrostatic potential.
+ *
+ * @param e The #engine.
+ * @param ep The electrostatic #potential.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * If @c ep is not @c NULL, the flag #engine_flag_explepot is set,
+ * otherwise it is cleared.
+ */
+ 
+int engine_setexplepot ( struct engine *e , struct potential *ep ) {
+
+    /* check inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* was a potential supplied? */
+    if ( ep != NULL ) {
+    
+        /* set the flag. */
+        e->flags |= engine_flag_explepot;
+        
+        /* set the potential. */
+        e->ep = ep;
+        
+        }
+        
+    /* otherwise, just clear the flag. */
+    else
+        e->flags &= ~engine_flag_explepot;
+        
+    /* done for now. */
+    return engine_err_ok;
+
+    }
+    
+    
 /**
  * @brief Unload a set of particle data from the #engine.
  *
@@ -64,16 +103,17 @@ char *engine_err_msg[7] = {
  * @param x An @c N times 3 array of the particle positions.
  * @param v An @c N times 3 array of the particle velocities.
  * @param type A vector of length @c N of the particle type IDs.
+ * @param q A vector of length @c N of the individual particle charges.
  * @param flags A vector of length @c N of the particle flags.
  * @param N the maximum number of particles.
  *
  * @return The number of particles unloaded or < 0 on
  *      error (see #engine_err).
  *
- * The fields @c x, @c v, @c type and/or @c flags may be NULL.
+ * The fields @c x, @c v, @c type, @c q and/or @c flags may be NULL.
  */
  
-int engine_unload ( struct engine *e , double *x , double *v , int *type , unsigned int *flags , int N ) {
+int engine_unload ( struct engine *e , double *x , double *v , int *type , double *q , unsigned int *flags , int N ) {
 
     struct part *p;
     struct cell *c;
@@ -102,6 +142,8 @@ int engine_unload ( struct engine *e , double *x , double *v , int *type , unsig
                 v[pid*3+j] = p->v[j];
         if ( type != NULL )
             type[pid] = p->type;
+        if ( q != NULL )
+            q[pid] = p->q;
         if ( flags != NULL )
             flags[pid] = p->flags;
     
@@ -120,30 +162,43 @@ int engine_unload ( struct engine *e , double *x , double *v , int *type , unsig
  * @param x An @c N times 3 array of the particle positions.
  * @param v An @c N times 3 array of the particle velocities.
  * @param type A vector of length @c N of the particle type IDs.
+ * @param q A vector of length @c N of the individual particle charges.
  * @param flags A vector of length @c N of the particle flags.
  * @param N the number of particles to load.
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * If the parameters @c v, @c flags or @c q are @c NULL, then
+ * these values are set to zero.
  */
  
-int engine_load ( struct engine *e , double *x , double *v , int *type , unsigned int *flags , int N ) {
+int engine_load ( struct engine *e , double *x , double *v , int *type , double *q , unsigned int *flags , int N ) {
 
     struct part p;
     int k, pid;
     
     /* check the inputs. */
-    if ( e == NULL || x == NULL || v == NULL || type == NULL || flags == NULL )
+    if ( e == NULL || x == NULL || type == NULL )
         return error(engine_err_null);
+        
+    /* init the velocity and charge in case not specified. */
+    p.v[0] = 0.0; p.v[1] = 0.0; p.v[2] = 0.0;
+    p.q = 0.0;
+    p.flags = part_flag_none;
         
     /* loop over the entries. */
     for ( pid = 0 ; pid < N ; pid++ ) {
     
         /* set the particle data. */
         p.id = pid;
-        p.flags = flags[pid];
         p.type = type[pid];
-        for ( k = 0 ; k < 3 ; k++ )
-            p.v[k] = v[pid*3+k];
+        if ( flags != NULL )
+            p.flags = flags[pid];
+        if ( v != NULL )
+            for ( k = 0 ; k < 3 ; k++ )
+                p.v[k] = v[pid*3+k];
+        if ( q != 0 )
+            p.q = q[pid];
             
         /* add the part to the space. */
         if ( space_addpart( &e->s , &p , &x[3*pid] ) < 0 )

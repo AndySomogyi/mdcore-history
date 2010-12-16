@@ -9,8 +9,8 @@ Things to do with useability
 
 Things to do with functionality:
 
-* 2010/12/03: Create an AVL-Tree or B-Tree to map particle vids to
-              the actual particle data.
+* 2010/12/03: Use B-Tree to map particle vids to the actual particle data
+              inside the engine.
 * 2010/12/03: Somehow add bonded interactions to cell pairs or some
               mechanism to treat bonds, angles and torsions in parallel
 * 2010/12/03: Keep track of particles that wander into a ghost layer
@@ -20,6 +20,9 @@ Things to do with functionality:
 * 2010/12/11: Create PPU runners if all SPUs are full in CELL mode (check
               return value of spe_context_create to see when this is the
               case).
+* 2010/12/14: In runner_dopair_ee and runner_sortedpair_ee, make two separate
+              queues for pairs with one (pot == NULL or q == 0.0) or
+              two interactions.
               
               
 Things to do with the configuration process:
@@ -34,10 +37,7 @@ Things to do with testing:
 
 Thins to do with speed:
 
-* 2010/12/09: Add SSE2 vectorization for double.
 * 2010/12/14: Use local on-stack copy of eng->p in runner_dopair and
               runner_sortedpair?
 * 2010/12/14: Write-back force of outer-loop particle only at the end
               of the outer loop?
-* 2010/12/14: Make potential data aligned to 64-byte boundary s.t. the
-              data for each interval fits in a single cache line.

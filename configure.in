@@ -54,6 +54,10 @@ ACX_PTHREAD([LIBS="$PTHREAD_LIBS $LIBS" CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
     non-standard location.]))
     
     
+# Check for OpenMP
+AX_OPENMP
+
+    
 # Check for CUDA
 AC_ARG_WITH([cuda],
     [AS_HELP_STRING([--with-cuda=PATH],[prefix where cuda is installed @<:@default=auto@:>@])],

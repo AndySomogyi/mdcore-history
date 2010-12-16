@@ -60,7 +60,7 @@ int btree_delete ( struct btree *b , int key , void **res ) {
     void *data_up = NULL;
     struct btree_node *n;
 
-    /**
+    /*
      * @brief Recursive call of #btree_delete.
      * @param n the #btree_node over which to recurse
      * @param mode mode of operation
@@ -373,7 +373,7 @@ int btree_find ( struct btree *b , int key , void **res ) {
 int btree_dump ( struct btree *b , FILE *out ) {
 
     
-    /**
+    /*
      * @brief Recursive call of #btree_dump.
      * @param n the #btree_node over which to recurse
      */
@@ -444,7 +444,7 @@ int btree_dump ( struct btree *b , FILE *out ) {
 int btree_map ( struct btree *b , int (*func)( void * , void * ) , void *data ) {
 
     
-    /**
+    /*
      * @brief Recursive call of #btree_map.
      * @param n the #btree_node over which to recurse
      */
@@ -516,7 +516,7 @@ int btree_insert ( struct btree *b , int key , void *data ) {
     int key_up = 0;
     void *data_up = NULL;
     
-    /**
+    /*
      * @brief recursive function for node insertion.
      * @param n the node over which to recurse.
      * @param key the key to insert.
@@ -677,8 +677,8 @@ int btree_insert ( struct btree *b , int key , void *data ) {
 /** 
  * @brief Return a #btree_node to the btree's cache.
  *
- * @param the #btree.
- * @param the #btree_node
+ * @param b the #btree.
+ * @param n the #btree_node
  *
  * @return A pointer to a #btree_node or @c NULL if an error
  *      occured (see #btree_err).

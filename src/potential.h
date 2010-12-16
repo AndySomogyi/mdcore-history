@@ -80,13 +80,12 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
 struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol );
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol );
 void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
+void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 , FPTYPE q , FPTYPE *e , FPTYPE *f );
 void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
-#if defined(__SSE__) && defined(FPTYPE_SINGLE)
-    void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
-#endif
-#if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
-    void potential_eval_vec_double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
-#endif
+void potential_eval_vec_single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+void potential_eval_vec_single_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f );
+void potential_eval_vec_double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+void potential_eval_vec_double_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f );
 
 /* helper functions */
 double potential_LJ126 ( double r , double A , double B );

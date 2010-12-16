@@ -74,7 +74,7 @@ struct part {
     #endif
     
     /** individual particle charge, if needed. */
-    float charge;
+    float q;
     
     /** Particle id and type */
     int id, vid;

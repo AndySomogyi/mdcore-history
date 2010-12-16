@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the source directory and debug to CFLAGS
-AM_CFLAGS = -g -I../src -O2 $(CFLAGS)
+AM_CFLAGS = -g -I../src -O2 $(CFLAGS) $(OPENMP_CFLAGS)
 
 # Set-up the library
 bin_PROGRAMS = test test_single btree_test
@@ -30,7 +30,7 @@ test_LDADD = ../src/.libs/libmdcore.a
 
 # Sources for test_single
 test_single_SOURCES = test.c
-test_single_CFLAGS = -DFPTYPE_SINGLE -fopenmp $(AM_CFLAGS)
+test_single_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
 test_single_LDADD = ../src/.libs/libmdcore_single.a
 
 # Sources for fun_test

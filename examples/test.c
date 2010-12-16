@@ -56,7 +56,7 @@ int main ( int argc , char *argv[] ) {
     FPTYPE ee, eff;
     struct engine e;
     struct part p_O, p_H;
-    struct potential *pot_OO, *pot_OH, *pot_HH;
+    struct potential *pot_OO, *pot_OH, *pot_HH, *pot_ee;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
     double v_OH1[3], v_OH2[3], v_HH[3];
@@ -139,7 +139,20 @@ int main ( int argc , char *argv[] ) {
         pot_OO->alpha[2] = 7.1842576e-01;
     #endif
     
-    /* dump the potential to make sure its ok... 
+    // initialize the expl. electrostatic potential
+    if ( ( pot_ee = potential_create_Ewald( 0.1 , 1.0 , 1.0 , 3.0 , 1.0e-4 ) ) == NULL ) {
+        printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
+        errs_dump(stdout);
+        return 1;
+        }
+    printf("main: constructed expl. electrostatic potential with %i intervals.\n",pot_ee->n); fflush(stdout);
+    /* if ( engine_setexplepot( &e , pot_ee ) < 0 ) {
+        printf("main: engine_setexplepot failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        return 1;
+        } */
+    
+    /* dump the OO-potential to make sure its ok... 
     for ( i = 0 ; i < 1000 ; i++ ) {
         temp = 0.2 + (double)i/1000 * 0.8;
         potential_eval( pot_OO , temp*temp , &ee , &eff );
