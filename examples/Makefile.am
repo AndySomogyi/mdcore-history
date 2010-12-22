@@ -1,6 +1,6 @@
 
-# This file is part of libchebfun.
-# Coypright (c) 2010 The Chebfun Team.
+# This file is part of mdcore.
+# Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by

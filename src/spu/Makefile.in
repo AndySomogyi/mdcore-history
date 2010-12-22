@@ -15,7 +15,7 @@ ifdef CELLTOP
 
     # Compiler flags and defines
     CC_OPT_LEVEL := -O3
-    CFLAGS := -g
+    CFLAGS := -g -std=c99
     CFLAGS := $(CFLAGS) -DVECTORIZE
     CFLAGS := $(CFLAGS) -DSORTED_INTERACTIONS
     # CFLAGS := $(CFLAGS) -DEXPLICIT_POTENTIALS

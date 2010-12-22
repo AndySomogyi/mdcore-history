@@ -25,6 +25,7 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include <limits.h>
 #ifdef CELL
     #include <libspe2.h>
     #include <libmisc.h>
@@ -98,24 +99,28 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
 
     struct part *part_i, *part_j;
     struct space *s;
-    int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
+    int left[runner_maxparts], count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
         int lo, hi;
         } qstack[runner_maxqstack];
     struct part *parts_i, *parts_j;
     double epot = 0.0;
-    struct potential *pot;
+    struct potential *pot, **pots;
     struct engine *eng;
     int emt, pjoff;
     FPTYPE cutoff, cutoff2, r2, dx[3];
-    FPTYPE d[runner_maxparts], temp, pivot;
-    FPTYPE shift[3];
+    struct {
+        short int d, ind;
+        } parts[runner_maxparts], temp;
+    short int pivot;
+    FPTYPE dscale;
+    FPTYPE shift[3], inshift;
     FPTYPE pjx[3];
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     struct potential *potq[4];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4];
+    FPTYPE *effi[4], *effj[4], *pjf;
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
     FPTYPE e[4] __attribute__ ((aligned (16)));
     FPTYPE f[4] __attribute__ ((aligned (16)));
@@ -123,7 +128,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
 #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
     struct potential *potq[2];
     int icount = 0, l;
-    FPTYPE *effi[2], *effj[2];
+    FPTYPE *effi[2], *effj[2], *pjf;
     FPTYPE r2q[2] __attribute__ ((aligned (16)));
     FPTYPE e[2] __attribute__ ((aligned (16)));
     FPTYPE f[2] __attribute__ ((aligned (16)));
@@ -136,8 +141,10 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     eng = r->e;
     emt = eng->max_type;
     s = &(eng->s);
+    pots = eng->p;
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
+    dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
     
     /* break early if one of the cells is empty */
     if ( cell_i->count == 0 || cell_j->count == 0 )
@@ -159,18 +166,18 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
         }
         
     /* start by filling the particle ids of both cells into ind and d */
-    temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
-    shift[0] = pshift[0]*temp; shift[1] = pshift[1]*temp; shift[2] = pshift[2]*temp;
+    inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
+    shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
     for ( i = 0 ; i < cell_i->count ; i++ ) {
         part_i = &( parts_i[i] );
-        ind[count] = -i - 1;
-        d[count] = part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2];
+        parts[count].ind = -i - 1;
+        parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
         count += 1;
         }
     for ( i = 0 ; i < cell_j->count ; i++ ) {
         part_i = &( parts_j[i] );
-        ind[count] = i;
-        d[count] = (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff;
+        parts[count].ind = i;
+        parts[count].d = 1 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff );
         count += 1;
         }
         
@@ -179,28 +186,26 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     while ( qpos >= 0 ) {
         lo = qstack[qpos].lo; hi = qstack[qpos].hi;
         qpos -= 1;
-        if ( hi - lo < 10 ) {
+        if ( hi - lo < 15 ) {
             for ( i = lo ; i < hi ; i++ ) {
                 imax = i;
                 for ( j = i+1 ; j <= hi ; j++ )
-                    if ( d[j] > d[imax] )
+                    if ( parts[j].d > parts[imax].d )
                         imax = j;
                 if ( imax != i ) {
-                    k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-                    temp = d[imax]; d[imax] = d[i]; d[i] = temp;
+                    temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
                     }
                 }
             }
         else {
-            pivot = d[ ( lo + hi ) / 2 ];
+            pivot = parts[ ( lo + hi ) / 2 ].d;
             i = lo; j = hi;
             while ( i <= j ) {
-                while ( d[i] > pivot ) i++;
-                while ( d[j] < pivot ) j--;
+                while ( parts[i].d > pivot ) i++;
+                while ( parts[j].d < pivot ) j--;
                 if ( i <= j ) {
                     if ( i < j ) {
-                        k = ind[i]; ind[i] = ind[j]; ind[j] = k;
-                        temp = d[i]; d[i] = d[j]; d[j] = temp;
+                        temp = parts[i]; parts[i] = parts[j]; parts[j] = temp;
                         }
                     i += 1; j -= 1;
                     }
@@ -225,8 +230,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             if ( d[j] > d[imax] )
                 imax = j;
         if ( imax != i ) {
-            k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-            temp = d[imax]; d[imax] = d[i]; d[i] = temp;
+            temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
             }
         } */
     
@@ -234,27 +238,31 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     for ( i = 0 ; i < count ; i++ ) {
     
         /* is this a particle from the left? */
-        if ( ind[i] < 0 )
-            left[lcount++] = -ind[i] - 1;
+        if ( parts[i].ind < 0 )
+            left[lcount++] = -parts[i].ind - 1;
             
         /* it's from the right, interact with all left particles */
         else {
         
             /* get a handle on this particle */
-            part_j = &( parts_j[ind[i]] );
+            part_j = &( parts_j[parts[i].ind] );
             pjx[0] = part_j->x[0] + pshift[0];
             pjx[1] = part_j->x[1] + pshift[1];
             pjx[2] = part_j->x[2] + pshift[2];
             pjoff = part_j->type * emt;
+            #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                pjf = part_j->f;
+            #endif
         
             /* loop over the left particles */
-            for ( j = lcount-1 ; j >= 0 ; j-- ) {
+            for ( j = 0 ; j < lcount ; j++ ) {
             
                 /* get a handle on the second particle */
                 part_i = &( parts_i[left[j]] );
                 
                 /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                r2 = 0.0;
+                for ( k = 0 ; k < 3 ; k++ ) {
                     dx[k] = part_i->x[k] - pjx[k];
                     r2 += dx[k] * dx[k];
                     }
@@ -264,7 +272,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
                     continue;
                 
                 /* fetch the potential, if any */
-                pot = eng->p[ pjoff + part_i->type ];
+                pot = pots[ pjoff + part_i->type ];
                 if ( pot == NULL )
                     continue;
                 
@@ -275,7 +283,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
                     dxq[icount*3+1] = dx[1];
                     dxq[icount*3+2] = dx[2];
                     effi[icount] = part_i->f;
-                    effj[icount] = part_j->f;
+                    effj[icount] = pjf;
                     potq[icount] = pot;
                     icount += 1;
 
@@ -433,7 +441,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
 
     struct part *part_i, *part_j;
     struct space *s;
-    int ind[runner_maxparts], left[runner_maxparts], count = 0, lcount = 0;
+    int left[runner_maxparts], count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
         int lo, hi;
@@ -443,14 +451,17 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     struct potential *pot, *ep;
     struct engine *eng;
     int emt, pjoff;
-    FPTYPE cutoff, cutoff2, r2, dx[3];
-    FPTYPE d[runner_maxparts], temp, pivot;
-    FPTYPE shift[3];
+    FPTYPE cutoff, cutoff2, r2, dx[3], dscale;
+    struct {
+        short int d, ind;
+        } parts[runner_maxparts], temp;
+    short int pivot;
+    FPTYPE shift[3], inshift;
     FPTYPE pjx[3], pjq;
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     struct potential *potq[4];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4];
+    FPTYPE *effi[4], *effj[4], *pjf;
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
     FPTYPE e[4] __attribute__ ((aligned (16)));
     FPTYPE f[4] __attribute__ ((aligned (16)));
@@ -459,7 +470,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
 #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
     struct potential *potq[2];
     int icount = 0, l;
-    FPTYPE *effi[2], *effj[2];
+    FPTYPE *effi[2], *effj[2], *pjf;
     FPTYPE r2q[2] __attribute__ ((aligned (16)));
     FPTYPE e[2] __attribute__ ((aligned (16)));
     FPTYPE f[2] __attribute__ ((aligned (16)));
@@ -476,6 +487,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     s = &(eng->s);
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
+    dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
     
     /* break early if one of the cells is empty */
     if ( cell_i->count == 0 || cell_j->count == 0 )
@@ -497,18 +509,18 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
         }
         
     /* start by filling the particle ids of both cells into ind and d */
-    temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
-    shift[0] = pshift[0]*temp; shift[1] = pshift[1]*temp; shift[2] = pshift[2]*temp;
+    inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
+    shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
     for ( i = 0 ; i < cell_i->count ; i++ ) {
         part_i = &( parts_i[i] );
-        ind[count] = -i - 1;
-        d[count] = part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2];
+        parts[count].ind = -i - 1;
+        parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
         count += 1;
         }
     for ( i = 0 ; i < cell_j->count ; i++ ) {
         part_i = &( parts_j[i] );
-        ind[count] = i;
-        d[count] = (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff;
+        parts[count].ind = i;
+        parts[count].d = 1.0 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff );
         count += 1;
         }
         
@@ -517,28 +529,26 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     while ( qpos >= 0 ) {
         lo = qstack[qpos].lo; hi = qstack[qpos].hi;
         qpos -= 1;
-        if ( hi - lo < 10 ) {
+        if ( hi - lo < 15 ) {
             for ( i = lo ; i < hi ; i++ ) {
                 imax = i;
                 for ( j = i+1 ; j <= hi ; j++ )
-                    if ( d[j] > d[imax] )
+                    if ( parts[j].d > parts[imax].d )
                         imax = j;
                 if ( imax != i ) {
-                    k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-                    temp = d[imax]; d[imax] = d[i]; d[i] = temp;
+                    temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
                     }
                 }
             }
         else {
-            pivot = d[ ( lo + hi ) / 2 ];
+            pivot = parts[ ( lo + hi ) / 2 ].d;
             i = lo; j = hi;
             while ( i <= j ) {
-                while ( d[i] > pivot ) i++;
-                while ( d[j] < pivot ) j--;
+                while ( parts[i].d > pivot ) i++;
+                while ( parts[j].d < pivot ) j--;
                 if ( i <= j ) {
                     if ( i < j ) {
-                        k = ind[i]; ind[i] = ind[j]; ind[j] = k;
-                        temp = d[i]; d[i] = d[j]; d[j] = temp;
+                        temp = parts[i]; parts[i] = parts[j]; parts[j] = temp;
                         }
                     i += 1; j -= 1;
                     }
@@ -560,11 +570,10 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     /* for ( i = 0 ; i < count-1 ; i++ ) { 
         imax = i;
         for ( j = i+1 ; j < count ; j++ )
-            if ( d[j] > d[imax] )
+            if ( parts[j].d > parts[imax].d )
                 imax = j;
         if ( imax != i ) {
-            k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-            temp = d[imax]; d[imax] = d[i]; d[i] = temp;
+            temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
             }
         } */
     
@@ -572,22 +581,25 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     for ( i = 0 ; i < count ; i++ ) {
     
         /* is this a particle from the left? */
-        if ( ind[i] < 0 )
-            left[lcount++] = -ind[i] - 1;
+        if ( parts[i].ind < 0 )
+            left[lcount++] = -parts[i].ind - 1;
             
         /* it's from the right, interact with all left particles */
         else {
         
             /* get a handle on this particle */
-            part_j = &( parts_j[ind[i]] );
+            part_j = &( parts_j[parts[i].ind] );
             pjx[0] = part_j->x[0] + pshift[0];
             pjx[1] = part_j->x[1] + pshift[1];
             pjx[2] = part_j->x[2] + pshift[2];
             pjoff = part_j->type * emt;
             pjq = part_j->q;
+            #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                pjf = part_j->f;
+            #endif
         
             /* loop over the left particles */
-            for ( j = lcount-1 ; j >= 0 ; j-- ) {
+            for ( j = 0 ; j < lcount ; j++ ) {
             
                 /* get a handle on the second particle */
                 part_i = &( parts_i[left[j]] );
@@ -614,7 +626,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
                     dxq[icount*3+1] = dx[1];
                     dxq[icount*3+2] = dx[2];
                     effi[icount] = part_i->f;
-                    effj[icount] = part_j->f;
+                    effj[icount] = pjf;
                     potq[icount] = pot;
                     q[icount] = pjq * part_i->q;
                     icount += 1;

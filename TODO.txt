@@ -2,9 +2,14 @@
 Things that need to be done, in no particular order:
 
 
-Things to do with useability
+Things to do with useability:
 
 * 2010/12/14: Find a way to set OMP_WAIT_POLICY=PASSIVE in test.c.
+
+
+Things to do with documentaiton:
+
+* 2010/12/22: Set up mdcore website through sf.net.
 
 
 Things to do with functionality:
@@ -22,13 +27,13 @@ Things to do with functionality:
               case).
 * 2010/12/14: In runner_dopair_ee and runner_sortedpair_ee, make two separate
               queues for pairs with one (pot == NULL or q == 0.0) or
-              two interactions.
+              two (pot != NULL && q != 0.0) interactions.
+* 2010/12/22: Add one-sided potentials for grid point pseudo-particles.
+* 2010/12/22: Add explicit electrostatics to the SPU code.
               
               
 Things to do with the configuration process:
 
-* 2010/12/10: Add OpenMP to configure script.
-              
              
 Things to do with testing:
               
