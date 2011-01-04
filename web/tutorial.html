@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<title>mdcore</title>
+<meta name="generator" content="Bluefish 1.0.7">
+<meta name="author" content="Pedro Gonnet">
+<meta name="date" content="2010-12-16T18:07:44+0000">
+<meta name="copyright" content="Pedro Gonnet">
+<meta name="keywords" content="">
+<meta name="description" content="">
+<meta name="ROBOTS" content="NOINDEX, NOFOLLOW">
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<meta http-equiv="content-type" content="application/xhtml+xml; charset=UTF-8">
+<meta http-equiv="content-style-type" content="text/css">
+<meta http-equiv="expires" content="0">
+<meta http-equiv="refresh" content="5; URL=http://">
+<style type="text/css">
+	body {font-family: courier, monospace;}
+</style>
+</head>
+
+<body>
+<center>
+<table cellpadding="5" cellspacing="2" border="0" valign="top" width="700">
+	<tr><td colspan="2"><span style="font-size: 48px; font-weight: bold;">mdcore</span></td></tr>
+	<tr>
+		<td width="20%" valign="top">
+			<p/>
+			<a href="index.html">About</a><br/>
+			<a href="features.html">Features<br/>
+			<a href="https://sourceforge.net/projects/mdcore/files">Download</a><br/>
+			<a href="publications.html">Publications</a><br/>
+			<a href="documentation.html">Documentation</a><br/>
+			Tutorial<br/>
+		</td>
+		<td valign="top">
+        
+			<p><b>Compiling mdcore</b></p>
+            <p>Download and unpack the sources. This should create a directory
+            named "mdcore". Change to this directory and execute
+            the configuration script as follows</p>
+            <blockquote style="background-color:lightgrey;padding:4px">
+                cd mdcore<br/>
+                ./configure
+            </blockquote>
+            
+            <p>The "configure" script will try to guess the best compiler options
+            and the location of the required libraries. To see the available options,
+            type</p>
+            <blockquote style="background-color:lightgrey;padding:4px">
+                ./configure --help
+            </blockquote>
+            
+            <p>Once the configuration process has completed successfully,
+            compile the library by typing</p>
+            <blockquote style="background-color:lightgrey;padding:4px">
+                make
+            </blockquote>
+            
+            <p>This will generate the following libraries in the subfolder
+            "src/.libs":
+            <ul>
+                <li/><b>libmdcore.a</b>: The mdcore library in double precision,
+                <li/><b>libmdcore_single.a</b>: The mdcore library in 
+                    single precision,
+                <li/><b>libmdcore_cell.a</b>: The mdcore library in 
+                    for the Cell/BE (if configured with "--with-cell").
+            </ul>
+            
+            <p style="padding-top:10px"><b>Using mdcore</b></p>
+            <p>In the directory "mdcore/examples", you will find an example
+            program, "test.c", which creates and executes a simple bulk water
+            simulation. The following tutorial will be based on this example
+            program.</p>
+            
+            <p>Before including the mdocre header files, we have to decide
+            if we want to use single or double precision computations. The
+            precision type is defined by the type "FPTYPE" in the header file
+            "fptype.h" and is set to "double" by default.
+            To use single precision, you can define "FPTYPE_SINGLE" before including
+            the header files, e.g.
+            <blockquote style="background-color:lightgrey;padding:4px">
+                #define FPTYPE_SINGLE<br/>
+                #include &lt;errs.h&gt;<br/>
+                #include &lt;fptype.h&gt;<br/>
+                #include &lt;part.h&gt;<br/>
+                #include &lt;potential.h&gt;<br/>
+                #include &lt;cell.h&gt;<br/>
+                #include &lt;space.h&gt;<br/>
+                #include &lt;engine.h&gt;
+            </blockquote>
+            
+            <p>Note that depending on the precision you choose, you will have
+            to link to either "libmdcore.a" or "libmdcore_single.a" accordingly.</p>
+            
+            <p>The main data structure in mdcore, through which most of the
+            library's functionality is accessed, is the "engine":
+            <blockquote style="background-color:lightgrey;padding:4px">
+                struct engine e;
+            </blockquote>
+            which is initialized with the function "engine_init".
+            
+            <p>Note that all "engine" functions and most other mdcore
+            functions will return an integer < 0 or a NULL pointer on error.
+            In all cases, a description of the error and a trace of where
+            it occurred can be displayed using "errs_dump(FILE *)", e.g.:
+            <blockquote style="background-color:lightgrey;padding:4px">
+                errs_dump(stdout);
+            </blockquote>
+            
+            <p>Once an "engine" has been initialized, interaction potentials
+            and particle types can be added using the functions "engine_addtype"
+            and "engine_addpot".
+            The interaction potentials themselves can be created with the functions
+            described in "potentials.h".
+            
+            <p>Finally, particles are added to the "engine" either individually
+            using the function "engine_addpart" or all at once using the
+            function "engine_load".
+            
+            <p>Before computing the first step, the "engine" is started with
+            the function "engine_start" where the number of "runners", i.e.
+            computational threads, is specified.
+            
+            <p>Once the "engine" has been started, the computation of each time
+            step, i.e. the evaluation of the non-bonded interactions, is
+            evaluated using the function "engine_step".
+            
+		</td>
+	</tr>
+</table>
+</center>
+</body>
+</html>

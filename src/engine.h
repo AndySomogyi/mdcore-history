@@ -47,7 +47,9 @@
 extern int engine_err;
 
 
-/** The #engine structure. */
+/** 
+ * The #engine structure. 
+ */
 struct engine {
 
     /** Some flags controlling how this engine works. */

@@ -5,11 +5,17 @@ Things that need to be done, in no particular order:
 Things to do with useability:
 
 * 2010/12/14: Find a way to set OMP_WAIT_POLICY=PASSIVE in test.c.
+* 2011/01/03: Make a single header file "mdcore.h".
+* 2011/01/03: Add functions to set the engine time and dt in a more elegant way.
+* 2011/01/03: Add a function engine_map to call a function on each particle.
 
 
 Things to do with documentaiton:
 
 * 2010/12/22: Set up mdcore website through sf.net.
+* 2011/01/04: Try to somehow make bulk text on doxygen.
+* 2011/01/04: Add a long description for each structure detailing what it does,
+              how it should be created and how it should be used.
 
 
 Things to do with functionality:
@@ -46,3 +52,5 @@ Thins to do with speed:
               runner_sortedpair?
 * 2010/12/14: Write-back force of outer-loop particle only at the end
               of the outer loop?
+* 2011/01/03: Use FMA when available (SSE4?).
+* 2011/01/03: Add support for AltiVec instructions?
