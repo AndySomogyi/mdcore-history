@@ -36,6 +36,7 @@ Things to do with functionality:
               two (pot != NULL && q != 0.0) interactions.
 * 2010/12/22: Add one-sided potentials for grid point pseudo-particles.
 * 2010/12/22: Add explicit electrostatics to the SPU code.
+* 2011/01/17: Add potential functions using automatic vectorization for gcc.
               
               
 Things to do with the configuration process:
@@ -43,6 +44,7 @@ Things to do with the configuration process:
              
 Things to do with testing:
               
+* 2011/01/17: Test explicit electrostatics.
 * 2010/12/12: Test new shifted/linear potentials for Cell/BE (packing?)
 
 
@@ -53,4 +55,10 @@ Thins to do with speed:
 * 2010/12/14: Write-back force of outer-loop particle only at the end
               of the outer loop?
 * 2011/01/03: Use FMA when available (SSE4?).
-* 2011/01/03: Add support for AltiVec instructions?
+* 2011/01/03: Add support for AltiVec instructions.
+* 2011/01/17: Add 4double and 8single potential evaluations to the
+              runner_spu code -- 4double much faster on intel!
+* 2011/01/17: Use sorting networks to improve sorted interactions.
+
+
+
