@@ -31,12 +31,11 @@ Things to do with functionality:
 * 2010/12/11: Create PPU runners if all SPUs are full in CELL mode (check
               return value of spe_context_create to see when this is the
               case).
-* 2010/12/14: In runner_dopair_ee and runner_sortedpair_ee, make two separate
-              queues for pairs with one (pot == NULL or q == 0.0) or
-              two (pot != NULL && q != 0.0) interactions.
 * 2010/12/22: Add one-sided potentials for grid point pseudo-particles.
 * 2010/12/22: Add explicit electrostatics to the SPU code.
-* 2011/01/17: Add potential functions using automatic vectorization for gcc.
+* 2011/01/17: Add potential functions using automatic vectorization for gcc,
+              check if this is significantly slower than using SSE/SSE2
+              intrinsics directly.
               
               
 Things to do with the configuration process:
@@ -46,9 +45,11 @@ Things to do with testing:
               
 * 2011/01/17: Test explicit electrostatics.
 * 2010/12/12: Test new shifted/linear potentials for Cell/BE (packing?)
+* 2011/01/17: Test 8-single potential evaluations to the
+              runner_spu code, verify that it is faster than 4-single.
 
 
-Thins to do with speed:
+Things to do with speed:
 
 * 2010/12/14: Use local on-stack copy of eng->p in runner_dopair and
               runner_sortedpair?
@@ -56,9 +57,7 @@ Thins to do with speed:
               of the outer loop?
 * 2011/01/03: Use FMA when available (SSE4?).
 * 2011/01/03: Add support for AltiVec instructions.
-* 2011/01/17: Add 4double and 8single potential evaluations to the
-              runner_spu code -- 4double much faster on intel!
-* 2011/01/17: Use sorting networks to improve sorted interactions.
+* 2011/01/17: Use sorting networks to improve sorted interactions?
 
 
 

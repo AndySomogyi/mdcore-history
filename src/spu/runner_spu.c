@@ -130,6 +130,77 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// void potential_eval_vec2
+//
+// evaluates the given potentials at the given point.
+////////////////////////////////////////////////////////////////////////////////
+
+inline void potential_eval_vec2 ( struct potential *p[8] , vector float *r2 , vector float *e , vector float *f ) {
+
+    int i, k;
+    vector unsigned int ind_1, ind_2;
+    vector float x_1, ee_1, eff_1, r_1, alpha0_1, alpha1_1, alpha2_1, c_1, mi_1, hi_1;
+    vector float x_2, ee_2, eff_2, r_2, alpha0_2, alpha1_2, alpha2_2, c_2, mi_2, hi_2;
+    float *data[8];
+    
+    // get the sqrt of r2
+    r_1 = sqrtf4( r2[0] );
+    r_2 = sqrtf4( r2[1] );
+    
+    // load the alphas
+    alpha0_1 = _load_vec_float4( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1_1 = _load_vec_float4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2_1 = _load_vec_float4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    alpha0_2 = _load_vec_float4( p[4]->alpha[0] , p[5]->alpha[0] , p[6]->alpha[0] , p[7]->alpha[0] );
+    alpha1_2 = _load_vec_float4( p[4]->alpha[1] , p[5]->alpha[1] , p[6]->alpha[1] , p[7]->alpha[1] );
+    alpha2_2 = _load_vec_float4( p[4]->alpha[2] , p[5]->alpha[2] , p[6]->alpha[2] , p[7]->alpha[2] );
+    
+    // compute the index
+    ind_1 = spu_convtu( spu_madd( r_1 , spu_madd( r_1 , alpha2_1 , alpha1_1 ) , alpha0_1 ) , 0 );
+    ind_2 = spu_convtu( spu_madd( r_2 , spu_madd( r_2 , alpha2_2 , alpha1_2 ) , alpha0_2 ) , 0 );
+    
+    // get a pointer to the data for this interval
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->data[ potential_chunk * spu_extract( ind_1 , k ) ] );
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k+4] = &( p[k+4]->data[ potential_chunk * spu_extract( ind_2 , k ) ] );
+    
+    // get mi and hi
+    mi_1 = _load_vec_float4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi_1 = _load_vec_float4( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    mi_2 = _load_vec_float4( data[4][0] , data[5][0] , data[6][0] , data[7][0] );
+    hi_2 = _load_vec_float4( data[4][1] , data[5][1] , data[6][1] , data[7][1] );
+        
+    // adjust x to the interval
+    x_1 = spu_mul( spu_sub( r_1 , mi_1 ) , hi_1 );
+    x_2 = spu_mul( spu_sub( r_2 , mi_2 ) , hi_2 );
+    
+    // compute the potential and its derivative
+    eff_1 = _load_vec_float4( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    eff_2 = _load_vec_float4( data[4][2] , data[5][2] , data[6][2] , data[7][2] );
+    ee_1 = spu_mul( eff_1 , x_1 );
+    ee_2 = spu_mul( eff_2 , x_2 );
+    c_1 = _load_vec_float4( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    c_2 = _load_vec_float4( data[4][3] , data[5][3] , data[6][3] , data[7][3] );
+    ee_1 = spu_add( ee_1 , c_1 );
+    ee_2 = spu_add( ee_2 , c_2 );
+    for ( i = 4 ; i < potential_degree+3 ; i++ ) {
+        eff_1 = spu_madd( eff_1 , x_1 , ee_1 );
+        eff_2 = spu_madd( eff_2 , x_2 , ee_2 );
+        c_1 = _load_vec_float4( data[0][i] , data[1][i] , data[2][i] , data[3][i] );
+        c_2 = _load_vec_float4( data[4][i] , data[5][i] , data[6][i] , data[7][i] );
+        ee_1 = spu_madd( ee_1 , x_1 , c_1 );
+        ee_2 = spu_madd( ee_2 , x_2 , c_2 );
+        }
+
+    // store the result
+    e[0] = ee_1; f[0] = eff_1 * hi_1;    
+    e[1] = ee_2; f[1] = eff_2 * hi_2;    
+    
+    }
+
+
+////////////////////////////////////////////////////////////////////////////////
 // void potential_eval_expl
 //
 // evaluates the given potential at the given point.
@@ -319,7 +390,7 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
 void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *shift ) {
 
     struct part *part_i, *part_j;
-    struct potential *pot, *potv[4];
+    struct potential *pot, *potv[8];
     float cutoff, cutoff2;
     float d[2*maxparts], temp, pivot;
     int ind[2*maxparts], left[2*maxparts], count = 0, lcount = 0, pcount = 0;
@@ -328,7 +399,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         short int lo, hi;
         } qstack[maxqstack];
     float r2;
-    vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, nshiftv, shiftv, tempv, pjx;
+    vector float *effi[8], *effj[8], dx, dxv[8], fv[2], ev[2], r2v[2], nshiftv, shiftv, tempv, pjx;
     
     // get the space and cutoff
     cutoff = data->cutoff;
@@ -336,7 +407,8 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
     emt = data->max_type;
         
     // init r2v and make the compiler happy
-    r2v = spu_splats( 0.0f );
+    r2v[0] = spu_splats( 0.0f );
+    r2v[1] = spu_splats( 0.0f );
     
     // extract the shift vector
     shiftv = _load_vec_float4( shift[0] , shift[1] , shift[2] , 0.0f );
@@ -452,7 +524,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                     continue;
                     
                 // add this interaction to the interaction queue
-                r2v = spu_insert( r2 , r2v , pcount );
+                r2v[pcount/4][pcount%4] = r2;
                 dxv[pcount] = dx;
                 effi[pcount] = &( part_i->f );
                 effj[pcount] = &( part_j->f );
@@ -461,14 +533,14 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                 rcount += 1;
                 
                 // do we have a full set to evaluate?
-                if ( __builtin_expect( pcount == 4 , 0 ) ) {
+                if ( __builtin_expect( pcount == 8 , 0 ) ) {
                 
                     // evaluate the potentials
-                    potential_eval_vec( potv , r2v , &ev , &fv );
+                    potential_eval_vec2( potv , r2v , ev , fv );
                     
                     // for each entry, update the forces
-                    for ( k = 0 ; k < 4 ; k++ ) {
-                        tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                    for ( k = 0 ; k < 8 ; k++ ) {
+                        tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                         *effi[k] = spu_sub( *effi[k] , tempv );
                         *effj[k] = spu_add( *effj[k] , tempv );
                         }
@@ -488,15 +560,15 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
     if ( pcount > 0 ) {
     
         // copy the first potential to the last entries
-        for ( k = pcount ; k < 4 ; k++ )
+        for ( k = pcount ; k < 8 ; k++ )
             potv[k] = potv[0];
             
         // evaluate the potentials
-        potential_eval_vec( potv , r2v , &ev , &fv );
+        potential_eval_vec2( potv , r2v , ev , fv );
 
         // for each entry, update the forces
         for ( k = 0 ; k < pcount ; k++ ) {
-            tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+            tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
             *effi[k] = spu_sub( *effi[k] , tempv );
             *effj[k] = spu_add( *effj[k] , tempv );
             }
@@ -517,9 +589,9 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     int i, j, k, count = 0, pioff, emt;
     float cutoff2 = data->cutoff * data->cutoff;
     float r2;
-    vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, shiftv, tempv, pix;
+    vector float *effi[8], *effj[8], dx, dxv[8], fv[2], ev[2], r2v[2], shiftv, tempv, pix;
     struct part *part_i, *part_j;
-    struct potential *pot, *potv[4];
+    struct potential *pot, *potv[8];
     
     // get some useful data
     emt = data->max_type;
@@ -555,7 +627,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                     
                 // add this interaction to the interaction queue
-                r2v[count] = r2;
+                r2v[count/4][count%4] = r2;
                 dxv[count] = dx;
                 effi[count] = &( part_i->f );
                 effj[count] = &( part_j->f );
@@ -564,14 +636,14 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                 rcount += 1;
                 
                 // do we have a full set to evaluate?
-                if ( __builtin_expect( count == 4 , 0 ) ) {
+                if ( __builtin_expect( count == 8 , 0 ) ) {
                 
                     // evaluate the potentials
-                    potential_eval_vec( potv , r2v , &ev , &fv );
+                    potential_eval_vec2( potv , r2v , ev , fv );
                     
                     // for each entry, update the forces
-                    for ( k = 0 ; k < 4 ; k++ ) {
-                        tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                    for ( k = 0 ; k < 8 ; k++ ) {
+                        tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                         *effi[k] = spu_sub( *effi[k] , tempv );
                         *effj[k] = spu_add( *effj[k] , tempv );
                         }
@@ -597,7 +669,8 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         shiftv = spu_insert( shift[2] , shiftv , 2 );
         
         // init r2v and make the compiler happy
-        r2v = spu_splats( 0.0f );
+        r2v[0] = spu_splats( 0.0f );
+        r2v[1] = spu_splats( 0.0f );
     
         // loop over all particles
         for ( i = 0 ; i < ni ; i++ ) {
@@ -630,7 +703,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                     
                 // add this interaction to the interaction queue
-                r2v = spu_insert( r2 , r2v , count );
+                r2v[count/4][count%4] = r2;
                 dxv[count] = dx;
                 effi[count] = &( part_i->f );
                 effj[count] = &( part_j->f );
@@ -639,14 +712,14 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                 rcount += 1;
                 
                 // do we have a full set to evaluate?
-                if ( __builtin_expect( count == 4 , 0 ) ) {
+                if ( __builtin_expect( count == 8 , 0 ) ) {
                 
                     // evaluate the potentials
-                    potential_eval_vec( potv , r2v , &ev , &fv );
+                    potential_eval_vec2( potv , r2v , ev , fv );
                     
                     // for each entry, update the forces
-                    for ( k = 0 ; k < 4 ; k++ ) {
-                        tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                    for ( k = 0 ; k < 8 ; k++ ) {
+                        tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                         *effi[k] = spu_sub( *effi[k] , tempv );
                         *effj[k] = spu_add( *effj[k] , tempv );
                         }
@@ -666,15 +739,15 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     if ( count > 0 ) {
     
         // copy the first potential to the last entries
-        for ( k = count ; k < 4 ; k++ )
+        for ( k = count ; k < 8 ; k++ )
             potv[k] = potv[0];
             
         // evaluate the potentials
-        potential_eval_vec( potv , r2v , &ev , &fv );
+        potential_eval_vec2( potv , r2v , ev , fv );
 
         // for each entry, update the forces
         for ( k = 0 ; k < count ; k++ ) {
-            tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+            tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
             *effi[k] = spu_sub( *effi[k] , tempv );
             *effj[k] = spu_add( *effj[k] , tempv );
             }
