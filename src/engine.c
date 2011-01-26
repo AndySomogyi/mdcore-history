@@ -333,40 +333,53 @@ int engine_step ( struct engine *e ) {
     int cid, pid, k;
     struct cell *c;
     struct part *p;
+    struct space *s;
+    FPTYPE dt, w;
+    
+    /* Get a grip on the space. */
+    s = &(e->s);
 
     /* increase the time stepper */
     e->time += 1;
     /* printf("engine_step: running time step %i...\n",e->time); */
     
     /* prepare the space */
-    if ( space_prepare( &(e->s) ) != space_err_ok )
+    if ( space_prepare( s ) != space_err_ok )
         return error(engine_err_space);
+
+    /* Do we need to set up a Verlet list? */
+    if ( e->flags & engine_flag_verlet )
+        if ( space_verlet_init( s ) != space_err_ok )
+            return error(engine_err_space);
         
     /* open the door for the runners */
     e->barrier_count *= -1;
     if (pthread_cond_broadcast(&e->barrier_cond) != 0)
         return error(engine_err_pthread);
-        
+
     /* wait for the runners to come home */
     while (e->barrier_count < e->nr_runners)
         if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
             return error(engine_err_pthread);
-    
+
     /* update the particle velocities and positions */
-    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
-        c = &(e->s.cells[cid]);
+    dt = e->dt;
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+        c = &(s->cells[cid]);
         for ( pid = 0 ; pid < c->count ; pid++ ) {
             p = &(c->parts[pid]);
+            w = dt * e->types[p->type].imass;
             for ( k = 0 ; k < 3 ; k++ ) {
-                p->v[k] += p->f[k] * e->dt * e->types[p->type].imass;
-                p->x[k] += e->dt * p->v[k];
+                p->v[k] += p->f[k] * w;
+                p->x[k] += dt * p->v[k];
                 }
             }
         }
-        
-    /* re-shuffle the space (every particle in its box) */
-    if ( space_shuffle( &(e->s) ) != space_err_ok )
-        return error(engine_err_space);
+
+    /* Only re-shuffle the space if we're not using a verlet list! */
+    if ( !( e->flags & engine_flag_verlet ) )
+        if ( space_shuffle( s ) != space_err_ok )
+            return error(engine_err_space);
     
     /* return quietly */
     return engine_err_ok;

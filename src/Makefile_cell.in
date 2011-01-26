@@ -18,7 +18,7 @@ LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g
 
 # Compiler flags and defines
 CC_OPT_LEVEL := -O3
-CFLAGS := -g -DCELL -DFPTYPE_SINGLE -fno-strict-aliasing
+CFLAGS := -g -std=gnu99 -DCELL -DFPTYPE_SINGLE -fno-strict-aliasing
 
 # Footer
 CELL_TOP = @CELLTOP@/sdk

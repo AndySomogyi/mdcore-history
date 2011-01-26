@@ -24,6 +24,7 @@
 
 // include some header files
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include <spu_mfcio.h>
 #include <spu_intrinsics.h>

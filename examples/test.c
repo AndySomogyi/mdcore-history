@@ -62,6 +62,7 @@ int main ( int argc , char *argv[] ) {
     double v_OH1[3], v_OH2[3], v_HH[3];
     double d_OH1, d_OH2, d_HH, lambda;
     double vcom[3], vcom_tot[3], w;
+    // struct cellpair cp;
     #ifdef CELL
         unsigned long long tic, toc;
     #else
@@ -76,25 +77,25 @@ int main ( int argc , char *argv[] ) {
 
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , engine_flag_tuples ) != 0 ) {
+    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , engine_flag_tuples | engine_flag_verlet ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
         }
     printf("done.\n"); fflush(stdout);
         
-    // mix-up the pair list just for kicks
-    // printf("main: shuffling the interaction pairs... "); fflush(stdout);
-    // srand(6178);
-    // for ( i = 0 ; i < e.s.nr_pairs ; i++ ) {
-    //     j = rand() % e.s.nr_pairs;
-    //     if ( i != j ) {
-    //         cp = e.s.pairs[i];
-    //         e.s.pairs[i] = e.s.pairs[j];
-    //         e.s.pairs[j] = cp;
-    //         }
-    //     }
-    // printf("done.\n"); fflush(stdout);
+    /* mix-up the pair list just for kicks
+    printf("main: shuffling the interaction pairs... "); fflush(stdout);
+    srand(6178);
+    for ( i = 0 ; i < e.s.nr_pairs ; i++ ) {
+        j = rand() % e.s.nr_pairs;
+        if ( i != j ) {
+            cp = e.s.pairs[i];
+            e.s.pairs[i] = e.s.pairs[j];
+            e.s.pairs[j] = cp;
+            }
+        }
+    printf("done.\n"); fflush(stdout); */
         
 
     // initialize the O-H potential
@@ -398,12 +399,13 @@ int main ( int argc , char *argv[] ) {
                 
             } // shake molecules
             
-        // re-shuffle the space just to be sure...
-        if ( space_shuffle( &e.s ) < 0 ) {
-            printf("main: space_shuffle failed with space_err=%i.\n",space_err);
-            errs_dump(stdout);
-            return 1;
-            }
+        // re-shuffle the space just to be sure (only if not verlet)...
+        if ( !( e.flags & engine_flag_verlet ) )
+            if ( space_shuffle( &e.s ) < 0 ) {
+                printf("main: space_shuffle failed with space_err=%i.\n",space_err);
+                errs_dump(stdout);
+                return 1;
+                }
             
             
         // get the total COM-velocities and ekin
@@ -446,7 +448,7 @@ int main ( int argc , char *argv[] ) {
             } // apply molecular thermostat
             
         // tabulate the total potential and kinetic energy
-        epot = 0.0; ekin = 0.0;
+        epot = e.s.epot; ekin = 0.0;
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
             epot += e.s.cells[cid].epot;
             for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {

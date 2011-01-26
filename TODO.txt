@@ -36,6 +36,7 @@ Things to do with functionality:
 * 2011/01/17: Add potential functions using automatic vectorization for gcc,
               check if this is significantly slower than using SSE/SSE2
               intrinsics directly.
+* 2011/01/24: What happens to the local ids when the user removes a part?
               
               
 Things to do with the configuration process:
@@ -58,6 +59,9 @@ Things to do with speed:
 * 2011/01/03: Use FMA when available (SSE4?).
 * 2011/01/03: Add support for AltiVec instructions.
 * 2011/01/17: Use sorting networks to improve sorted interactions?
+* 2011/01/24: Use integer sorting for the sorted interactions in runner_spu.
+* 2011/01/24: Replace cell_[i|j]->count by count_[i|j] in runner_*
+              interaction routines.
 
 
 

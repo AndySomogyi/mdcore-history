@@ -28,6 +28,7 @@
 #define space_err_cell                  -3
 #define space_err_pthread               -4
 #define space_err_range                 -5
+#define space_err_maxpairs              -6
 
 
 /* some constants */
@@ -39,6 +40,9 @@
 #define space_partlist_incr             100
 
 #define space_maxtuples                 4
+
+/** Maximum number of interactions per particle in the Verlet list. */
+#define space_verlet_maxpairs           500
 
 
 /* some useful macros */
@@ -119,6 +123,16 @@ struct space {
     
     /** Number of parts in this space and size of the buffers partlist and celllist. */
     int nr_parts, size_parts;
+    
+    /** Data for the verlet list. */
+    struct verlet_entry *verlet_list;
+    FPTYPE *verlet_oldx;
+    int *verlet_nrpairs;
+    int verlet_size, verlet_next;
+    int verlet_rebuild;
+    
+    /** Potential energy collected by the space itself. */
+    double epot;
 
     };
     
@@ -151,6 +165,21 @@ struct celltuple {
     unsigned int pairs;
     
     };
+    
+
+/** Struct for Verlet list entries. */
+struct verlet_entry {
+
+    /** The particle. */
+    struct part *p;
+    
+    /** The interaction potential. */
+    struct potential *pot;
+    
+    /** The integer shift relative to this particle. */
+    short int shift[3];
+    
+    };
 
 
 /* associated functions */
@@ -165,3 +194,6 @@ int space_gettuple ( struct space *s , struct celltuple *out );
 int space_getpos ( struct space *s , int id , double *x );
 int space_setpos ( struct space *s , int id , double *x );
 int space_flush ( struct space *s );
+int space_verlet_init ( struct space *s );
+int space_verlet_get ( struct space *s , int maxcount , int *from );
+int space_verlet_force ( struct space *s , FPTYPE *f , double epot );

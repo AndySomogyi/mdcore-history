@@ -21,6 +21,7 @@
 /* include some standard header files */
 #include <stdlib.h>
 #include <stdio.h>
+#include <malloc.h>
 #include <math.h>
 #include <float.h>
 #ifdef __SSE__

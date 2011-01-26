@@ -33,11 +33,23 @@
 
 
 /* some constants */
+/** Maximum number of cellpairs to get from space_getpair. */
 #define runner_bitesize                  3
+
+/** Number of particles to request per call to space_getverlet. */
+#define runner_verlet_bitesize           103
+
 #ifdef CELL
+    /** Length of the cell pair queue between the PPU and the SPU. */
     #define runner_qlen                  6
 #endif
+
+/** Maximum number of particles for which storage should be allocated
+    in the sorted particle interaction routines. */
 #define runner_maxparts                  400
+
+/** Maximum depth of Quicksort stack in the sorted particle interaction
+    routines. */
 #define runner_maxqstack                 100
 
 
@@ -76,6 +88,9 @@ struct runner {
     /** ID of the last error on this runner. */
     int err;
     
+    /** Accumulated potential energy by this runner. */
+    double epot;
+    
     };
     
 #ifdef CELL
@@ -93,3 +108,4 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
+int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out );

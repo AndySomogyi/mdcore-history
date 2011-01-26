@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
+#include <alloca.h>
 #include <pthread.h>
 #include <math.h>
 
@@ -40,14 +42,225 @@ int space_err = space_err_ok;
 #define error(id)				( space_err = errs_register( id , space_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *space_err_msg[6] = {
+char *space_err_msg[7] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
     "An error occured when calling a cell function.",
     "A call to a pthread routine failed.",
-    "One or more values were outside of the allowed range."
+    "One or more values were outside of the allowed range.",
+    "Too many pairs associated with a single particle in Verlet list.",
 	};
+    
+    
+/**
+ * @brief Collect forces and potential energies
+ *
+ * @param s The #space.
+ * @param maxcount The maximum number of entries.
+ * @param from Pointer to an integer which will contain the index to the
+ *        first entry on success.
+ * @param to Pointer to an integer which will contain the index to the
+ *        last entry on success.
+ *
+ * @return The number of entries returned or < 0 on error (see #space_err).
+ */
+ 
+int space_verlet_force ( struct space *s , FPTYPE *f , double epot ) {
+
+    int cid, pid, k, ind;
+    struct cell *c;
+    struct part *p;
+
+    /* Try to get a hold of the cells mutex */
+	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+		return error(space_err_pthread);
+    
+    /* Write the forces to the particles. */
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+        c = &(s->cells[cid]);
+        for ( pid = 0 ; pid < c->count ; pid++ ) {
+            p = &(c->parts[pid]);
+            ind = 4 * p->id;
+            for ( k = 0 ; k < 3 ; k++ )
+                p->f[k] += f[ ind + k ];
+            }
+        }
+        
+    /* Add the potential energy to the space's potential energy. */
+    s->epot += epot;
+    
+    /* Release the cells mutex */
+	if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+		return error(space_err_pthread);
+        
+    /* Relax. */
+    return space_err_ok;
+        
+    }
+
+
+/**
+ * @brief Get a chunk of Verlet list entries.
+ *
+ * @param s The #space.
+ * @param maxcount The maximum number of entries.
+ * @param from Pointer to an integer which will contain the index to the
+ *        first entry on success.
+ * @param to Pointer to an integer which will contain the index to the
+ *        last entry on success.
+ *
+ * @return The number of entries returned or < 0 on error (see #space_err).
+ */
+ 
+int space_verlet_get ( struct space *s , int maxcount , int *from ) {
+
+    int count = 0;
+
+    /* Try to get a hold of the cells mutex */
+	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+		return error(space_err_pthread);
+        
+    /* Are there any entries left? */
+    if ( s->verlet_next < s->nr_parts ) {
+    
+        /* Set count and from. */
+        *from = s->verlet_next;
+        count = s->nr_parts - s->verlet_next;
+        if ( count > maxcount )
+            count = maxcount;
+        
+        /* Increase verlet_next. */
+        s->verlet_next += count;
+    
+        }
+        
+    /* Release the cells mutex */
+	if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+		return error(space_err_pthread);
+        
+    /* Bring good tidings. */
+    return count;
+        
+    }
+
+
+/**
+ * @brief Initialize the Verlet-list data structures.
+ *
+ * @param s The #space.
+ *
+ * @return #space_err_ok or < 0 on error (see #space_err).
+ */
+ 
+int space_verlet_init ( struct space *s ) {
+
+    int cid, pid, ind, k;
+    double dx, w, maxdx = 0.0, skin;
+    struct cell *c;
+    struct part *p;
+    int max_nrpairs, min_nrpairs;
+
+    /* Check input for nonsense. */
+    if ( s == NULL )
+        return error(space_err_null);
+    
+    /* Get the skin width. */    
+    skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) ) - s->cutoff;
+    
+    /* Allocate the parts and nrpairs lists if necessary. */
+    if ( s->verlet_list == NULL || s->verlet_size < s->nr_parts ) {
+    
+        printf("space_verlet_init: (re)allocating verlet lists...\n");
+    
+        /* Free old lists if necessary. */
+        if ( s->verlet_list != NULL )
+            free( s->verlet_list );
+        if ( s->verlet_oldx != NULL )
+            free( s->verlet_oldx );
+        if ( s->verlet_nrpairs != NULL )
+            free( s->verlet_nrpairs );
+            
+        /* Allocate new arrays. */
+        s->verlet_size = 1.1 * s->nr_parts;
+        if ( ( s->verlet_list = (struct verlet_entry *)malloc( sizeof(struct verlet_entry) * s->verlet_size * space_verlet_maxpairs ) ) == NULL )
+            return error(space_err_malloc);
+        if ( ( s->verlet_nrpairs = (int *)malloc( sizeof(int) * s->verlet_size ) ) == NULL )
+            return error(space_err_malloc);
+        if ( ( s->verlet_oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * s->verlet_size * 4 ) ) == NULL )
+            return error(space_err_malloc);
+            
+        /* We have to re-build the list now. */
+        s->verlet_rebuild = 1;
+            
+        }
+        
+    else {
+    
+        max_nrpairs = min_nrpairs = s->verlet_nrpairs[0];
+        for ( k = 0 ; k < s->nr_parts ; k++ ) {
+            if ( s->verlet_nrpairs[k] > max_nrpairs )
+                max_nrpairs = s->verlet_nrpairs[k];
+            else if ( s->verlet_nrpairs[k] < max_nrpairs )
+                min_nrpairs = s->verlet_nrpairs[k];
+            }
+        /* printf("space_verlet_init: min_nrpairs=%i, max_nrpairs=%i.\n", 
+            min_nrpairs, max_nrpairs); */
+        if ( max_nrpairs > space_verlet_maxpairs )
+            return error(space_err_maxpairs);
+    
+        /* Check if we need to re-shuffle the particles. */
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            for ( pid = 0 ; pid < c->count ; pid++ ) {
+                p = &(c->parts[pid]);
+                ind = 4 * p->id;
+                for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                    w = p->x[k] - s->verlet_oldx[ ind + k ];
+                    dx += w*w;
+                    }
+                maxdx = fmax( dx , maxdx );
+                }
+            }
+            
+        /* Are we still in the green? */
+        s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
+        
+        }
+        
+    /* Do we have to rebuild the Verlet list? */
+    if ( s->verlet_rebuild ) {
+    
+        printf("space_verlet_init: (re)building verlet lists...\n");
+        printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin);
+        
+        /* Shuffle the domain. */
+        if ( space_shuffle( s ) < 0 )
+            return error(space_err);
+            
+        /* Store the current positions as a reference. */
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            for ( pid = 0 ; pid < c->count ; pid++ ) {
+                p = &(c->parts[pid]);
+                ind = 4 * p->id;
+                for ( k = 0 ; k < 3 ; k++ )
+                    s->verlet_oldx[ ind + k ] = p->x[k];
+                }
+            }
+            
+        /* Set the nrpairs to zero. */
+        bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
+
+        }
+        
+    /* re-set the Verlet list index. */
+    s->verlet_next = 0;
+        
+    /* All done! */
+    return space_err_ok;
+
+    }
 
 
 /**
@@ -336,6 +549,7 @@ int space_prepare ( struct space *s ) {
     s->next_tuple = 0;
     s->nr_swaps = 0;
     s->nr_stalls = 0;
+    s->epot = 0.0;
     
     /* run through the cells and re-set the potential energy and forces */
     for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
@@ -424,6 +638,10 @@ int space_shuffle ( struct space *s ) {
             s->partlist[ s->cells[cid].parts[pid].id ] = &( s->cells[cid].parts[pid] );
             s->celllist[ s->cells[cid].parts[pid].id ] = &( s->cells[cid] );
             }
+            
+    /* If we've got a Verlet list, reset the counts. */
+    if ( s->verlet_nrpairs != NULL )
+        bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
     
     /* all is well... */
     return space_err_ok;
@@ -932,6 +1150,13 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     if (pthread_mutex_init(&s->cellpairs_mutex,NULL) != 0 ||
         pthread_cond_init(&s->cellpairs_avail,NULL) != 0)
         return error(space_err_pthread);
+        
+    /* Init the Verlet table (NULL for now). */
+    s->verlet_list = NULL;
+    s->verlet_nrpairs = NULL;
+    s->verlet_oldx = NULL;
+    s->verlet_size = 0;
+    s->verlet_rebuild = 0;
         
     /* all is well that ends well... */
     return space_err_ok;
