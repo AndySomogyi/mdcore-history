@@ -77,7 +77,7 @@ int main ( int argc , char *argv[] ) {
 
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , engine_flag_tuples | engine_flag_verlet ) != 0 ) {
+    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , engine_flag_tuples ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;

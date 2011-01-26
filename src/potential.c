@@ -98,6 +98,13 @@ void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
     alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
     ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
     
+    /* for ( k = 0 ; k < 4 ; k++ )
+        if ( ind.i[k] > p[k]->n ) {
+            printf("potential_eval_vec_4single: r[%i]=%.8e, ind=%.8e.\n",
+                k, r.f[k], (float)(p[k]->alpha[0] + (float)(r.f[k]*(float)(p[k]->alpha[1] + (float)(r.f[k]*p[k]->alpha[2])))));
+            fflush(stdout);
+            } */
+    
     /* get the table offset */
     for ( k = 0 ; k < 4 ; k++ )
         data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
@@ -153,10 +160,10 @@ void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
  * function simply calls #potential_eval on each entry.
  */
 
-void potential_eval_vec_8single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
+void potential_eval_vec_8single ( struct potential *p[8] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
-    int j, k;
+    int j;
     union {
         __v4sf v;
         __m128i m;
@@ -164,7 +171,7 @@ void potential_eval_vec_8single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
         int i[4];
         } alpha0_1, alpha1_1, alpha2_1, mi_1, hi_1, x_1, ee_1, eff_1, c_1, r_1, ind_1,
           alpha0_2, alpha1_2, alpha2_2, mi_2, hi_2, x_2, ee_2, eff_2, c_2, r_2, ind_2;
-    float *data[4];
+    float *data[8];
     
     /* Get r . */
     r_1.v = _mm_sqrt_ps( _mm_load_ps( &r2[0] ) );
@@ -355,7 +362,7 @@ void potential_eval_vec_4single_ee ( struct potential *p[4] , struct potential *
 void potential_eval_vec_2double ( struct potential *p[2] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
-    int ind[2], j, k;
+    int ind[2], j;
     union {
         __v2df v;
         double f[2];
@@ -431,7 +438,7 @@ void potential_eval_vec_2double ( struct potential *p[2] , FPTYPE *r2 , FPTYPE *
 void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
-    int ind[4], j, k;
+    int ind[4], j;
     union {
         __v2df v;
         double f[2];
@@ -456,6 +463,12 @@ void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
     ind[1] = rind_1.f[1];
     ind[2] = rind_2.f[0];
     ind[3] = rind_2.f[1];
+    
+    /* for ( j = 0 ; j < 4 ; j++ )
+        if ( ind[j] > p[j]->n ) {
+            printf("potential_eval_vec_4double: dookie.\n");
+            fflush(stdout);
+            } */
     
     /* get the table offset */
     data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
@@ -526,7 +539,7 @@ void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
 void potential_eval_vec_2double_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
-    int ind[2], j, k;
+    int ind[2], j;
     union {
         __v2df v;
         double f[2];
@@ -636,6 +649,11 @@ void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) 
         ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     #endif
     
+    /* if ( ind > p->n ) {
+        printf("potential_eval: r=%.18e.\n",r);
+        fflush(stdout);
+        } */
+            
     /* get the table offset */
     c = &(p->c[ind * potential_chunk]);
     
@@ -1130,6 +1148,10 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     /* check if we have a user-specified 6th derivative or not. */
     if ( f6p == NULL )
         return error(potential_err_nyi);
+        
+    /* Stretch the domain ever so slightly to accommodate for rounding
+       error when computing the index. */
+    b *= (1.0 + sqrt(FPTYPE_EPSILON));
         
     /* set the boundaries */
     p->a = a; p->b = b;

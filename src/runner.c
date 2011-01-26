@@ -856,7 +856,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
             }
         }
         
-    /* store the amassed potential energy. */
+    /* store the amaSSEd potential energy. */
     cell_i->epot += epot;
         
     /* since nothing bad happened to us... */
@@ -1327,7 +1327,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
             }
         }
         
-    /* store the amassed potential energy. */
+    /* store the amaSSEd potential energy. */
     cell_i->epot += epot;
         
     /* since nothing bad happened to us... */
@@ -1684,7 +1684,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 }
         }
         
-    /* store the amassed potential energy. */
+    /* store the amaSSEd potential energy. */
     cell_i->epot += epot;
         
     /* all is well that ends ok */
@@ -2257,7 +2257,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 }
         }
         
-    /* store the amassed potential energy. */
+    /* store the amaSSEd potential energy. */
     cell_i->epot += epot;
         
     /* all is well that ends ok */
@@ -2275,7 +2275,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
  *
  * This is the main routine for the #runner. When called, it enters
  * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, calls #space_getpair until there are no pairs
+ * and, once having paSSEd, calls #space_getpair until there are no pairs
  * available.
  *
  * Note that this routine is only compiled if @c CELL has been defined.
@@ -2368,7 +2368,7 @@ int runner_run_cell ( struct runner *r ) {
                 /* printf("runner_run: runner %i sent pair to SPU.\n",r->id); fflush(stdout); */
 
 
-                /* wait for the last pair to have been processed */
+                /* wait for the last pair to have been proceSSEd */
                 if ( p[runner_qlen-1] != NULL ) {
 
                     /* read a word from the spe */
@@ -2452,7 +2452,7 @@ int runner_run_cell ( struct runner *r ) {
  *
  * This is the main routine for the #runner. When called, it enters
  * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, checks first if the Verlet list should
+ * and, once having paSSEd, checks first if the Verlet list should
  * be re-built and then proceeds to acquire chunks of the Verlet
  * list and computes its interactions.
  */
@@ -2600,7 +2600,7 @@ int runner_run_verlet ( struct runner *r ) {
  *
  * This is the main routine for the #runner. When called, it enters
  * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, calls #space_getpair until there are no pairs
+ * and, once having paSSEd, calls #space_getpair until there are no pairs
  * available.
  */
 
@@ -2630,7 +2630,7 @@ int runner_run_pairs ( struct runner *r ) {
             return error(runner_err_engine);
                         
         /* while i can still get a pair... */
-        /* printf("runner_run: runner %i passed barrier, getting pairs...\n",r->id); */
+        /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
         while ( ( p = space_getpair( &e->s , r->id , runner_bitesize , NULL , &err , 1 ) ) != NULL ) {
 
             /* work this list of pair... */
@@ -2693,7 +2693,7 @@ int runner_run_pairs ( struct runner *r ) {
  *
  * This is the main routine for the #runner. When called, it enters
  * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, calls #space_gettuple until there are no
+ * and, once having paSSEd, calls #space_gettuple until there are no
  * tuples available.
  */
 
