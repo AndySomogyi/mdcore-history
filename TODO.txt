@@ -62,6 +62,9 @@ Things to do with speed:
 * 2011/01/24: Use integer sorting for the sorted interactions in runner_spu.
 * 2011/01/24: Replace cell_[i|j]->count by count_[i|j] in runner_*
               interaction routines.
+* 2011/01/29: The celltuple structre has gotten quite large, re-arrange the
+              tuple (and perhaps cellpair?) sorting such that they are not
+              swapped around -- indirect sorting?
 
 
 

@@ -153,13 +153,12 @@ int space_verlet_get ( struct space *s , int maxcount , int *from ) {
  * @return #space_err_ok or < 0 on error (see #space_err).
  */
  
-int space_verlet_init ( struct space *s ) {
+int space_verlet_init ( struct space *s , int list_global ) {
 
     int cid, pid, ind, k;
     double dx, w, maxdx = 0.0, skin;
     struct cell *c;
     struct part *p;
-    int max_nrpairs, min_nrpairs;
 
     /* Check input for nonsense. */
     if ( s == NULL )
@@ -169,7 +168,7 @@ int space_verlet_init ( struct space *s ) {
     skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) ) - s->cutoff;
     
     /* Allocate the parts and nrpairs lists if necessary. */
-    if ( s->verlet_list == NULL || s->verlet_size < s->nr_parts ) {
+    if ( s->verlet_oldx == NULL || s->verlet_size < s->nr_parts ) {
     
         printf("space_verlet_init: (re)allocating verlet lists...\n");
     
@@ -183,10 +182,12 @@ int space_verlet_init ( struct space *s ) {
             
         /* Allocate new arrays. */
         s->verlet_size = 1.1 * s->nr_parts;
-        if ( ( s->verlet_list = (struct verlet_entry *)malloc( sizeof(struct verlet_entry) * s->verlet_size * space_verlet_maxpairs ) ) == NULL )
-            return error(space_err_malloc);
-        if ( ( s->verlet_nrpairs = (int *)malloc( sizeof(int) * s->verlet_size ) ) == NULL )
-            return error(space_err_malloc);
+        if ( list_global ) {
+            if ( ( s->verlet_list = (struct verlet_entry *)malloc( sizeof(struct verlet_entry) * s->verlet_size * space_verlet_maxpairs ) ) == NULL )
+                return error(space_err_malloc);
+            if ( ( s->verlet_nrpairs = (int *)malloc( sizeof(int) * s->verlet_size ) ) == NULL )
+                return error(space_err_malloc);
+            }
         if ( ( s->verlet_oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * s->verlet_size * 4 ) ) == NULL )
             return error(space_err_malloc);
             
@@ -196,19 +197,7 @@ int space_verlet_init ( struct space *s ) {
         }
         
     else {
-    
-        max_nrpairs = min_nrpairs = s->verlet_nrpairs[0];
-        for ( k = 0 ; k < s->nr_parts ; k++ ) {
-            if ( s->verlet_nrpairs[k] > max_nrpairs )
-                max_nrpairs = s->verlet_nrpairs[k];
-            else if ( s->verlet_nrpairs[k] < max_nrpairs )
-                min_nrpairs = s->verlet_nrpairs[k];
-            }
-        /* printf("space_verlet_init: min_nrpairs=%i, max_nrpairs=%i.\n", 
-            min_nrpairs, max_nrpairs); */
-        if ( max_nrpairs > space_verlet_maxpairs )
-            return error(space_err_maxpairs);
-    
+        
         /* Check if we need to re-shuffle the particles. */
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
@@ -232,7 +221,7 @@ int space_verlet_init ( struct space *s ) {
     if ( s->verlet_rebuild ) {
     
         printf("space_verlet_init: (re)building verlet lists...\n");
-        printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin);
+        /* printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
         
         /* Shuffle the domain. */
         if ( space_shuffle( s ) < 0 )
@@ -250,7 +239,8 @@ int space_verlet_init ( struct space *s ) {
             }
             
         /* Set the nrpairs to zero. */
-        bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
+        if ( list_global )
+            bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
 
         }
         
@@ -299,7 +289,7 @@ int space_flush ( struct space *s ) {
  *      < 0 on error (see #space_err).
  */
  
-int space_gettuple ( struct space *s , struct celltuple *out ) {
+int space_gettuple ( struct space *s , struct celltuple **out ) {
 
     int i, j, k;
     struct celltuple *t, temp;
@@ -332,9 +322,6 @@ int space_gettuple ( struct space *s , struct celltuple *out ) {
                         s->cells_taboo[ t->cellid[j] ] += 1;
                         }
                         
-            /* Copy this tuple out. */
-            *out = *t;
-            
             /* Swap this tuple to the top of the list. */
             if ( k != s->next_tuple ) {
                 temp = s->tuples[ k ];
@@ -343,6 +330,9 @@ int space_gettuple ( struct space *s , struct celltuple *out ) {
                 s->nr_swaps += 1;
                 }
                 
+            /* Copy this tuple out. */
+            *out = &( s->tuples[ s->next_tuple ] );
+            
             /* Increase the top of the list. */
             s->next_tuple += 1;
             
@@ -399,6 +389,7 @@ int space_maketuples ( struct space *s ) {
     size = s->nr_pairs / space_maxtuples;
     if ( ( s->tuples = (struct celltuple *)malloc( sizeof(struct celltuple) * size ) ) == NULL )
         return error(space_err_malloc);
+    bzero( s->tuples , sizeof(struct celltuple) * size );
     s->nr_tuples = 0;
         
     /* Allocate the vector w. */
@@ -414,6 +405,7 @@ int space_maketuples ( struct space *s ) {
             if ( ( t = (struct celltuple *)malloc( sizeof(struct celltuple) * (size + 20) ) ) == NULL )
                 return error(space_err_malloc);
             memcpy( t , s->tuples , sizeof(struct celltuple) * size );
+            bzero( &t[size] , sizeof(struct celltuple) * 20 );
             size += 20;
             free( s->tuples );
             s->tuples = t;

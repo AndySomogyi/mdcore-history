@@ -105,6 +105,9 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
     if ( c == NULL || loc == NULL || origin == NULL || dim == NULL )
         return error(cell_err_null);
         
+    /* default flags. */
+    c->flags = cell_flag_none;
+        
     /* store values */
     for ( i = 0 ; i < 3 ; i++ ) {
         c->loc[i] = loc[i];

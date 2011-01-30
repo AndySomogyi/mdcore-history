@@ -349,7 +349,7 @@ int engine_step ( struct engine *e ) {
 
     /* Do we need to set up a Verlet list? */
     if ( e->flags & engine_flag_verlet )
-        if ( space_verlet_init( s ) != space_err_ok )
+        if ( space_verlet_init( s , !(e->flags & engine_flag_verlet_pairwise) ) != space_err_ok )
             return error(engine_err_space);
         
     /* open the door for the runners */
@@ -463,9 +463,13 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     if ( space_init( &(e->s) ,origin , dim , cutoff , period ) < 0 )
         return error(engine_err_space);
         
+    /* Set some flag implications. */
+    if ( flags & engine_flag_verlet_pairwise )
+        flags |= engine_flag_verlet;
+        
     /* Set the flags. */
     e->flags = flags;
-        
+    
     /* set the maximum nr of types */
     e->max_type = max_type;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )

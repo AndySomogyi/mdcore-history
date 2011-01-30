@@ -42,6 +42,7 @@
 #define engine_flag_GPU                  32
 #define engine_flag_explepot             64
 #define engine_flag_verlet               128
+#define engine_flag_verlet_pairwise      256
 
 
 /** ID of the last error. */

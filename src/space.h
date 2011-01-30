@@ -152,6 +152,16 @@ struct cellpair {
     };
     
     
+/** Pairwise verlet list. */
+struct verlet_pairwise_list {
+
+    struct part **pairs;
+    
+    unsigned char *nr_pairs;
+    
+    };
+    
+
 /** Struct for groups of cellpairs. */
 struct celltuple {
 
@@ -164,9 +174,12 @@ struct celltuple {
     /** Cell pairs within this tuple. */
     unsigned int pairs;
     
+    /** Pairwise Verlet lists. */
+    struct verlet_pairwise_list verlet_lists[ space_maxtuples * space_maxtuples ];
+    
     };
     
-
+    
 /** Struct for Verlet list entries. */
 struct verlet_entry {
 
@@ -177,7 +190,7 @@ struct verlet_entry {
     struct potential *pot;
     
     /** The integer shift relative to this particle. */
-    short int shift[3];
+    signed char shift[3];
     
     };
 
@@ -190,10 +203,10 @@ int space_shuffle ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
 int space_prepare ( struct space *s );
 int space_maketuples ( struct space *s );
-int space_gettuple ( struct space *s , struct celltuple *out );
+int space_gettuple ( struct space *s , struct celltuple **out );
 int space_getpos ( struct space *s , int id , double *x );
 int space_setpos ( struct space *s , int id , double *x );
 int space_flush ( struct space *s );
-int space_verlet_init ( struct space *s );
+int space_verlet_init ( struct space *s , int list_global );
 int space_verlet_get ( struct space *s , int maxcount , int *from );
 int space_verlet_force ( struct space *s , FPTYPE *f , double epot );

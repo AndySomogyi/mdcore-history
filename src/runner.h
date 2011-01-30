@@ -45,8 +45,8 @@
 #endif
 
 /** Maximum number of particles for which storage should be allocated
-    in the sorted particle interaction routines. */
-#define runner_maxparts                  400
+    in the pairwise verlet list and sorted particle interaction routines. */
+#define runner_maxparts                  200
 
 /** Maximum depth of Quicksort stack in the sorted particle interaction
     routines. */
@@ -109,3 +109,4 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
 int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
 int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out );
+int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct verlet_pairwise_list *list );
