@@ -43,6 +43,7 @@
 #define engine_flag_explepot             64
 #define engine_flag_verlet               128
 #define engine_flag_verlet_pairwise      256
+#define engine_flag_affinity             512
 
 
 /** ID of the last error. */

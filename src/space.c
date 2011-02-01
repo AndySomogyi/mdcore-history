@@ -73,7 +73,7 @@ int space_verlet_force ( struct space *s , FPTYPE *f , double epot ) {
     struct part *p;
 
     /* Try to get a hold of the cells mutex */
-	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+	if ( pthread_mutex_lock( &s->verlet_force_mutex ) != 0 )
 		return error(space_err_pthread);
     
     /* Write the forces to the particles. */
@@ -91,7 +91,7 @@ int space_verlet_force ( struct space *s , FPTYPE *f , double epot ) {
     s->epot += epot;
     
     /* Release the cells mutex */
-	if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+	if ( pthread_mutex_unlock( &s->verlet_force_mutex ) != 0 )
 		return error(space_err_pthread);
         
     /* Relax. */
@@ -220,7 +220,7 @@ int space_verlet_init ( struct space *s , int list_global ) {
     /* Do we have to rebuild the Verlet list? */
     if ( s->verlet_rebuild ) {
     
-        printf("space_verlet_init: (re)building verlet lists...\n");
+        /* printf("space_verlet_init: (re)building verlet lists...\n"); */
         /* printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
         
         /* Shuffle the domain. */
@@ -767,13 +767,13 @@ int space_releasepair ( struct space *s , int ci , int cj ) {
     
     /* send a strong signal to anybody waiting on pairs... */
     if ( count ) {
-	    if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
-            return error(space_err_pthread);
+	    /* if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
+            return error(space_err_pthread); */
         while ( count-- )
             if (pthread_cond_signal(&s->cellpairs_avail) != 0)
                 return error(space_err_pthread);
-	    if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
-            return error(space_err_pthread);
+	    /* if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
+            return error(space_err_pthread); */
         }
     
     /* all is well... */
@@ -1139,9 +1139,11 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     s->size_parts = space_partlist_incr;
     
     /* init the cellpair mutexes */
-    if (pthread_mutex_init(&s->cellpairs_mutex,NULL) != 0 ||
-        pthread_cond_init(&s->cellpairs_avail,NULL) != 0)
+    if ( pthread_mutex_init( &s->cellpairs_mutex , NULL ) != 0 ||
+        pthread_cond_init( &s->cellpairs_avail , NULL ) != 0 ||
+        pthread_mutex_init( &s->verlet_force_mutex , NULL ) != 0 )
         return error(space_err_pthread);
+    
         
     /* Init the Verlet table (NULL for now). */
     s->verlet_list = NULL;

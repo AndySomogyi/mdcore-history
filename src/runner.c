@@ -3934,13 +3934,17 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     
     /* If we can, try to restrict this runner to a single CPU. */
     #if defined(HAVE_SETAFFINITY) && !defined(CELL)
-        /* Set the cpu mask to zero | r->id. */
-        CPU_ZERO( &cpuset );
-        CPU_SET( r->id , &cpuset );
+        if ( e->flags & engine_flag_affinity ) {
         
-        /* Apply this mask to the runner's pthread. */
-        if ( pthread_setaffinity_np( r->thread , sizeof(cpu_set_t) , &cpuset ) != 0 )
-            return error(runner_err_pthread);
+            /* Set the cpu mask to zero | r->id. */
+            CPU_ZERO( &cpuset );
+            CPU_SET( r->id , &cpuset );
+
+            /* Apply this mask to the runner's pthread. */
+            if ( pthread_setaffinity_np( r->thread , sizeof(cpu_set_t) , &cpuset ) != 0 )
+                return error(runner_err_pthread);
+
+            }
     #endif
     
     /* all is well... */

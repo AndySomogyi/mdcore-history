@@ -58,7 +58,7 @@ int main ( int argc , char *argv[] ) {
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp;
-    FPTYPE ee, eff;
+    // FPTYPE ee, eff;
     struct engine e;
     struct part p_O, p_H;
     struct potential *pot_OO, *pot_OH, *pot_HH, *pot_ee;

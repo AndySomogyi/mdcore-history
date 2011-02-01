@@ -130,6 +130,7 @@ struct space {
     int *verlet_nrpairs;
     int verlet_size, verlet_next;
     int verlet_rebuild;
+    pthread_mutex_t verlet_force_mutex;
     
     /** Potential energy collected by the space itself. */
     double epot;
