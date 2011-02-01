@@ -22,6 +22,7 @@
 #define cell_err_ok                     0
 #define cell_err_null                   -1
 #define cell_err_malloc                 -2
+#define cell_err_pthread                -3
 
 
 /* some constants */
@@ -69,6 +70,9 @@ struct cell {
     
     /* buffer to store the potential energy */
     double epot;
+    
+    /* Mutex for synchronized cell access. */
+    pthread_mutex_t verlet_force_mutex;
     
     };
     

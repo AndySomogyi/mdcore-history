@@ -156,6 +156,8 @@ struct cellpair {
 /** Pairwise verlet list. */
 struct verlet_pairwise_list {
 
+    int size;
+
     struct part **pairs;
     
     unsigned char *nr_pairs;

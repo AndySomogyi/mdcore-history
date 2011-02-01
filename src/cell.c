@@ -21,6 +21,7 @@
 /* include some standard header files */
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
 #include <string.h>
 #include <math.h>
 #ifdef CELL
@@ -42,10 +43,11 @@
 #define error(id)				( cell_err = errs_register( id , cell_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *cell_err_msg[3] = {
+char *cell_err_msg[] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
-    "A call to malloc failed, probably due to insufficient memory."
+    "A call to malloc failed, probably due to insufficient memory.",
+    "A call to a pthread routine failed."
 	};
 
 
@@ -107,6 +109,10 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
         
     /* default flags. */
     c->flags = cell_flag_none;
+        
+    /* Init this cell's mutex. */
+    if ( pthread_mutex_init( &c->verlet_force_mutex , NULL ) != 0 )
+        return error(cell_err_pthread);
         
     /* store values */
     for ( i = 0 ; i < 3 ; i++ ) {

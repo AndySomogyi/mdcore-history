@@ -37,7 +37,7 @@
 #define runner_bitesize                  3
 
 /** Number of particles to request per call to space_getverlet. */
-#define runner_verlet_bitesize           500
+#define runner_verlet_bitesize           200
 
 #ifdef CELL
     /** Length of the cell pair queue between the PPU and the SPU. */

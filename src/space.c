@@ -71,29 +71,50 @@ int space_verlet_force ( struct space *s , FPTYPE *f , double epot ) {
     int cid, pid, k, ind;
     struct cell *c;
     struct part *p;
-
-    /* Try to get a hold of the cells mutex */
-	if ( pthread_mutex_lock( &s->verlet_force_mutex ) != 0 )
-		return error(space_err_pthread);
+    int nr_cells = s->nr_cells, *scells;
     
-    /* Write the forces to the particles. */
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        c = &(s->cells[cid]);
+    /* Allocate a buffer to mix-up the cells. */
+    if ( ( scells = (int *)alloca( sizeof(int) * nr_cells ) ) == NULL )
+        return error(space_err_malloc);
+        
+    /* Mix-up the order of the cells. */
+    for ( k = 0 ; k < nr_cells ; k++ )
+        scells[k] = k;
+    for ( k = 0 ; k < nr_cells ; k++ ) {
+        cid = rand() % nr_cells;
+        pid = scells[k]; scells[k] = scells[cid]; scells[cid] = pid;
+        }
+
+    /* Loop over the cells. */
+    for ( cid = 0 ; cid < nr_cells ; cid++ ) {
+    
+        /* Get a pointer on the cell. */
+        c = &(s->cells[scells[cid]]);
+        
+        /* Get a lock on the cell. */
+	    if ( pthread_mutex_lock( &c->verlet_force_mutex ) != 0 )
+		    return error(space_err_pthread);
+        
         for ( pid = 0 ; pid < c->count ; pid++ ) {
             p = &(c->parts[pid]);
             ind = 4 * p->id;
             for ( k = 0 ; k < 3 ; k++ )
                 p->f[k] += f[ ind + k ];
             }
+            
+        /* Release the cells mutex */
+	    if ( pthread_mutex_unlock( &c->verlet_force_mutex ) != 0 )
+		    return error(space_err_pthread);
+        
         }
         
     /* Add the potential energy to the space's potential energy. */
+	if ( pthread_mutex_lock( &s->verlet_force_mutex ) != 0 )
+		return error(space_err_pthread);
     s->epot += epot;
-    
-    /* Release the cells mutex */
 	if ( pthread_mutex_unlock( &s->verlet_force_mutex ) != 0 )
 		return error(space_err_pthread);
-        
+    
     /* Relax. */
     return space_err_ok;
         

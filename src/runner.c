@@ -823,12 +823,22 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     /* Do we need to re-compute the pairwise Verlet list? */
     if ( s->verlet_rebuild ) {
     
-        /* Has the memory for the Verlet list been allocated? */
-        if ( list->pairs == NULL ) {
-            if ( ( list->pairs = (struct part **)malloc( sizeof(void *) * runner_maxparts * runner_maxparts ) ) == NULL )
+        /* Has sufficient memory for the Verlet list been allocated? */
+        if ( list->pairs == NULL || list->size < count_i * count_j ) {
+        
+            /* Clear lists if needed. */
+            if ( list->pairs != NULL )
+                free( list->pairs );
+                
+            /* Set the size and width. */
+            list->size = count_i * count_j;
+        
+            /* Allocate the list data. */
+            if ( ( list->pairs = (struct part **)malloc( sizeof(void *) * list->size ) ) == NULL )
                 return error(runner_err_malloc);
-            if ( ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * runner_maxparts ) ) == NULL )
+            if ( list->nr_pairs == NULL && ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * runner_maxparts ) ) == NULL )
                 return error(runner_err_malloc);
+                
             }
     
         /* Is this a self interaction? */
@@ -847,7 +857,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 pix[2] = part_i->x[2];
                 pioff = part_i->type * emt;
                 pind = 0;
-                pairs = &( list->pairs[ i * runner_maxparts ] );
+                pairs = &( list->pairs[ i * count_i ] );
                 pif = &( part_i->f[0] );
 
                 /* loop over all other particles */
@@ -1040,7 +1050,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     pjx[2] = part_j->x[2] + pshift[2];
                     pjoff = part_j->type * emt;
                     pind = 0;
-                    pairs = &( list->pairs[ pid * runner_maxparts ] );
+                    pairs = &( list->pairs[ pid * count_i ] );
                     pjf = &( part_j->f[0] );
 
                     /* loop over the left particles */
@@ -1175,7 +1185,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             pjx[1] = part_j->x[1] + pshift[1];
             pjx[2] = part_j->x[2] + pshift[2];
             pjf = &( part_j->f[0] );
-            pairs = &( list->pairs[ j * runner_maxparts ] );
+            pairs = &( list->pairs[ j * count_i ] );
             pjoff = part_j->type * emt;
 
             /* Loop over the entries in the Verlet list. */
