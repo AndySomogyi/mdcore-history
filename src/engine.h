@@ -37,7 +37,7 @@
 #define engine_flag_tuples               1
 #define engine_flag_static               2
 #define engine_flag_localparts           4
-#define engine_flag_cell                 8
+#define engine_flag_useSPU               8
 #define engine_flag_usePPU               16
 #define engine_flag_GPU                  32
 #define engine_flag_explepot             64

@@ -54,6 +54,12 @@ ACX_PTHREAD([LIBS="$PTHREAD_LIBS $LIBS" CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
     non-standard location.]))
     
     
+# Check for pthread_setaffinity_np
+AC_USE_SYSTEM_EXTENSIONS
+AC_CHECK_FUNC( pthread_setaffinity_np , AC_DEFINE([HAVE_SETAFFINITY],[true],
+    [Defined if pthread_setaffinity_np exists.]) )
+
+
 # Check for OpenMP
 AX_OPENMP
 AC_SUBST(OPENMP_CFLAGS)

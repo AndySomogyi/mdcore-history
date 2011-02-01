@@ -17,6 +17,8 @@
  * 
  ******************************************************************************/
 
+/* Include configuration header */
+#include "../config.h"
 
 /* Include some standard header files */
 #include <stdlib.h>
@@ -26,6 +28,8 @@
 #include <float.h>
 #include <string.h>
 #include <limits.h>
+
+/* Include some conditional headers. */
 #ifdef CELL
     #include <libspe2.h>
     #include <libmisc.h>
@@ -33,6 +37,9 @@
 #endif
 #ifdef __SSE__
     #include <xmmintrin.h>
+#endif
+#ifdef HAVE_SETAFFINITY
+    #include <sched.h>
 #endif
 
 /* Include local headers */
@@ -305,7 +312,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     struct part *parts_i, *parts_j;
     struct potential *pot, **pots;
     struct engine *eng;
-    int emt, pjoff, pioff;
+    int emt, pjoff, pioff, count_i, count_j;
     FPTYPE cutoff, cutoff2, skin, skin2, r2, dx[3], w;
     struct {
         short int d, ind;
@@ -339,9 +346,11 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     cutoff = s->cutoff;
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
+    count_i = cell_i->count;
+    count_j = cell_j->count;
     
     /* break early if one of the cells is empty */
-    if ( cell_i->count == 0 || cell_j->count == 0 )
+    if ( count_i == 0 || count_j == 0 )
         return runner_err_ok;
     
     /* Get pointers to the particle arrays. */
@@ -352,7 +361,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     if ( cell_i == cell_j ) {
     
         /* loop over all particles */
-        for ( i = 1 ; i < cell_i->count ; i++ ) {
+        for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
@@ -491,13 +500,13 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         /* start by filling the particle ids of both cells into ind and d */
         inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
         shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
             part_i = &( parts_i[i] );
             parts[count].ind = -i - 1;
             parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
             count += 1;
             }
-        for ( i = 0 ; i < cell_j->count ; i++ ) {
+        for ( i = 0 ; i < count_j ; i++ ) {
             part_i = &( parts_j[i] );
             parts[count].ind = i;
             parts[count].d = 1 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - skin );
@@ -775,7 +784,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
     FPTYPE pix[3], pjx[3], *pif, *pjf;
-    int pind, pid;
+    int pind, pid, nr_pairs, count_i, count_j;
     double epot = 0.0;
     struct part **pairs;
 #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
@@ -800,9 +809,11 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     cutoff = s->cutoff;
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
+    count_i = cell_i->count;
+    count_j = cell_j->count;
     
     /* break early if one of the cells is empty */
-    if ( cell_i->count == 0 || cell_j->count == 0 )
+    if ( count_i == 0 || count_j == 0 )
         return runner_err_ok;
     
     /* Get pointers to the particle arrays. */
@@ -827,7 +838,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             list->nr_pairs[0] = 0;
 
             /* loop over all particles */
-            for ( i = 1 ; i < cell_i->count ; i++ ) {
+            for ( i = 1 ; i < count_i ; i++ ) {
 
                 /* get the particle */
                 part_i = &(cell_i->parts[i]);
@@ -956,13 +967,13 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             /* start by filling the particle ids of both cells into ind and d */
             inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
             shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
-            for ( i = 0 ; i < cell_i->count ; i++ ) {
+            for ( i = 0 ; i < count_i ; i++ ) {
                 part_i = &( parts_i[i] );
                 parts[count].ind = -i - 1;
                 parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
                 count += 1;
                 }
-            for ( i = 0 ; i < cell_j->count ; i++ ) {
+            for ( i = 0 ; i < count_j ; i++ ) {
                 part_i = &( parts_j[i] );
                 parts[count].ind = i;
                 parts[count].d = 1 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - skin );
@@ -1152,8 +1163,12 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     else {
     
         /* Loop over the particles in cell_j. */
-        for ( j = 0 ; j < cell_j->count ; j++ ) {
+        for ( j = 0 ; j < count_j ; j++ ) {
         
+            /* Skip this particle before we get too involved. */
+            if ( ( nr_pairs = list->nr_pairs[j] ) == 0 )
+                continue;
+                
             /* Get the particle data. */
             part_j = &(cell_j->parts[j]);
             pjx[0] = part_j->x[0] + pshift[0];
@@ -1164,7 +1179,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             pjoff = part_j->type * emt;
 
             /* Loop over the entries in the Verlet list. */
-            for ( i = 0 ; i < list->nr_pairs[j] ; i++ ) {
+            for ( i = 0 ; i < nr_pairs ; i++ ) {
             
                 /* Get the other particle */
                 /* part_i = &(parts_i[ pairs[i] ]); */
@@ -1350,7 +1365,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     double epot = 0.0;
     struct potential *pot, **pots;
     struct engine *eng;
-    int emt, pjoff;
+    int emt, pjoff, count_i, count_j;
     FPTYPE cutoff, cutoff2, r2, dx[3], w;
     struct {
         short int d, ind;
@@ -1371,7 +1386,7 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     FPTYPE e, f;
 #endif
     
-    /* get the space and cutoff */
+    /* get some useful data */
     eng = r->e;
     emt = eng->max_type;
     s = &(eng->s);
@@ -1379,19 +1394,21 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
+    count_i = cell_i->count;
+    count_j = cell_j->count;
     
     /* break early if one of the cells is empty */
-    if ( cell_i->count == 0 || cell_j->count == 0 )
+    if ( count_i == 0 || count_j == 0 )
         return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* set pointers to the particle lists */
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
-        memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
+        memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
         }
         
     else {
@@ -1402,13 +1419,13 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     /* start by filling the particle ids of both cells into ind and d */
     inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
     shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
-    for ( i = 0 ; i < cell_i->count ; i++ ) {
+    for ( i = 0 ; i < count_i ; i++ ) {
         part_i = &( parts_i[i] );
         parts[count].ind = -i - 1;
         parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
         count += 1;
         }
-    for ( i = 0 ; i < cell_j->count ; i++ ) {
+    for ( i = 0 ; i < count_j ; i++ ) {
         part_i = &( parts_j[i] );
         parts[count].ind = i;
         parts[count].d = 1 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff );
@@ -1637,12 +1654,12 @@ int runner_sortedpair ( struct runner *r , struct cell *cell_i , struct cell *ce
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
             cell_i->parts[i].f[0] = parts_i[i].f[0];
             cell_i->parts[i].f[1] = parts_i[i].f[1];
             cell_i->parts[i].f[2] = parts_i[i].f[2];
             }
-        for ( i = 0 ; i < cell_j->count ; i++ ) {
+        for ( i = 0 ; i < count_j ; i++ ) {
             cell_j->parts[i].f[0] = parts_j[i].f[0];
             cell_j->parts[i].f[1] = parts_j[i].f[1];
             cell_j->parts[i].f[2] = parts_j[i].f[2];
@@ -1692,7 +1709,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     double epot = 0.0;
     struct potential *pot, *ep;
     struct engine *eng;
-    int emt, pjoff;
+    int emt, pjoff, count_i, count_j;
     FPTYPE cutoff, cutoff2, r2, dx[3], dscale, w;
     struct {
         short int d, ind;
@@ -1727,19 +1744,21 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
+    count_i = cell_i->count;
+    count_j = cell_j->count;
     
     /* break early if one of the cells is empty */
-    if ( cell_i->count == 0 || cell_j->count == 0 )
+    if ( count_i == 0 || count_j == 0 )
         return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* set pointers to the particle lists */
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
-        memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
+        memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
         }
         
     else {
@@ -1750,13 +1769,13 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     /* start by filling the particle ids of both cells into ind and d */
     inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
     shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
-    for ( i = 0 ; i < cell_i->count ; i++ ) {
+    for ( i = 0 ; i < count_i ; i++ ) {
         part_i = &( parts_i[i] );
         parts[count].ind = -i - 1;
         parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
         count += 1;
         }
-    for ( i = 0 ; i < cell_j->count ; i++ ) {
+    for ( i = 0 ; i < count_j ; i++ ) {
         part_i = &( parts_j[i] );
         parts[count].ind = i;
         parts[count].d = 1.0 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff );
@@ -2108,12 +2127,12 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
             cell_i->parts[i].f[0] = parts_i[i].f[0];
             cell_i->parts[i].f[1] = parts_i[i].f[1];
             cell_i->parts[i].f[2] = parts_i[i].f[2];
             }
-        for ( i = 0 ; i < cell_j->count ; i++ ) {
+        for ( i = 0 ; i < count_j ; i++ ) {
             cell_j->parts[i].f[0] = parts_j[i].f[0];
             cell_j->parts[i].f[1] = parts_j[i].f[1];
             cell_j->parts[i].f[2] = parts_j[i].f[2];
@@ -2148,7 +2167,7 @@ int runner_sortedpair_ee ( struct runner *r , struct cell *cell_i , struct cell 
 
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
-    int i, j, k, emt, pioff;
+    int i, j, k, emt, pioff, count_i, count_j;
     FPTYPE cutoff2, r2, dx[3], pix[3], w;
     double epot = 0.0;
     struct engine *eng;
@@ -2172,16 +2191,18 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
+    count_i = cell_i->count;
+    count_j = cell_j->count;
         
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* set pointers to the particle lists */
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
         if ( cell_i != cell_j ) {
-            parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-            memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
+            parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+            memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
             }
         }
         
@@ -2194,7 +2215,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     if ( cell_i == cell_j ) {
     
         /* loop over all particles */
-        for ( i = 1 ; i < cell_i->count ; i++ ) {
+        for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
@@ -2306,7 +2327,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     else {
     
         /* loop over all particles */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
@@ -2316,7 +2337,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
             pioff = part_i->type * emt;
             
             /* loop over all other particles */
-            for ( j = 0 ; j < cell_j->count ; j++ ) {
+            for ( j = 0 ; j < count_j ; j++ ) {
             
                 /* get the other particle */
                 part_j = &(cell_j->parts[j]);
@@ -2464,13 +2485,13 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
             cell_i->parts[i].f[0] = parts_i[i].f[0];
             cell_i->parts[i].f[1] = parts_i[i].f[1];
             cell_i->parts[i].f[2] = parts_i[i].f[2];
             }
         if ( cell_i != cell_j )
-            for ( i = 0 ; i < cell_j->count ; i++ ) {
+            for ( i = 0 ; i < count_j ; i++ ) {
                 cell_j->parts[i].f[0] = parts_j[i].f[0];
                 cell_j->parts[i].f[1] = parts_j[i].f[1];
                 cell_j->parts[i].f[2] = parts_j[i].f[2];
@@ -2513,6 +2534,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     struct part *part_i, *part_j, *parts_i, *parts_j = NULL;
     struct potential *pot, *ep;
     struct space *s;
+    int count_i, count_j;
 #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
     int l, icount = 0, icount_2 = 0;
     FPTYPE *effi[4], *effj[4], *effi_2[4], *effj_2[4];
@@ -2536,16 +2558,18 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
+    count_i = cell_i->count;
+    count_j = cell_j->count;
         
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* set pointers to the particle lists */
-        parts_i = (struct part *)alloca( sizeof(struct part) * cell_i->count );
-        memcpy( parts_i , cell_i->parts , sizeof(struct part) * cell_i->count );
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
         if ( cell_i != cell_j ) {
-            parts_j = (struct part *)alloca( sizeof(struct part) * cell_j->count );
-            memcpy( parts_j , cell_j->parts , sizeof(struct part) * cell_j->count );
+            parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+            memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
             }
         }
         
@@ -2558,7 +2582,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     if ( cell_i == cell_j ) {
     
         /* loop over all particles */
-        for ( i = 1 ; i < cell_i->count ; i++ ) {
+        for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
@@ -2756,7 +2780,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     else {
     
         /* loop over all particles */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
         
             /* get the particle */
             part_i = &(cell_i->parts[i]);
@@ -2767,7 +2791,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
             piq = part_i->q;
             
             /* loop over all other particles */
-            for ( j = 0 ; j < cell_j->count ; j++ ) {
+            for ( j = 0 ; j < count_j ; j++ ) {
             
                 /* get the other particle */
                 part_j = &(cell_j->parts[j]);
@@ -3037,13 +3061,13 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     if ( r->e->flags & engine_flag_localparts ) {
     
         /* copy the particle data back */
-        for ( i = 0 ; i < cell_i->count ; i++ ) {
+        for ( i = 0 ; i < count_i ; i++ ) {
             cell_i->parts[i].f[0] = parts_i[i].f[0];
             cell_i->parts[i].f[1] = parts_i[i].f[1];
             cell_i->parts[i].f[2] = parts_i[i].f[2];
             }
         if ( cell_i != cell_j )
-            for ( i = 0 ; i < cell_j->count ; i++ ) {
+            for ( i = 0 ; i < count_j ; i++ ) {
                 cell_j->parts[i].f[0] = parts_j[i].f[0];
                 cell_j->parts[i].f[1] = parts_j[i].f[1];
                 cell_j->parts[i].f[2] = parts_j[i].f[2];
@@ -3734,6 +3758,9 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
         struct potential *p;
         unsigned int buff;
     #endif
+    #if defined(HAVE_SETAFFINITY) && !defined(CELL)
+        cpu_set_t cpuset;
+    #endif
 
     /* make sure the inputs are ok */
     if ( r == NULL || e == NULL )
@@ -3744,7 +3771,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->id = id;
     
     /* If this runner will run on an SPU, it needs to init some data. */
-    if ( e->flags & engine_flag_cell ) {
+    if ( e->flags & engine_flag_useSPU ) {
     
         #ifdef CELL
         /* if this has not been done before, init the runner data */
@@ -3904,6 +3931,17 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_pairs,r) != 0)
 		    return error(runner_err_pthread);
         }
+    
+    /* If we can, try to restrict this runner to a single CPU. */
+    #if defined(HAVE_SETAFFINITY) && !defined(CELL)
+        /* Set the cpu mask to zero | r->id. */
+        CPU_ZERO( &cpuset );
+        CPU_SET( r->id , &cpuset );
+        
+        /* Apply this mask to the runner's pthread. */
+        if ( pthread_setaffinity_np( r->thread , sizeof(cpu_set_t) , &cpuset ) != 0 )
+            return error(runner_err_pthread);
+    #endif
     
     /* all is well... */
     return runner_err_ok;

@@ -30,6 +30,11 @@
     #include "cycle.h"
 #endif
 
+/* What to do if ENGINE_FLAGS was not defined? */
+#ifndef ENGINE_FLAGS
+    #define ENGINE_FLAGS engine_flag_tuples
+#endif
+
 // include local headers
 #include "errs.h"
 #include "fptype.h"
@@ -77,7 +82,7 @@ int main ( int argc , char *argv[] ) {
 
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , engine_flag_tuples | engine_flag_verlet_pairwise ) != 0 ) {
+    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
