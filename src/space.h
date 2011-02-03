@@ -95,7 +95,7 @@ struct space {
     struct celltuple *tuples;
     
     /** The number of tuples. */
-    int nr_tuples;
+    int nr_tuples, *tuple_index;
     
     /** The ID of the next free tuple. */
     int next_tuple;

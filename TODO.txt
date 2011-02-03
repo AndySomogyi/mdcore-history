@@ -60,11 +60,9 @@ Things to do with speed:
 * 2011/01/03: Add support for AltiVec instructions.
 * 2011/01/17: Use sorting networks to improve sorted interactions?
 * 2011/01/24: Use integer sorting for the sorted interactions in runner_spu.
-* 2011/01/24: Replace cell_[i|j]->count by count_[i|j] in runner_*
+* 2011/02/03: Allocate left and quicksort stack on the fly for sorted
               interaction routines.
-* 2011/01/29: The celltuple structre has gotten quite large, re-arrange the
-              tuple (and perhaps cellpair?) sorting such that they are not
-              swapped around -- indirect sorting?
-
+* 2011/02/03: Keep particle types, forces and positions in compact
+              local arrays in the interction routines.
 
 

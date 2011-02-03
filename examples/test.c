@@ -34,6 +34,9 @@
 #ifndef ENGINE_FLAGS
     #define ENGINE_FLAGS engine_flag_tuples
 #endif
+#ifndef CPU_TPS
+    #define CPU_TPS 2501000
+#endif
 
 // include local headers
 #include "errs.h"
@@ -61,7 +64,8 @@ int main ( int argc , char *argv[] ) {
     // FPTYPE ee, eff;
     struct engine e;
     struct part p_O, p_H;
-    struct potential *pot_OO, *pot_OH, *pot_HH, *pot_ee;
+    struct potential *pot_OO, *pot_OH, *pot_HH;
+    // struct potential *pot_ee;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
     double v_OH1[3], v_OH2[3], v_HH[3];
@@ -146,13 +150,13 @@ int main ( int argc , char *argv[] ) {
     #endif
     
     // initialize the expl. electrostatic potential
-    if ( ( pot_ee = potential_create_Ewald( 0.1 , 1.0 , 1.0 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    /* if ( ( pot_ee = potential_create_Ewald( 0.1 , 1.0 , 1.0 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
         }
     printf("main: constructed expl. electrostatic potential with %i intervals.\n",pot_ee->n); fflush(stdout);
-    /* if ( engine_setexplepot( &e , pot_ee ) < 0 ) {
+    if ( engine_setexplepot( &e , pot_ee ) < 0 ) {
         printf("main: engine_setexplepot failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -257,7 +261,7 @@ int main ( int argc , char *argv[] ) {
         printf("main: setup took %.3f ms.\n",(double)(toc-tic) / 25000);
     #else
         toc = getticks();
-        printf("main: setup took %.3f ms.\n",elapsed(toc,tic) / 2501000);
+        printf("main: setup took %.3f ms.\n",elapsed(toc,tic) / CPU_TPS);
     #endif
     
     // did the user specify a number of runners?
@@ -465,13 +469,7 @@ int main ( int argc , char *argv[] ) {
             
             
         printf("%i %e %e %e %i %i %.3f ms\n",
-        #ifdef CELL
-            // e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc-tic) / 25000); fflush(stdout);
-            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc-tic) / 26664.184); fflush(stdout);
-        #else
-            // e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,elapsed(toc,tic) / 2300000); fflush(stdout);
-            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,elapsed(toc,tic) / 2199977); fflush(stdout);
-        #endif
+            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc-tic) / CPU_TPS); fflush(stdout);
         
         // print some particle data
         // printf("main: part 13322 is at [ %e , %e , %e ].\n",

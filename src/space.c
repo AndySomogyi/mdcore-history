@@ -313,7 +313,7 @@ int space_flush ( struct space *s ) {
 int space_gettuple ( struct space *s , struct celltuple **out ) {
 
     int i, j, k;
-    struct celltuple *t, temp;
+    struct celltuple *t;
 
     /* Try to get a hold of the cells mutex */
 	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
@@ -326,7 +326,7 @@ int space_gettuple ( struct space *s , struct celltuple **out ) {
         for ( k = s->next_tuple ; k < s->nr_tuples ; k++ ) {
         
             /* Put a t on this tuple. */
-            t = &( s->tuples[k] );
+            t = &( s->tuples[ s->tuple_index[k] ] );
             
             /* Check if all the cells of this tuple are free. */
             for ( i = 0 ; i < t->n ; i++ )
@@ -345,14 +345,14 @@ int space_gettuple ( struct space *s , struct celltuple **out ) {
                         
             /* Swap this tuple to the top of the list. */
             if ( k != s->next_tuple ) {
-                temp = s->tuples[ k ];
-                s->tuples[ k ] = s->tuples[ s->next_tuple ];
-                s->tuples[ s->next_tuple ] = temp;
+                i = s->tuple_index[k];
+                s->tuple_index[k] = s->tuple_index[ s->next_tuple ];
+                s->tuple_index[ s->next_tuple ] = i;
                 s->nr_swaps += 1;
                 }
                 
             /* Copy this tuple out. */
-            *out = &( s->tuples[ s->next_tuple ] );
+            *out = t;
             
             /* Increase the top of the list. */
             s->next_tuple += 1;
@@ -405,6 +405,12 @@ int space_maketuples ( struct space *s ) {
     /* Check for bad input. */
     if ( s == NULL )
         return error(space_err_null);
+        
+    /* Clean up any old tuple data that may be lying around. */
+    if ( s->tuples != NULL )
+        free( s->tuples );
+    if ( s->tuple_index != NULL )
+        free( s->tuple_index );
         
     /* Guess the size of the tuple array and allocate it. */
     size = s->nr_pairs / space_maxtuples;
@@ -524,6 +530,12 @@ int space_maketuples ( struct space *s ) {
             }
     
         }
+        
+    /* Allocate and init the tuple index. */
+    if ( ( s->tuple_index = (int *)malloc( sizeof(int) * s->nr_tuples ) ) == NULL )
+        return error(space_err_malloc);
+    for ( k = 0 ; k < s->nr_tuples ; k++ )
+        s->tuple_index[k] = k;
         
     /* Dump the list of tuples. */
     /* for ( i = 0 ; i < s->nr_tuples ; i++ ) {
@@ -988,6 +1000,9 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     /* check inputs */
     if ( s == NULL || origin == NULL || dim == NULL )
         return error(space_err_null);
+        
+    /* Clear the space. */
+    bzero( s , sizeof(struct space) );
         
     /* set origin and compute the dimensions */
     for ( i = 0 ; i < 3 ; i++ ) {
