@@ -33,7 +33,7 @@
 #ifdef CELL
     #define cell_partalign                  128
 #else
-    #define cell_partalign                  16
+    #define cell_partalign                  64
 #endif
 
 /** Cell flags */

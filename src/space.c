@@ -725,7 +725,7 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
     for ( k = 0 ; k < 3 ; k++ )
         if ( ind[k] < 0 || ind[k] >= s->cdim[k] )
             return error(space_err_range);
-            
+
     /* get the appropriate cell */
     cid = space_cellid(s,ind[0],ind[1],ind[2]);
     
@@ -1029,7 +1029,6 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         s->h[i] = s->dim[i] / s->cdim[i];
         s->ih[i] = 1.0 / s->h[i];
         }
-        
     /* initialize the cells  */
     for ( l[0] = 0 ; l[0] < s->cdim[0] ; l[0]++ ) {
         o[0] = origin[0] + l[0] * s->h[0];

@@ -31,7 +31,7 @@ test_LDADD = ../src/.libs/libmdcore.a
 
 # Sources for test_single
 test_single_SOURCES = test.c
-test_single_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples|engine_flag_affinity" -DFPTYPE_SINGLE $(AM_CFLAGS)
+test_single_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples" -DFPTYPE_SINGLE $(AM_CFLAGS)
 test_single_LDADD = ../src/.libs/libmdcore_single.a
 
 

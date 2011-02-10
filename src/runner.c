@@ -221,7 +221,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = f * dx[k];
                     f_out[i*4+k] -= w;
-                    f_out[j*4+k] += w;
+                    f_out[part_j->id*4+k] += w;
                     }
 
                 /* tabulate the energy */
@@ -237,8 +237,10 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -259,8 +261,10 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -304,11 +308,11 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
 
     struct part *part_i, *part_j;
     struct space *s;
-    int left[runner_maxparts], count = 0, lcount = 0;
+    int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
         int lo, hi;
-        } qstack[runner_maxqstack];
+        } *qstack;
     struct part *parts_i, *parts_j;
     struct potential *pot, **pots;
     struct engine *eng;
@@ -316,7 +320,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     FPTYPE cutoff, cutoff2, skin, skin2, r2, dx[3], w;
     struct {
         short int d, ind;
-        } parts[2*runner_maxparts], temp;
+        } *parts, temp;
     short int pivot;
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
@@ -353,10 +357,25 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     if ( count_i == 0 || count_j == 0 )
         return runner_err_ok;
     
-    /* Get pointers to the particle arrays. */
-    parts_i = cell_i->parts;
-    parts_j = cell_j->parts;
+    /* Make local copies of the parts if requested. */
+    if ( r->e->flags & engine_flag_localparts ) {
     
+        /* set pointers to the particle lists */
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
+        if ( cell_i != cell_j ) {
+            parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+            memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+            }
+        else
+            parts_j = parts_i;
+        }
+        
+    else {
+        parts_i = cell_i->parts;
+        parts_j = cell_j->parts;
+        }
+        
     /* Is this a self interaction? */
     if ( cell_i == cell_j ) {
     
@@ -364,7 +383,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
@@ -401,7 +420,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                 vbuff[pind].shift[1] = 0;
                 vbuff[pind].shift[2] = 0;
                 vbuff[pind].pot = pot;
-                vbuff[pind].p = part_j;
+                vbuff[pind].p = &(cell_j->parts[j]);
                 pind += 1;
                     
                 /* is this within cutoff? */
@@ -496,6 +515,12 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         ishift[0] = round( pshift[0] * s->ih[0] );
         ishift[1] = round( pshift[1] * s->ih[1] );
         ishift[2] = round( pshift[2] * s->ih[2] );
+        
+        /* Allocate work arrays on stack. */
+        if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
+             ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
+             ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+            return error(runner_err_malloc);
         
         /* start by filling the particle ids of both cells into ind and d */
         inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
@@ -604,7 +629,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                     vbuff[pind].shift[1] = ishift[1];
                     vbuff[pind].shift[2] = ishift[2];
                     vbuff[pind].pot = pot;
-                    vbuff[pind].p = part_i;
+                    vbuff[pind].p = &( cell_i->parts[left[j]] );
                     pind += 1;
 
                     /* is this within cutoff? */
@@ -699,8 +724,10 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -721,8 +748,10 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -742,6 +771,23 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         
     /* Store the potential energy to cell_i. */
     cell_i->epot += epot;
+        
+    /* Write local data back if needed. */
+    if ( r->e->flags & engine_flag_localparts ) {
+    
+        /* copy the particle data back */
+        for ( i = 0 ; i < count_i ; i++ ) {
+            cell_i->parts[i].f[0] = parts_i[i].f[0];
+            cell_i->parts[i].f[1] = parts_i[i].f[1];
+            cell_i->parts[i].f[2] = parts_i[i].f[2];
+            }
+        if ( cell_i != cell_j )
+            for ( i = 0 ; i < count_j ; i++ ) {
+                cell_j->parts[i].f[0] = parts_j[i].f[0];
+                cell_j->parts[i].f[1] = parts_j[i].f[1];
+                cell_j->parts[i].f[2] = parts_j[i].f[2];
+                }
+        }
         
     /* since nothing bad happened to us... */
     return runner_err_ok;
@@ -767,11 +813,11 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
 
     struct part *part_i, *part_j;
     struct space *s;
-    int left[runner_maxparts], count = 0, lcount = 0;
+    int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
         int lo, hi;
-        } qstack[runner_maxqstack];
+        } *qstack;
     struct part *parts_i, *parts_j;
     struct potential *pot, **pots;
     struct engine *eng;
@@ -779,14 +825,14 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     FPTYPE cutoff, cutoff2, skin, skin2, r2, dx[3], w;
     struct {
         short int d, ind;
-        } parts[2*runner_maxparts], temp;
+        } *parts, temp;
     short int pivot;
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
     FPTYPE pix[3], pjx[3], *pif, *pjf;
     int pind, pid, nr_pairs, count_i, count_j;
     double epot = 0.0;
-    struct part **pairs;
+    short int *pairs;
 #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
     struct potential *potq[4];
     int icount = 0, l;
@@ -816,10 +862,25 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     if ( count_i == 0 || count_j == 0 )
         return runner_err_ok;
     
-    /* Get pointers to the particle arrays. */
-    parts_i = cell_i->parts;
-    parts_j = cell_j->parts;
+    /* Make local copies of the parts if requested. */
+    if ( r->e->flags & engine_flag_localparts ) {
     
+        /* set pointers to the particle lists */
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
+        if ( cell_i != cell_j ) {
+            parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+            memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+            }
+        else
+            parts_j = parts_i;
+        }
+        
+    else {
+        parts_i = cell_i->parts;
+        parts_j = cell_j->parts;
+        }
+        
     /* Do we need to re-compute the pairwise Verlet list? */
     if ( s->verlet_rebuild ) {
     
@@ -829,14 +890,16 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             /* Clear lists if needed. */
             if ( list->pairs != NULL )
                 free( list->pairs );
+            if ( list->nr_pairs != NULL )
+                free( list->nr_pairs );
                 
             /* Set the size and width. */
             list->size = count_i * count_j;
         
             /* Allocate the list data. */
-            if ( ( list->pairs = (struct part **)malloc( sizeof(void *) * list->size ) ) == NULL )
+            if ( ( list->pairs = (short int *)malloc( sizeof(short int) * list->size ) ) == NULL )
                 return error(runner_err_malloc);
-            if ( list->nr_pairs == NULL && ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * runner_maxparts ) ) == NULL )
+            if ( ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * (count_i + count_j) ) ) == NULL )
                 return error(runner_err_malloc);
                 
             }
@@ -851,7 +914,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             for ( i = 1 ; i < count_i ; i++ ) {
 
                 /* get the particle */
-                part_i = &(cell_i->parts[i]);
+                part_i = &(parts_i[i]);
                 pix[0] = part_i->x[0];
                 pix[1] = part_i->x[1];
                 pix[2] = part_i->x[2];
@@ -883,7 +946,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                         continue;
 
                     /* Add this pair to the (pairwise) verlet list. */
-                    pairs[pind] = part_j; // j;
+                    pairs[pind] = j;
                     pind += 1;
 
                     /* is this within cutoff? */
@@ -974,6 +1037,12 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
         /* No, genuine pair. */
         else {
 
+            /* Allocate work arrays on stack. */
+            if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
+                 ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
+                 ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+                return error(runner_err_malloc);
+        
             /* start by filling the particle ids of both cells into ind and d */
             inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
             shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
@@ -1077,7 +1146,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                             continue;
 
                         /* Add this pair to the verlet list. */
-                        pairs[pind] = part_i; // left[j];
+                        pairs[pind] = left[j];
                         pind += 1;
 
                         /* is this within cutoff? */
@@ -1180,7 +1249,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 continue;
                 
             /* Get the particle data. */
-            part_j = &(cell_j->parts[j]);
+            part_j = &(parts_j[j]);
             pjx[0] = part_j->x[0] + pshift[0];
             pjx[1] = part_j->x[1] + pshift[1];
             pjx[2] = part_j->x[2] + pshift[2];
@@ -1192,8 +1261,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             for ( i = 0 ; i < nr_pairs ; i++ ) {
             
                 /* Get the other particle */
-                /* part_i = &(parts_i[ pairs[i] ]); */
-                part_i = pairs[i];
+                part_i = &( parts_i[ pairs[i] ] );
 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -1291,8 +1359,10 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -1313,8 +1383,10 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -1334,6 +1406,23 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
         
     /* Store the potential energy to cell_i. */
     cell_i->epot += epot;
+        
+    /* Write local data back if needed. */
+    if ( r->e->flags & engine_flag_localparts ) {
+    
+        /* copy the particle data back */
+        for ( i = 0 ; i < count_i ; i++ ) {
+            cell_i->parts[i].f[0] = parts_i[i].f[0];
+            cell_i->parts[i].f[1] = parts_i[i].f[1];
+            cell_i->parts[i].f[2] = parts_i[i].f[2];
+            }
+        if ( cell_i != cell_j )
+            for ( i = 0 ; i < count_j ; i++ ) {
+                cell_j->parts[i].f[0] = parts_j[i].f[0];
+                cell_j->parts[i].f[1] = parts_j[i].f[1];
+                cell_j->parts[i].f[2] = parts_j[i].f[2];
+                }
+        }
         
     /* since nothing bad happened to us... */
     return runner_err_ok;
@@ -1366,11 +1455,11 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 
     struct part *part_i, *part_j;
     struct space *s;
-    int left[runner_maxparts], count = 0, lcount = 0;
+    int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
         int lo, hi;
-        } qstack[runner_maxqstack];
+        } *qstack;
     struct part *parts_i, *parts_j;
     double epot = 0.0;
     struct potential *pot, **pots;
@@ -1379,15 +1468,15 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     FPTYPE cutoff, cutoff2, r2, dx[3], w;
     struct {
         short int d, ind;
-        } parts[2*runner_maxparts], temp;
+        } *parts, temp;
     short int pivot;
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
-    FPTYPE pjx[3], pix[3];
+    FPTYPE pjx[3], pix[3], *pif, *pjf;
 #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
     struct potential *potq[4];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4], *pjf;
+    FPTYPE *effi[4], *effj[4];
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
     FPTYPE e[4] __attribute__ ((aligned (16)));
     FPTYPE f[4] __attribute__ ((aligned (16)));
@@ -1416,9 +1505,13 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     
         /* set pointers to the particle lists */
         parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
-        parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
         memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
-        memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+        if ( cell_i != cell_j ) {
+            parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+            memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+            }
+        else
+            parts_j = parts_i;
         }
         
     else {
@@ -1433,17 +1526,19 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
+            // __builtin_prefetch( part_i + 1 );
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
+            pif = &( part_i->f[0] );
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
             
                 /* get the other particle */
-                part_j = &(cell_i->parts[j]);
+                part_j = &(parts_i[j]);
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -1467,7 +1562,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     dxq[icount*3] = dx[0];
                     dxq[icount*3+1] = dx[1];
                     dxq[icount*3+2] = dx[2];
-                    effi[icount] = part_i->f;
+                    effi[icount] = pif;
                     effj[icount] = part_j->f;
                     potq[icount] = pot;
                     icount += 1;
@@ -1524,7 +1619,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     /* update the forces */
                     for ( k = 0 ; k < 3 ; k++ ) {
                         w = f * dx[k];
-                        part_i->f[k] -= w;
+                        pif[k] -= w;
                         part_j->f[k] += w;
                         }
 
@@ -1540,18 +1635,28 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         
     /* Otherwise, sorted interaction. */
     else {
+    
+        /* Allocate work arrays on stack. */
+        if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
+             ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
+             ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+            return error(runner_err_malloc);
+        // __builtin_prefetch( parts_i );
+        // __builtin_prefetch( parts_j );
         
         /* start by filling the particle ids of both cells into ind and d */
         inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
         shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
         for ( i = 0 ; i < count_i ; i++ ) {
             part_i = &( parts_i[i] );
+            // __builtin_prefetch( part_i + 1 );
             parts[count].ind = -i - 1;
             parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
             count += 1;
             }
         for ( i = 0 ; i < count_j ; i++ ) {
             part_i = &( parts_j[i] );
+            // __builtin_prefetch( part_i + 1 );
             parts[count].ind = i;
             parts[count].d = 1 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff );
             count += 1;
@@ -1603,8 +1708,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         for ( i = 0 ; i < count ; i++ ) {
 
             /* is this a particle from the left? */
-            if ( parts[i].ind < 0 )
+            if ( parts[i].ind < 0 ) {
                 left[lcount++] = -parts[i].ind - 1;
+                // __builtin_prefetch( &( parts_i[ -parts[i].ind - 1 ] ) );
+                }
 
             /* it's from the right, interact with all left particles */
             else {
@@ -1615,9 +1722,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 pjx[1] = part_j->x[1] + pshift[1];
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjoff = part_j->type * emt;
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
-                    pjf = part_j->f;
-                #endif
+                pjf = &(part_j->f[0]);
 
                 /* loop over the left particles */
                 for ( j = 0 ; j < lcount ; j++ ) {
@@ -1705,7 +1810,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = f * dx[k];
                             part_i->f[k] -= w;
-                            part_j->f[k] += w;
+                            pjf[k] += w;
                             }
 
                         /* tabulate the energy */
@@ -1725,8 +1830,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -1747,8 +1854,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -1775,11 +1884,12 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
             cell_i->parts[i].f[1] = parts_i[i].f[1];
             cell_i->parts[i].f[2] = parts_i[i].f[2];
             }
-        for ( i = 0 ; i < count_j ; i++ ) {
-            cell_j->parts[i].f[0] = parts_j[i].f[0];
-            cell_j->parts[i].f[1] = parts_j[i].f[1];
-            cell_j->parts[i].f[2] = parts_j[i].f[2];
-            }
+        if ( cell_i != cell_j )
+            for ( i = 0 ; i < count_j ; i++ ) {
+                cell_j->parts[i].f[0] = parts_j[i].f[0];
+                cell_j->parts[i].f[1] = parts_j[i].f[1];
+                cell_j->parts[i].f[2] = parts_j[i].f[2];
+                }
         }
         
     /* store the amaSSEd potential energy. */
@@ -1816,11 +1926,11 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
 
     struct part *part_i, *part_j;
     struct space *s;
-    int left[runner_maxparts], count = 0, lcount = 0;
+    int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
         int lo, hi;
-        } qstack[runner_maxqstack];
+        } *qstack;
     struct part *parts_i, *parts_j;
     double epot = 0.0;
     struct potential *pot, *ep;
@@ -1829,7 +1939,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     FPTYPE cutoff, cutoff2, r2, dx[3], dscale, w;
     struct {
         short int d, ind;
-        } parts[2*runner_maxparts], temp;
+        } *parts, temp;
     short int pivot;
     FPTYPE shift[3], inshift;
     FPTYPE pjx[3], pix[3], piq, pjq, pijq;
@@ -1872,9 +1982,13 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     
         /* set pointers to the particle lists */
         parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
-        parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
         memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
-        memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+        if ( cell_i != cell_j ) {
+            parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+            memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+            }
+        else
+            parts_j = parts_i;
         }
         
     else {
@@ -1889,7 +2003,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
@@ -1900,7 +2014,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
             for ( j = 0 ; j < i ; j++ ) {
             
                 /* get the other particle */
-                part_j = &(cell_i->parts[j]);
+                part_j = &(parts_i[j]);
                 pijq = piq * part_j->q;
                 
                 /* get the distance between both particles */
@@ -2082,6 +2196,12 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         
     /* Otherwise, genuine pair. */
     else {
+        
+        /* Allocate work arrays on stack. */
+        if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
+             ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
+             ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+            return error(runner_err_malloc);
         
         /* start by filling the particle ids of both cells into ind and d */
         inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
@@ -2364,8 +2484,10 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -2384,8 +2506,10 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         if ( icount_2 > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount_2 ; k < 4 ; k++ )
+            for ( k = icount_2 ; k < 4 ; k++ ) {
                 potq_2[k] = potq_2[0];
+                r2q_2[k] = r2q_2[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single_ee( potq_2 , ep , r2q_2 , q_2 , e_2 , f_2 );
@@ -2406,8 +2530,10 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -2426,7 +2552,8 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         if ( icount_2 > 0 ) {
 
             /* copy the first potential to the last entries */
-                potq_2[1] = potq_2[0];
+            potq_2[1] = potq_2[0];
+            r2q_2[1] = r2q_2[0];
 
             /* evaluate the potentials */
             potential_eval_vec_2double_ee( potq_2 , ep , r2q_2 , q_2 , e_2 , f_2 );
@@ -2451,11 +2578,12 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
             cell_i->parts[i].f[1] = parts_i[i].f[1];
             cell_i->parts[i].f[2] = parts_i[i].f[2];
             }
-        for ( i = 0 ; i < count_j ; i++ ) {
-            cell_j->parts[i].f[0] = parts_j[i].f[0];
-            cell_j->parts[i].f[1] = parts_j[i].f[1];
-            cell_j->parts[i].f[2] = parts_j[i].f[2];
-            }
+        if ( cell_i != cell_j )
+            for ( i = 0 ; i < count_j ; i++ ) {
+                cell_j->parts[i].f[0] = parts_j[i].f[0];
+                cell_j->parts[i].f[1] = parts_j[i].f[1];
+                cell_j->parts[i].f[2] = parts_j[i].f[2];
+                }
         }
         
     /* store the amaSSEd potential energy. */
@@ -2490,7 +2618,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
     FPTYPE cutoff2, r2, dx[3], pix[3], w;
     double epot = 0.0;
     struct engine *eng;
-    struct part *part_i, *part_j, *parts_i, *parts_j = NULL;
+    struct part *part_i, *part_j, *parts_i, *parts_j;
     struct potential *pot;
     struct space *s;
 #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || defined(__SSE2__) && defined(FPTYPE_DOUBLE)
@@ -2523,6 +2651,8 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
             memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
             }
+        else
+            parts_j = parts_i;
         }
         
     else {
@@ -2537,7 +2667,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
         for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
@@ -2547,7 +2677,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             for ( j = 0 ; j < i ; j++ ) {
             
                 /* get the other particle */
-                part_j = &(cell_i->parts[j]);
+                part_j = &(parts_i[j]);
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -2649,7 +2779,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
         for ( i = 0 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
             pix[0] = part_i->x[0] - shift[0];
             pix[1] = part_i->x[1] - shift[1];
             pix[2] = part_i->x[2] - shift[2];
@@ -2659,7 +2789,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             for ( j = 0 ; j < count_j ; j++ ) {
             
                 /* get the other particle */
-                part_j = &(cell_j->parts[j]);
+                part_j = &(parts_j[j]);
 
                 /* fetch the potential, if any */
                 /* get the distance between both particles */
@@ -2759,8 +2889,10 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -2781,8 +2913,10 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -2890,6 +3024,8 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
             parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
             memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
             }
+        else
+            parts_j = parts_i;
         }
         
     else {
@@ -2904,7 +3040,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
         for ( i = 1 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
@@ -2915,7 +3051,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
             for ( j = 0 ; j < i ; j++ ) {
             
                 /* get the other particle */
-                part_j = &(cell_i->parts[j]);
+                part_j = &(parts_i[j]);
                 pijq = piq * part_j->q;
                 
                 /* get the distance between both particles */
@@ -3102,7 +3238,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
         for ( i = 0 ; i < count_i ; i++ ) {
         
             /* get the particle */
-            part_i = &(cell_i->parts[i]);
+            part_i = &(parts_i[i]);
             pix[0] = part_i->x[0] - shift[0];
             pix[1] = part_i->x[1] - shift[1];
             pix[2] = part_i->x[2] - shift[2];
@@ -3113,7 +3249,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
             for ( j = 0 ; j < count_j ; j++ ) {
             
                 /* get the other particle */
-                part_j = &(cell_j->parts[j]);
+                part_j = &(parts_j[j]);
                 pijq = piq * part_j->q;
 
                 /* get the distance between both particles */
@@ -3298,8 +3434,10 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single( potq , r2q , e , f );
@@ -3318,8 +3456,10 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
         if ( icount_2 > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount_2 ; k < 4 ; k++ )
+            for ( k = icount_2 ; k < 4 ; k++ ) {
                 potq_2[k] = potq_2[0];
+                r2q_2[k] = r2q_2[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4single_ee( potq_2 , ep , r2q_2 , q_2 , e_2 , f_2 );
@@ -3340,8 +3480,10 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ )
+            for ( k = icount ; k < 4 ; k++ ) {
                 potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
 
             /* evaluate the potentials */
             potential_eval_vec_4double( potq , r2q , e , f );
@@ -3360,7 +3502,8 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
         if ( icount_2 > 0 ) {
 
             /* copy the first potential to the last entries */
-                potq_2[1] = potq_2[0];
+            potq_2[1] = potq_2[0];
+            r2q_2[1] = r2q_2[0];
 
             /* evaluate the potentials */
             potential_eval_vec_2double_ee( potq_2 , ep , r2q_2 , q_2 , e_2 , f_2 );

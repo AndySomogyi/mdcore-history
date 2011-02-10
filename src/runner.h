@@ -44,14 +44,6 @@
     #define runner_qlen                  6
 #endif
 
-/** Maximum number of particles for which storage should be allocated
-    in the pairwise verlet list and sorted particle interaction routines. */
-#define runner_maxparts                  200
-
-/** Maximum depth of Quicksort stack in the sorted particle interaction
-    routines. */
-#define runner_maxqstack                 100
-
 
 /* the last error */
 extern int runner_err;

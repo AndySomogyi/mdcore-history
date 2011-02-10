@@ -89,6 +89,12 @@ void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
         } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r, ind;
     float *data[4];
     
+    /* Prefetch the potential data. */
+    // __builtin_prefetch( p[0]->c );
+    // __builtin_prefetch( p[1]->c );
+    // __builtin_prefetch( p[2]->c );
+    // __builtin_prefetch( p[3]->c );
+    
     /* Get r . */
     r.v = _mm_sqrt_ps( _mm_load_ps( r2 ) );
     

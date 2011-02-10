@@ -158,7 +158,7 @@ struct verlet_pairwise_list {
 
     int size;
 
-    struct part **pairs;
+    short int *pairs;
     
     unsigned char *nr_pairs;
     
