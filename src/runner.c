@@ -3779,8 +3779,8 @@ int runner_run_verlet ( struct runner *r ) {
                 if ( e->flags & engine_flag_prefetch )
                     for ( i = 0 ; i < t->n ; i++ ) {
                         c = &( s->cells[t->cellid[i]] );
-                        for ( j = 0 ; c->count ; j++ )
-                            __builtin_prefetch( &(c->parts[j]) );
+                        for ( k = 0 ; k < c->count ; k++ )
+                            __builtin_prefetch( &(c->parts[k]) );
                         }
 
                 /* Loop over all pairs in this tuple. */
@@ -3897,10 +3897,11 @@ int runner_run_verlet ( struct runner *r ) {
 
 int runner_run_pairs ( struct runner *r ) {
 
-    int err = 0;
+    int k, err = 0;
     struct cellpair *p = NULL;
     struct cellpair *finger;
     struct engine *e;
+    struct cell *c;
 
     /* check the inputs */
     if ( r == NULL )
@@ -3926,6 +3927,18 @@ int runner_run_pairs ( struct runner *r ) {
 
             /* work this list of pair... */
             for ( finger = p ; finger != NULL ; finger = finger->next ) {
+
+                /* for each cell, prefetch the parts involved. */
+                if ( e->flags & engine_flag_prefetch ) {
+                    c = &( e->s.cells[finger->i] );
+                    for ( k = 0 ; k < c->count ; k++ )
+                        __builtin_prefetch( &(c->parts[k]) );
+                    if ( finger->i != finger->j ) {
+                        c = &( e->s.cells[finger->j] );
+                        for ( k = 0 ; k < c->count ; k++ )
+                            __builtin_prefetch( &(c->parts[k]) );
+                        }
+                    }
 
                 /* Explicit electrostatics? */
                 if ( e->flags & engine_flag_explepot ) {
@@ -3981,6 +3994,7 @@ int runner_run_tuples ( struct runner *r ) {
     FPTYPE shift[3];
     struct space *s;
     struct engine *e;
+    struct cell *c;
 
     /* check the inputs */
     if ( r == NULL )
@@ -4014,6 +4028,14 @@ int runner_run_tuples ( struct runner *r ) {
             if ( res < 1 )
                 break;
                 
+            /* for each cell, prefetch the parts involved. */
+            if ( e->flags & engine_flag_prefetch )
+                for ( i = 0 ; i < t->n ; i++ ) {
+                    c = &( s->cells[t->cellid[i]] );
+                    for ( k = 0 ; k < c->count ; k++ )
+                        __builtin_prefetch( &(c->parts[k]) );
+                    }
+
             /* Loop over all pairs in this tuple. */
             for ( i = 0 ; i < t->n ; i++ ) { 
                         
@@ -4089,6 +4111,8 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
     FPTYPE shift[3];
     struct space *s;
     struct engine *e;
+    struct cell *c;
+    struct verlet_pairwise_list *v;
 
     /* check the inputs */
     if ( r == NULL )
@@ -4122,6 +4146,14 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
             if ( res < 1 )
                 break;
                 
+            /* for each cell, prefetch the parts involved. */
+            if ( e->flags & engine_flag_prefetch )
+                for ( i = 0 ; i < t->n ; i++ ) {
+                    c = &( s->cells[t->cellid[i]] );
+                    for ( k = 0 ; k < c->count ; k++ )
+                        __builtin_prefetch( &(c->parts[k]) );
+                    }
+
             /* Loop over all pairs in this tuple. */
             for ( i = 0 ; i < t->n ; i++ ) { 
                         
@@ -4149,6 +4181,15 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
                             else if ( shift[k] * 2 < -s->dim[k] )
                                 shift[k] += s->dim[k];
                             }
+                            
+                    /* Prefetch the pairlist. */
+                    if ( i != j && e->flags & engine_flag_prefetch ) {
+                        v = &(t->verlet_lists[ i * space_maxtuples + j ]);
+                        for ( k = 0 ; k < s->cells[ci].count * s->cells[cj].count ; k += 32 )
+                            __builtin_prefetch( &( v->pairs[k] ) );
+                        for ( k = 0 ; k < s->cells[ci].count + s->cells[cj].count ; k += 64 )
+                            __builtin_prefetch( &( v->nr_pairs[k] ) );
+                        }
                     
                     /* Compute the interactions of this pair. */
                     if ( runner_dopair_verlet( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(t->verlet_lists[ i * space_maxtuples + j ]) ) < 0 )
