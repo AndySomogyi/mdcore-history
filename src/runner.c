@@ -1527,7 +1527,6 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
         
             /* get the particle */
             part_i = &(parts_i[i]);
-            // __builtin_prefetch( part_i + 1 );
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
@@ -1641,22 +1640,18 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
              ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
              ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
             return error(runner_err_malloc);
-        // __builtin_prefetch( parts_i );
-        // __builtin_prefetch( parts_j );
         
         /* start by filling the particle ids of both cells into ind and d */
         inshift = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
         shift[0] = pshift[0]*inshift; shift[1] = pshift[1]*inshift; shift[2] = pshift[2]*inshift;
         for ( i = 0 ; i < count_i ; i++ ) {
             part_i = &( parts_i[i] );
-            // __builtin_prefetch( part_i + 1 );
             parts[count].ind = -i - 1;
             parts[count].d = dscale * ( part_i->x[0]*shift[0] + part_i->x[1]*shift[1] + part_i->x[2]*shift[2] );
             count += 1;
             }
         for ( i = 0 ; i < count_j ; i++ ) {
             part_i = &( parts_j[i] );
-            // __builtin_prefetch( part_i + 1 );
             parts[count].ind = i;
             parts[count].d = 1 + dscale * ( (part_i->x[0]+pshift[0])*shift[0] + (part_i->x[1]+pshift[1])*shift[1] + (part_i->x[2]+pshift[2])*shift[2] - cutoff );
             count += 1;
@@ -1710,7 +1705,6 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
             /* is this a particle from the left? */
             if ( parts[i].ind < 0 ) {
                 left[lcount++] = -parts[i].ind - 1;
-                // __builtin_prefetch( &( parts_i[ -parts[i].ind - 1 ] ) );
                 }
 
             /* it's from the right, interact with all left particles */
@@ -3742,6 +3736,7 @@ int runner_run_verlet ( struct runner *r ) {
     struct engine *e;
     struct space *s;
     struct celltuple *t;
+    struct cell *c;
     FPTYPE shift[3], *eff = NULL;
     int count, from;
 
@@ -3779,6 +3774,14 @@ int runner_run_verlet ( struct runner *r ) {
                 /* If there were no tuples left, bail. */
                 if ( res < 1 )
                     break;
+                    
+                /* for each cell, prefetch the parts involved. */
+                if ( e->flags & engine_flag_prefetch )
+                    for ( i = 0 ; i < t->n ; i++ ) {
+                        c = &( s->cells[t->cellid[i]] );
+                        for ( j = 0 ; c->count ; j++ )
+                            __builtin_prefetch( &(c->parts[j]) );
+                        }
 
                 /* Loop over all pairs in this tuple. */
                 for ( i = 0 ; i < t->n ; i++ ) { 

@@ -21,11 +21,6 @@ AUTOMAKE_OPTIONS=gnu
 # Set-up CFLAGS for all targets
 AM_CFLAGS = -g -Wall $(SIMD_FLAGS)
 
-# Set the linker flags if parmetis is present
-if test -n "$PARMETIS_LDFLAGS"
-    AM_LDFLAGS = $PARMETIS_LDFLAGS
-fi
-
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h errs.h
 

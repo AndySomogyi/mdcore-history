@@ -80,6 +80,7 @@ AC_ARG_WITH([parmetis],
         AC_DEFINE([HAVE_PARMETIS],[true],[The parmetis library appears to be present.])
      fi])
 AC_SUBST(PARMETIS_LDFLAGS)
+AM_CONDITIONAL([HAVEPARMETIS],[test -n "$PARMETIS_LDFLAGS"])
 
 
 

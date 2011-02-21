@@ -37,6 +37,7 @@ Things to do with functionality:
               check if this is significantly slower than using SSE/SSE2
               intrinsics directly.
 * 2011/01/24: What happens to the local ids when the user removes a part?
+* 2011/02/21: Use ParMetis to approximate the optimal tuples.
               
               
 Things to do with the configuration process:
@@ -62,6 +63,7 @@ Things to do with speed:
 * 2011/01/24: Use integer sorting for the sorted interactions in runner_spu.
 * 2011/02/04: Make the struct potential and its data share the same chunk of
               memory (watch out for alignment!).
-* 2011/02/04: Use __builtin_prefetch in runner_dopair routines?
+* 2011/02/04: Use __builtin_prefetch on cell particle lists before going into
+              runner_dopair routines?
 
 
