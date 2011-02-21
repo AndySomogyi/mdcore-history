@@ -65,6 +65,24 @@ AX_OPENMP
 AC_SUBST(OPENMP_CFLAGS)
 
     
+# Check for parmetis
+AC_ARG_WITH([parmetis],
+    [AS_HELP_STRING([--with-parmetis=PATH],[prefix where the parmetis library is installed @<:@default=/opt/cell@:>@])],
+    [if test "x$with_parmetis" != "xno"
+     then
+        if test "x$with_parmetis" != "xyes"
+        then
+            PARMETIS_LDFLAGS="-L$with_parmetis -lparmetis"
+        else
+            PARMETIS_LDFLAGS="-lparmetis"
+        fi
+        AC_CHECK_LIB([parmetis],[ParMETIS_V3_PartKway],,AC_MSG_ERROR(something is wrong with the parmetis library!),$PARMETIS_LDFLAGS)
+        AC_DEFINE([HAVE_PARMETIS],[true],[The parmetis library appears to be present.])
+     fi])
+AC_SUBST(PARMETIS_LDFLAGS)
+
+
+
 # Check for CUDA
 AC_ARG_WITH([cuda],
     [AS_HELP_STRING([--with-cuda=PATH],[prefix where cuda is installed @<:@default=auto@:>@])],
