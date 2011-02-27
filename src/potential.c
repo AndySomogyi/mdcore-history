@@ -1244,7 +1244,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         m = 0.5 * ( r + l );
         
         /* construct that interpolation */
-        /* printf("potential_init: trying m=%i...\n",m); fflush(stdout); */
+        // printf("potential_init: trying m=%i...\n",m); fflush(stdout);
         xi_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m + 1) );
         if ( posix_memalign( (void **)&c_m , potential_align , sizeof(FPTYPE) * (m+1) * potential_chunk ) != 0 )
             return error(potential_err_malloc);
@@ -1255,7 +1255,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
             }
         if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_chunk],&err_m) != 0 )
             return error(potential_err);
-        /* printf("potential_init: err_m=%e.\n",err_m); fflush(stdout); */
+        // printf("potential_init: err_m=%e.\n",err_m); fflush(stdout);
             
         /* go left? */
         if ( err_m > tol ) {
@@ -1347,6 +1347,7 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         /* evaluate f and fp at the edges */
         fa = f(xi[i]); fb = f(xi[i+1]);
         dfa = fp(xi[i]) * h; dfb = fp(xi[i+1]) * h;
+        // printf("potential_getcoeffs: xi[i]=%22.16e\n",xi[i]);
         
         /* compute the coefficients phi of f */
         for ( k = 0 ; k < potential_N ; k++ )

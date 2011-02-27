@@ -35,7 +35,7 @@
     #define ENGINE_FLAGS engine_flag_tuples
 #endif
 #ifndef CPU_TPS
-    #define CPU_TPS 2501000
+    #define CPU_TPS 2.501e+9
 #endif
 
 // include local headers
@@ -136,7 +136,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the O-O potential
-    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.03e-4 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -258,11 +258,10 @@ int main ( int argc , char *argv[] ) {
     
     #ifdef CELL
         toc = __mftb();
-        printf("main: setup took %.3f ms.\n",(double)(toc-tic) / 25000);
     #else
         toc = getticks();
-        printf("main: setup took %.3f ms.\n",elapsed(toc,tic) / CPU_TPS);
     #endif
+    printf("main: setup took %.3f ms.\n",(double)(toc-tic) * 1000 / CPU_TPS);
     
     // did the user specify a number of runners?
     if ( argc > 1 )
@@ -273,19 +272,11 @@ int main ( int argc , char *argv[] ) {
     #endif
         
     // start the engine
-    #ifdef CELL
-        if ( engine_start( &e , nr_runners ) != 0 ) {
-            printf("main: engine_start failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return 1;
-            }
-    #else
-        if ( engine_start( &e , nr_runners ) != 0 ) {
-            printf("main: engine_start failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return 1;
-            }
-    #endif
+    if ( engine_start( &e , nr_runners ) != 0 ) {
+        printf("main: engine_start failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        return 1;
+        }
     
     // did the user specify a number of steps?
     if ( argc > 2 )
@@ -469,7 +460,7 @@ int main ( int argc , char *argv[] ) {
             
             
         printf("%i %e %e %e %i %i %.3f ms\n",
-            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc-tic) / CPU_TPS); fflush(stdout);
+            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc-tic) * 1000 / CPU_TPS); fflush(stdout);
         
         // print some particle data
         // printf("main: part 13322 is at [ %e , %e , %e ].\n",

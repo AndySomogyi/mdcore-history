@@ -63,7 +63,18 @@ test_single_pwverlet_SOURCES = test.c
 test_single_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
 test_single_pwverlet_LDADD = ../src/.libs/libmdcore_single.a
 
-# Sources for fun_test
+# Sources for btree_test
 btree_test_SOURCES = btree_test.c
 btree_test_LDADD = ../src/.libs/libmdcore.a
+
+# Dummy target to make the Cell/BE version
+if HAVECELL
+test_cell: test.c ../src/.libs/libmdcore_cell.a
+	make -f Makefile_cell
+clean_cell:
+	make -f Makefile_cell clean
+	rm -f test_cell
+clean-recursive: clean_cell
+all: test_cell
+endif
 

@@ -1548,12 +1548,12 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
                     continue;
-                /* runner_rcount += 1; */
                 
                 /* fetch the potential, if any */
                 pot = eng->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
+                /* runner_rcount += 1; */
                     
                 #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
                     /* add this interaction to the interaction queue. */
@@ -1734,12 +1734,12 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     /* is this within cutoff? */
                     if ( r2 > cutoff2 )
                         continue;
-                    /* runner_rcount += 1; */
 
                     /* fetch the potential, if any */
                     pot = pots[ pjoff + part_i->type ];
                     if ( pot == NULL )
                         continue;
+                    /* runner_rcount += 1; */
 
                     #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
                         /* add this interaction to the interaction queue. */
@@ -3552,8 +3552,6 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
  * available.
  *
  * Note that this routine is only compiled if @c CELL has been defined.
- *
- * @sa #runner_run_cell.
  */
 
 int runner_run_cell ( struct runner *r ) {
@@ -3563,10 +3561,14 @@ int runner_run_cell ( struct runner *r ) {
     struct cellpair *p[runner_qlen];
     unsigned int buff[2];
     int i, k, count = 0;
+    struct space *s;
 
     /* check the inputs */
     if ( r == NULL )
         return error(runner_err_null);
+        
+    /* init some local pointers. */
+    s = &(r->e->s);
         
     /* give a hoot */
     printf("runner_run: runner %i is up and running (SPU)...\n",r->id); fflush(stdout);
@@ -3614,17 +3616,17 @@ int runner_run_cell ( struct runner *r ) {
 
                 /* pack this pair's data */
                 buff[0] = ( p[0]->i << 20 ) + ( p[0]->j << 8 ) + 1;
-                if ( p[0]->shift[0] == r->e->s.cutoff )
+                if ( p[0]->shift[0] > 0 )
                     buff[0] += 1 << 6;
-                else if ( p[0]->shift[0] == -r->e->s.cutoff )
+                else if ( p[0]->shift[0] < 0 )
                     buff[0] += 2 << 6;
-                if ( p[0]->shift[1] == r->e->s.cutoff )
+                if ( p[0]->shift[1] > 0 )
                     buff[0] += 1 << 4;
-                else if ( p[0]->shift[1] == -r->e->s.cutoff )
+                else if ( p[0]->shift[1] < 0 )
                     buff[0] += 2 << 4;
-                if ( p[0]->shift[2] == r->e->s.cutoff )
+                if ( p[0]->shift[2] > 0 )
                     buff[0] += 1 << 2;
-                else if ( p[0]->shift[2] == -r->e->s.cutoff )
+                else if ( p[0]->shift[2] < 0 )
                     buff[0] += 2 << 2;
 
                 /* wait for the buffer to be free... */
@@ -3632,9 +3634,9 @@ int runner_run_cell ( struct runner *r ) {
                 /*     sched_yield(); */
 
                 /* write the data to the mailbox */
-                /* printf("runner_run: sending pair 0x%llx (n=%i), 0x%llx (n=%i) with shift=[%e,%e,%e].\n", */
-                /*     (unsigned long long)ci->parts,ci->count,(unsigned long long)cj->parts,cj->count, */
-                /*     p->shift[0], p->shift[1], p->shift[2]); fflush(stdout); */
+                /* printf("runner_run: sending pair 0x%llx (n=%i), 0x%llx (n=%i) with shift=[%e,%e,%e].\n",
+                    (unsigned long long)s->cells[p[0]->i].parts,s->cells[p[0]->i].count,(unsigned long long)s->cells[p[0]->j].parts,s->cells[p[0]->j].count,
+                    p[0]->shift[0], p[0]->shift[1], p[0]->shift[2]); fflush(stdout); */
                 /* printf("runner_run: runner %i sending pair to SPU...\n",r->id); fflush(stdout); */
                 if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
                     return runner_err_spe;
@@ -3646,12 +3648,12 @@ int runner_run_cell ( struct runner *r ) {
 
                     /* read a word from the spe */
                     /* printf("runner_run: runner %i waiting for SPU response...\n",r->id); fflush(stdout); */
-                    /* if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 ) */
-                    /*     return runner_err_spe; */
+                    /* if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
+                        return runner_err_spe; */
                     /* printf("runner_run: runner %i got SPU response.\n",r->id); fflush(stdout); */
 
                     /* release the last pair */
-                    if ( space_releasepair( &(r->e->s) , p[runner_qlen-1]->i , p[runner_qlen-1]->j ) < 0 )
+                    if ( space_releasepair( s , p[runner_qlen-1]->i , p[runner_qlen-1]->j ) < 0 )
                         return runner_err_space;
 
                     /* we've got one less... */
@@ -4263,26 +4265,25 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
                         size_pots += e->p[ i * e->max_type + j ]->n + 1;
                         }
 
-            /* the main data consists of a pointer to the cell data (64 bit), */
-            /* the nr of cells (int), the cutoff (double), the width of */
-            /* each cell, the max nr of types (int) */
-            /* and an array of size max_type*max_type of offsets (int) */
+            /* the main data consists of a pointer to the cell data (64 bit),
+               the nr of cells (int), the cutoff (float), the width of
+               each cell (float[3]), the max nr of types (int)
+               and an array of size max_type*max_type of offsets (int) */
             size_data = sizeof(void *) + sizeof(int) + 4 * sizeof(float) + sizeof(int) * ( 1 + e->max_type*e->max_type );
 
             /* stretch this data until we are aligned to 8 bytes */
-            while ( size_data % 8 ) size_data++;
+            size_data = ( size_data + 7 ) & ~7;
             
             /* we then append nr_pots potentials consisting of three floats (alphas) */
-            /* and two ints with other data */
+            /* and two ints (n and flags) */
             size_data += nr_pots * ( 3 * sizeof(float) + 2 * sizeof(int) );
 
             /* finally, we append the data of each interval of each potential */
             /* which consists of eight floats */
-            size_data += size_pots * sizeof(float) * (potential_degree+3);
+            size_data += size_pots * sizeof(float) * potential_chunk;
             
             /* raise to multiple of 128 */
-            if ( ( size_data & 127 ) > 0 )
-                size_data = ( ( size_data >> 7 ) + 1 ) << 7;
+            size_data = ( size_data + 127 ) & ~127;
             
             /* allocate memory for the SPU data */
             if ( ( data = malloc_align( size_data , 7 ) ) == NULL )
@@ -4302,7 +4303,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
                 pots[i] = 0;
                 
             /* move the finger until we are at an 8-byte boundary */
-            while ( (unsigned long long)finger % 8 ) finger++;
+            finger = (void *)( ( (unsigned long long)finger + 7 ) & ~7 );
 
             /* loop over the potentials */
             for ( i = 0 ; i < e->max_type ; i++ )
@@ -4319,16 +4320,15 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
                         *((float *)finger) = p->alpha[2]; finger += sizeof(float);
                         /* loop explicitly in case FPTYPE is not float. */
                         for ( k = 0 ; k <= p->n ; k++ ) {
-                            for ( l = 0 ; l < potential_degree + 3 ; l++ ) {
-                                *((float *)finger) = p->c[k*(potential_degree+3)+l];
+                            for ( l = 0 ; l < potential_chunk ; l++ ) {
+                                *((float *)finger) = p->c[k*potential_chunk+l];
                                 finger += sizeof(float);
                                 }
                             }
                         }
 
             /* raise to multiple of 128 */
-            if ( ( (unsigned long long)finger & 127 ) > 0 )
-                finger = (void *)( ( ( (unsigned long long)finger >> 7 ) + 1 ) << 7 );
+            finger = (void *)( ( (unsigned long long)finger + 127 ) & ~127 );
             
             /* if the effective size is smaller than the allocated size */
             /* (e.g. duplicate potentials), be clean and re-allocate the data */

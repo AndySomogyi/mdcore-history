@@ -49,6 +49,7 @@ Things to do with testing:
 * 2010/12/12: Test new shifted/linear potentials for Cell/BE (packing?)
 * 2011/01/17: Test 8-single potential evaluations to the
               runner_spu code, verify that it is faster than 4-single.
+* 2011/02/27: Test if the engine_flag_prefetch actually does any good.
 
 
 Things to do with speed:
@@ -63,7 +64,6 @@ Things to do with speed:
 * 2011/01/24: Use integer sorting for the sorted interactions in runner_spu.
 * 2011/02/04: Make the struct potential and its data share the same chunk of
               memory (watch out for alignment!).
-* 2011/02/04: Use __builtin_prefetch on cell particle lists before going into
-              runner_dopair routines?
+* 2011/02/04: More refined use of __builtin_prefetch on cell particle lists?
 
 

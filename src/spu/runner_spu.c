@@ -352,10 +352,6 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
     int ind, k;
     float x, ee, eff, *data, r = sqrt(r2);
     
-    // is r in the house?
-    // if ( r < p->a || r > p->b )
-    //     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b);
-    
     // compute the index
     ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
@@ -400,7 +396,11 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         short int lo, hi;
         } qstack[maxqstack];
     float r2;
-    vector float *effi[8], *effj[8], dx, dxv[8], fv[2], ev[2], r2v[2], nshiftv, shiftv, tempv, pjx;
+    #ifdef VEC2
+        vector float *effi[8], *effj[8], dx, dxv[8], fv[2], ev[2], r2v[2], nshiftv, shiftv, tempv, pjx;
+    #else
+        vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, nshiftv, shiftv, tempv, pjx;
+    #endif
     
     // get the space and cutoff
     cutoff = data->cutoff;
@@ -408,8 +408,12 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
     emt = data->max_type;
         
     // init r2v and make the compiler happy
-    r2v[0] = spu_splats( 0.0f );
-    r2v[1] = spu_splats( 0.0f );
+    #ifdef VEC2
+        r2v[0] = spu_splats( 0.0f );
+        r2v[1] = spu_splats( 0.0f );
+    #else
+        r2v = spu_splats( 0.0f );
+    #endif
     
     // extract the shift vector
     shiftv = _load_vec_float4( shift[0] , shift[1] , shift[2] , 0.0f );
@@ -525,31 +529,59 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                     continue;
                     
                 // add this interaction to the interaction queue
-                r2v[pcount/4][pcount%4] = r2;
-                dxv[pcount] = dx;
-                effi[pcount] = &( part_i->f );
-                effj[pcount] = &( part_j->f );
-                potv[pcount] = pot;
-                pcount += 1;
-                rcount += 1;
-                
-                // do we have a full set to evaluate?
-                if ( __builtin_expect( pcount == 8 , 0 ) ) {
-                
-                    // evaluate the potentials
-                    potential_eval_vec2( potv , r2v , ev , fv );
-                    
-                    // for each entry, update the forces
-                    for ( k = 0 ; k < 8 ; k++ ) {
-                        tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
-                        *effi[k] = spu_sub( *effi[k] , tempv );
-                        *effj[k] = spu_add( *effj[k] , tempv );
+                #ifdef VEC2
+                    r2v[pcount/4][pcount%4] = r2;
+                    dxv[pcount] = dx;
+                    effi[pcount] = &( part_i->f );
+                    effj[pcount] = &( part_j->f );
+                    potv[pcount] = pot;
+                    pcount += 1;
+                    // rcount += 1;
+
+                    // do we have a full set to evaluate?
+                    if ( __builtin_expect( pcount == 8 , 0 ) ) {
+
+                        // evaluate the potentials
+                        potential_eval_vec2( potv , r2v , ev , fv );
+
+                        // for each entry, update the forces
+                        for ( k = 0 ; k < 8 ; k++ ) {
+                            tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
+                            *effi[k] = spu_sub( *effi[k] , tempv );
+                            *effj[k] = spu_add( *effj[k] , tempv );
+                            }
+
+                        // re-set the counter
+                        pcount = 0;
+
                         }
-                
-                    // re-set the counter
-                    pcount = 0;
-                    
-                    }
+                #else
+                    r2v[pcount] = r2;
+                    dxv[pcount] = dx;
+                    effi[pcount] = &( part_i->f );
+                    effj[pcount] = &( part_j->f );
+                    potv[pcount] = pot;
+                    pcount += 1;
+                    // rcount += 1;
+
+                    // do we have a full set to evaluate?
+                    if ( __builtin_expect( pcount == 4 , 0 ) ) {
+
+                        // evaluate the potentials
+                        potential_eval_vec( potv , r2v , &ev , &fv );
+
+                        // for each entry, update the forces
+                        for ( k = 0 ; k < 4 ; k++ ) {
+                            tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                            *effi[k] = spu_sub( *effi[k] , tempv );
+                            *effj[k] = spu_add( *effj[k] , tempv );
+                            }
+
+                        // re-set the counter
+                        pcount = 0;
+
+                        }
+                #endif
                     
                 }
         
@@ -558,23 +590,43 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         } // loop over all particles
         
     // are there any leftovers?
-    if ( pcount > 0 ) {
-    
-        // copy the first potential to the last entries
-        for ( k = pcount ; k < 8 ; k++ )
-            potv[k] = potv[0];
-            
-        // evaluate the potentials
-        potential_eval_vec2( potv , r2v , ev , fv );
+    #if VEC2
+        if ( pcount > 0 ) {
 
-        // for each entry, update the forces
-        for ( k = 0 ; k < pcount ; k++ ) {
-            tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
-            *effi[k] = spu_sub( *effi[k] , tempv );
-            *effj[k] = spu_add( *effj[k] , tempv );
+            // copy the first potential to the last entries
+            for ( k = pcount ; k < 8 ; k++ )
+                potv[k] = potv[0];
+
+            // evaluate the potentials
+            potential_eval_vec2( potv , r2v , ev , fv );
+
+            // for each entry, update the forces
+            for ( k = 0 ; k < pcount ; k++ ) {
+                tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
+                *effi[k] = spu_sub( *effi[k] , tempv );
+                *effj[k] = spu_add( *effj[k] , tempv );
+                }
+
             }
-            
-        }
+    #else
+        if ( pcount > 0 ) {
+
+            // copy the first potential to the last entries
+            for ( k = pcount ; k < 4 ; k++ )
+                potv[k] = potv[0];
+
+            // evaluate the potentials
+            potential_eval_vec( potv , r2v , &ev , &fv );
+
+            // for each entry, update the forces
+            for ( k = 0 ; k < pcount ; k++ ) {
+                tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                *effi[k] = spu_sub( *effi[k] , tempv );
+                *effj[k] = spu_add( *effj[k] , tempv );
+                }
+
+            }
+    #endif
         
     }
 
@@ -590,7 +642,11 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     int i, j, k, count = 0, pioff, emt;
     float cutoff2 = data->cutoff * data->cutoff;
     float r2;
-    vector float *effi[8], *effj[8], dx, dxv[8], fv[2], ev[2], r2v[2], shiftv, tempv, pix;
+    #ifdef VEC2
+        vector float *effi[8], *effj[8], dx, dxv[8], fv[2], ev[2], r2v[2], shiftv, tempv, pix;
+    #else
+        vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, shiftv, tempv, pix;
+    #endif
     struct part *part_i, *part_j;
     struct potential *pot, *potv[8];
     
@@ -628,31 +684,59 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                     
                 // add this interaction to the interaction queue
-                r2v[count/4][count%4] = r2;
-                dxv[count] = dx;
-                effi[count] = &( part_i->f );
-                effj[count] = &( part_j->f );
-                potv[count] = pot;
-                count += 1;
-                rcount += 1;
-                
-                // do we have a full set to evaluate?
-                if ( __builtin_expect( count == 8 , 0 ) ) {
-                
-                    // evaluate the potentials
-                    potential_eval_vec2( potv , r2v , ev , fv );
-                    
-                    // for each entry, update the forces
-                    for ( k = 0 ; k < 8 ; k++ ) {
-                        tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
-                        *effi[k] = spu_sub( *effi[k] , tempv );
-                        *effj[k] = spu_add( *effj[k] , tempv );
+                #ifdef VEC2
+                    r2v[count/4][count%4] = r2;
+                    dxv[count] = dx;
+                    effi[count] = &( part_i->f );
+                    effj[count] = &( part_j->f );
+                    potv[count] = pot;
+                    count += 1;
+                    rcount += 1;
+
+                    // do we have a full set to evaluate?
+                    if ( __builtin_expect( count == 8 , 0 ) ) {
+
+                        // evaluate the potentials
+                        potential_eval_vec2( potv , r2v , ev , fv );
+
+                        // for each entry, update the forces
+                        for ( k = 0 ; k < 8 ; k++ ) {
+                            tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
+                            *effi[k] = spu_sub( *effi[k] , tempv );
+                            *effj[k] = spu_add( *effj[k] , tempv );
+                            }
+
+                        // re-set the counter
+                        count = 0;
+
                         }
-                
-                    // re-set the counter
-                    count = 0;
-                    
-                    }
+                #else
+                    r2v[count] = r2;
+                    dxv[count] = dx;
+                    effi[count] = &( part_i->f );
+                    effj[count] = &( part_j->f );
+                    potv[count] = pot;
+                    count += 1;
+                    rcount += 1;
+
+                    // do we have a full set to evaluate?
+                    if ( __builtin_expect( count == 4 , 0 ) ) {
+
+                        // evaluate the potentials
+                        potential_eval_vec( potv , r2v , &ev , &fv );
+
+                        // for each entry, update the forces
+                        for ( k = 0 ; k < 4 ; k++ ) {
+                            tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                            *effi[k] = spu_sub( *effi[k] , tempv );
+                            *effj[k] = spu_add( *effj[k] , tempv );
+                            }
+
+                        // re-set the counter
+                        count = 0;
+
+                        }
+                #endif
                     
                 } // loop over all other particles
         
@@ -670,8 +754,12 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         shiftv = spu_insert( shift[2] , shiftv , 2 );
         
         // init r2v and make the compiler happy
-        r2v[0] = spu_splats( 0.0f );
-        r2v[1] = spu_splats( 0.0f );
+        #ifdef VEC2
+            r2v[0] = spu_splats( 0.0f );
+            r2v[1] = spu_splats( 0.0f );
+        #else
+            r2v = spu_splats( 0.0f );
+        #endif
     
         // loop over all particles
         for ( i = 0 ; i < ni ; i++ ) {
@@ -704,31 +792,59 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                     
                 // add this interaction to the interaction queue
-                r2v[count/4][count%4] = r2;
-                dxv[count] = dx;
-                effi[count] = &( part_i->f );
-                effj[count] = &( part_j->f );
-                potv[count] = pot;
-                count += 1;
-                rcount += 1;
-                
-                // do we have a full set to evaluate?
-                if ( __builtin_expect( count == 8 , 0 ) ) {
-                
-                    // evaluate the potentials
-                    potential_eval_vec2( potv , r2v , ev , fv );
-                    
-                    // for each entry, update the forces
-                    for ( k = 0 ; k < 8 ; k++ ) {
-                        tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
-                        *effi[k] = spu_sub( *effi[k] , tempv );
-                        *effj[k] = spu_add( *effj[k] , tempv );
+                #ifdef VEC2
+                    r2v[count/4][count%4] = r2;
+                    dxv[count] = dx;
+                    effi[count] = &( part_i->f );
+                    effj[count] = &( part_j->f );
+                    potv[count] = pot;
+                    count += 1;
+                    rcount += 1;
+
+                    // do we have a full set to evaluate?
+                    if ( __builtin_expect( count == 8 , 0 ) ) {
+
+                        // evaluate the potentials
+                        potential_eval_vec2( potv , r2v , ev , fv );
+
+                        // for each entry, update the forces
+                        for ( k = 0 ; k < 8 ; k++ ) {
+                            tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
+                            *effi[k] = spu_sub( *effi[k] , tempv );
+                            *effj[k] = spu_add( *effj[k] , tempv );
+                            }
+
+                        // re-set the counter
+                        count = 0;
+
                         }
-                
-                    // re-set the counter
-                    count = 0;
-                    
-                    }
+                #else
+                    r2v[count] = r2;
+                    dxv[count] = dx;
+                    effi[count] = &( part_i->f );
+                    effj[count] = &( part_j->f );
+                    potv[count] = pot;
+                    count += 1;
+                    rcount += 1;
+
+                    // do we have a full set to evaluate?
+                    if ( __builtin_expect( count == 4 , 0 ) ) {
+
+                        // evaluate the potentials
+                        potential_eval_vec( potv , r2v , &ev , &fv );
+
+                        // for each entry, update the forces
+                        for ( k = 0 ; k < 4 ; k++ ) {
+                            tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+                            *effi[k] = spu_sub( *effi[k] , tempv );
+                            *effj[k] = spu_add( *effj[k] , tempv );
+                            }
+
+                        // re-set the counter
+                        count = 0;
+
+                        }
+                #endif
                     
                 } // loop over all other particles
         
@@ -737,6 +853,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
         }
         
     // are there any leftovers?
+    #ifdef VEC2
     if ( count > 0 ) {
     
         // copy the first potential to the last entries
@@ -754,6 +871,25 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
             }
             
         }
+    #else
+    if ( count > 0 ) {
+    
+        // copy the first potential to the last entries
+        for ( k = count ; k < 4 ; k++ )
+            potv[k] = potv[0];
+            
+        // evaluate the potentials
+        potential_eval_vec( potv , r2v , &ev , &fv );
+
+        // for each entry, update the forces
+        for ( k = 0 ; k < count ; k++ ) {
+            tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
+            *effi[k] = spu_sub( *effi[k] , tempv );
+            *effj[k] = spu_add( *effj[k] , tempv );
+            }
+            
+        }
+    #endif
         
     }
 
@@ -899,7 +1035,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
                     continue;
                     
                 // evaluate the interaction
-                rcount += 1;
+                // rcount += 1;
                 #ifdef EXPLICIT_POTENTIALS
                     potential_eval_expl( pot , r2 , &e , &f );
                 #else
@@ -977,7 +1113,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                     
                 // evaluate the interaction
-                rcount += 1;
+                // rcount += 1;
                 #ifdef EXPLICIT_POTENTIALS
                     potential_eval_expl( pot , r2 , &e , &f );
                 #else
@@ -1034,7 +1170,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     continue;
                     
                 // evaluate the interaction
-                rcount += 1;
+                // rcount += 1;
                 #ifdef EXPLICIT_POTENTIALS
                     potential_eval_expl( pot , r2 , &e , &f );
                 #else
@@ -1247,8 +1383,8 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
                     shift[nnid*3+2] = data->h[2];
                 else
                     shift[nnid*3+2] = -data->h[2];
-                // printf("runner_spu: got pair 0x%llx (n=%i), 0x%llx (n=%i) with shift=[%e,%e,%e].\n",
-                //     ai[nnid],ni[nnid],aj[nnid],nj[nnid],shift[nnid*3+0],shift[nnid*3+1],shift[nnid*3+2]); fflush(stdout);
+                /* printf("runner_spu: got pair 0x%llx (n=%i), 0x%llx (n=%i) with shift=[%e,%e,%e].\n",
+                    ai[nnid],ni[nnid],aj[nnid],nj[nnid],shift[nnid*3+0],shift[nnid*3+1],shift[nnid*3+2]); fflush(stdout); */
 
                 // check if we can recycle any of these buffers
                 pi[nnid] = NULL; pj[nnid] = NULL;
