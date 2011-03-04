@@ -21,10 +21,8 @@ AUTOMAKE_OPTIONS=gnu
 # Add the source directory and debug to CFLAGS
 AM_CFLAGS = -g -I../src -Wall $(OPENMP_CFLAGS)
 
-# Set the linker flags if parmetis is present
-if HAVEPARMETIS
-AM_LDFLAGS = $(PARMETIS_LDFLAGS)
-endif
+# Set the linker flags if metis is present
+AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
 bin_PROGRAMS = test test_single test_verlet test_single_verlet test_pwverlet test_single_pwverlet btree_test

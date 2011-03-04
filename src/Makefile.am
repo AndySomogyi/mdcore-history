@@ -20,6 +20,7 @@ AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
 AM_CFLAGS = -g -Wall $(SIMD_FLAGS)
+AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h errs.h
@@ -30,14 +31,12 @@ lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
 # Set-up for general (double-precision) case
 libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
-libmdcore_la_LDFLAGS = -version-info 0:0:0
 
 
 # Set-up for single-precision case
 libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c
 libmdcore_single_la_SHORTNAME = sp
 libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
-libmdcore_single_la_LDFLAGS = -version-info 0:0:0
 
 
 # Dummy target to make the Cell/BE version

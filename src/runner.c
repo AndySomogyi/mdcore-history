@@ -881,162 +881,143 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
         parts_j = cell_j->parts;
         }
         
-    /* Do we need to re-compute the pairwise Verlet list? */
-    if ( s->verlet_rebuild ) {
-    
-        /* Has sufficient memory for the Verlet list been allocated? */
-        if ( list->pairs == NULL || list->size < count_i * count_j ) {
-        
-            /* Clear lists if needed. */
-            if ( list->pairs != NULL )
-                free( list->pairs );
-            if ( list->nr_pairs != NULL )
-                free( list->nr_pairs );
-                
-            /* Set the size and width. */
-            list->size = count_i * count_j;
-        
-            /* Allocate the list data. */
-            if ( ( list->pairs = (short int *)malloc( sizeof(short int) * list->size ) ) == NULL )
-                return error(runner_err_malloc);
-            if ( ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * (count_i + count_j) ) ) == NULL )
-                return error(runner_err_malloc);
-                
-            }
-    
-        /* Is this a self interaction? */
-        if ( cell_i == cell_j ) {
-        
-            /* The first particle has, by definition, no interactions. */
-            list->nr_pairs[0] = 0;
+    /* Is this a self interaction? */
+    if ( cell_i == cell_j ) {
 
-            /* loop over all particles */
-            for ( i = 1 ; i < count_i ; i++ ) {
+        /* loop over all particles */
+        for ( i = 1 ; i < count_i ; i++ ) {
 
-                /* get the particle */
-                part_i = &(parts_i[i]);
-                pix[0] = part_i->x[0];
-                pix[1] = part_i->x[1];
-                pix[2] = part_i->x[2];
-                pioff = part_i->type * emt;
-                pind = 0;
-                pairs = &( list->pairs[ i * count_i ] );
-                pif = &( part_i->f[0] );
+            /* get the particle */
+            part_i = &(parts_i[i]);
+            pix[0] = part_i->x[0];
+            pix[1] = part_i->x[1];
+            pix[2] = part_i->x[2];
+            pioff = part_i->type * emt;
+            pif = &( part_i->f[0] );
 
-                /* loop over all other particles */
-                for ( j = 0 ; j < i ; j++ ) {
+            /* loop over all other particles */
+            for ( j = 0 ; j < i ; j++ ) {
 
-                    /* get the other particle */
-                    part_j = &(parts_j[j]);
+                /* get the other particle */
+                part_j = &(parts_j[j]);
 
-                    /* get the distance between both particles */
-                    for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                        dx[k] = pix[k] - part_j->x[k];
-                        r2 += dx[k] * dx[k];
-                        }
+                /* get the distance between both particles */
+                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                    dx[k] = pix[k] - part_j->x[k];
+                    r2 += dx[k] * dx[k];
+                    }
 
-                    /* is this within cutoff? */
-                    if ( r2 > skin2 )
-                        continue;
-                    /* runner_rcount += 1; */
+                /* is this within cutoff? */
+                if ( r2 > cutoff2 )
+                    continue;
+                /* runner_rcount += 1; */
 
-                    /* fetch the potential, if any */
-                    pot = pots[ pioff + part_j->type ];
-                    if ( pot == NULL )
-                        continue;
+                /* fetch the potential, if any */
+                pot = pots[ pioff + part_j->type ];
+                if ( pot == NULL )
+                    continue;
 
-                    /* Add this pair to the (pairwise) verlet list. */
-                    pairs[pind] = j;
-                    pind += 1;
+                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    /* add this interaction to the interaction queue. */
+                    r2q[icount] = r2;
+                    dxq[icount*3] = dx[0];
+                    dxq[icount*3+1] = dx[1];
+                    dxq[icount*3+2] = dx[2];
+                    effi[icount] = pif;
+                    effj[icount] = part_j->f;
+                    potq[icount] = pot;
+                    icount += 1;
 
-                    /* is this within cutoff? */
-                    if ( r2 > cutoff2 )
-                        continue;
-                    /* runner_rcount += 1; */
+                    #if defined(FPTYPE_SINGLE)
+                        /* evaluate the interactions if the queue is full. */
+                        if ( icount == 4 ) {
 
-                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
-                        /* add this interaction to the interaction queue. */
-                        r2q[icount] = r2;
-                        dxq[icount*3] = dx[0];
-                        dxq[icount*3+1] = dx[1];
-                        dxq[icount*3+2] = dx[2];
-                        effi[icount] = pif;
-                        effj[icount] = part_j->f;
-                        potq[icount] = pot;
-                        icount += 1;
+                            potential_eval_vec_4single( potq , r2q , e , f );
 
-                        #if defined(FPTYPE_SINGLE)
-                            /* evaluate the interactions if the queue is full. */
-                            if ( icount == 4 ) {
-
-                                potential_eval_vec_4single( potq , r2q , e , f );
-
-                                /* update the forces and the energy */
-                                for ( l = 0 ; l < 4 ; l++ ) {
-                                    epot += e[l];
-                                    for ( k = 0 ; k < 3 ; k++ ) {
-                                        w = f[l] * dxq[l*3+k];
-                                        effi[l][k] -= w;
-                                        effj[l][k] += w;
-                                        }
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 4 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    w = f[l] * dxq[l*3+k];
+                                    effi[l][k] -= w;
+                                    effj[l][k] += w;
                                     }
-
-                                /* re-set the counter. */
-                                icount = 0;
-
                                 }
-                        #elif defined(FPTYPE_DOUBLE)
-                            /* evaluate the interactions if the queue is full. */
-                            if ( icount == 4 ) {
 
-                                potential_eval_vec_4double( potq , r2q , e , f );
+                            /* re-set the counter. */
+                            icount = 0;
 
-                                /* update the forces and the energy */
-                                for ( l = 0 ; l < 4 ; l++ ) {
-                                    epot += e[l];
-                                    for ( k = 0 ; k < 3 ; k++ ) {
-                                        w = f[l] * dxq[l*3+k];
-                                        effi[l][k] -= w;
-                                        effj[l][k] += w;
-                                        }
-                                    }
-
-                                /* re-set the counter. */
-                                icount = 0;
-
-                                }
-                        #endif
-                    #else
-                        /* evaluate the interaction */
-                        #ifdef EXPLICIT_POTENTIALS
-                            potential_eval_expl( pot , r2 , &e , &f );
-                        #else
-                            potential_eval( pot , r2 , &e , &f );
-                        #endif
-
-                        /* update the forces */
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = f * dx[k];
-                            pif[k] -= w;
-                            part_j->f[k] += w;
                             }
+                    #elif defined(FPTYPE_DOUBLE)
+                        /* evaluate the interactions if the queue is full. */
+                        if ( icount == 4 ) {
 
-                        /* tabulate the energy */
-                        epot += e;
+                            potential_eval_vec_4double( potq , r2q , e , f );
+
+                            /* update the forces and the energy */
+                            for ( l = 0 ; l < 4 ; l++ ) {
+                                epot += e[l];
+                                for ( k = 0 ; k < 3 ; k++ ) {
+                                    w = f[l] * dxq[l*3+k];
+                                    effi[l][k] -= w;
+                                    effj[l][k] += w;
+                                    }
+                                }
+
+                            /* re-set the counter. */
+                            icount = 0;
+
+                            }
+                    #endif
+                #else
+                    /* evaluate the interaction */
+                    #ifdef EXPLICIT_POTENTIALS
+                        potential_eval_expl( pot , r2 , &e , &f );
+                    #else
+                        potential_eval( pot , r2 , &e , &f );
                     #endif
 
-                    } /* loop over all other particles */
+                    /* update the forces */
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = f * dx[k];
+                        pif[k] -= w;
+                        part_j->f[k] += w;
+                        }
 
-                /* Store the number of pairs for this particle. */
-                list->nr_pairs[i] = pind;
+                    /* tabulate the energy */
+                    epot += e;
+                #endif
 
-                } /* loop over all particles */
+                } /* loop over all other particles */
 
-            }
+            } /* loop over all particles */
 
-        /* No, genuine pair. */
-        else {
+        }
 
+    /* No, genuine pair. */
+    else {
+
+        /* Do we need to re-compute the pairwise Verlet list? */
+        if ( s->verlet_rebuild ) {
+
+            /* Has sufficient memory for the Verlet list been allocated? */
+            if ( list->pairs == NULL || list->size < count_i * count_j ) {
+
+                /* Clear lists if needed. */
+                if ( list->pairs != NULL )
+                    free( list->pairs );
+
+                /* Set the size and width. */
+                list->size = count_i * count_j;
+
+                /* Allocate the list data. */
+                if ( ( list->pairs = (short int *)malloc( sizeof(short int) * list->size ) ) == NULL )
+                    return error(runner_err_malloc);
+                if ( list->nr_pairs == NULL && ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * 256 ) ) == NULL )
+                    return error(runner_err_malloc);
+
+                }
+    
             /* Allocate work arrays on stack. */
             if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
                  ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
@@ -1234,124 +1215,124 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
 
                 } /* loop over all particles */
             
-            }
-
-        } /* do we need to re-build the pairwise verlet list? */
+            } /* do we need to re-build the pairwise verlet list? */
         
-    /* Otherwise, just evaluate using the list. */
-    else {
-    
-        /* Loop over the particles in cell_j. */
-        for ( j = 0 ; j < count_j ; j++ ) {
-        
-            /* Skip this particle before we get too involved. */
-            if ( ( nr_pairs = list->nr_pairs[j] ) == 0 )
-                continue;
-                
-            /* Get the particle data. */
-            part_j = &(parts_j[j]);
-            pjx[0] = part_j->x[0] + pshift[0];
-            pjx[1] = part_j->x[1] + pshift[1];
-            pjx[2] = part_j->x[2] + pshift[2];
-            pjf = &( part_j->f[0] );
-            pairs = &( list->pairs[ j * count_i ] );
-            pjoff = part_j->type * emt;
+        /* Otherwise, just evaluate using the list. */
+        else {
 
-            /* Loop over the entries in the Verlet list. */
-            for ( i = 0 ; i < nr_pairs ; i++ ) {
-            
-                /* Get the other particle */
-                part_i = &( parts_i[ pairs[i] ] );
+            /* Loop over the particles in cell_j. */
+            for ( j = 0 ; j < count_j ; j++ ) {
 
-                /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = part_i->x[k] - pjx[k];
-                    r2 += dx[k] * dx[k];
-                    }
-
-                /* is this within cutoff? */
-                if ( r2 > cutoff2 )
+                /* Skip this particle before we get too involved. */
+                if ( ( nr_pairs = list->nr_pairs[j] ) == 0 )
                     continue;
-                /* runner_rcount += 1; */
 
-                /* fetch the potential (non-NULL by design). */
-                pot = pots[ pjoff + part_i->type ];
+                /* Get the particle data. */
+                part_j = &(parts_j[j]);
+                pjx[0] = part_j->x[0] + pshift[0];
+                pjx[1] = part_j->x[1] + pshift[1];
+                pjx[2] = part_j->x[2] + pshift[2];
+                pjf = &( part_j->f[0] );
+                pairs = &( list->pairs[ j * count_i ] );
+                pjoff = part_j->type * emt;
 
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
-                    /* add this interaction to the interaction queue. */
-                    r2q[icount] = r2;
-                    dxq[icount*3] = dx[0];
-                    dxq[icount*3+1] = dx[1];
-                    dxq[icount*3+2] = dx[2];
-                    effi[icount] = part_i->f;
-                    effj[icount] = pjf;
-                    potq[icount] = pot;
-                    icount += 1;
+                /* Loop over the entries in the Verlet list. */
+                for ( i = 0 ; i < nr_pairs ; i++ ) {
 
-                    #if defined(FPTYPE_SINGLE)
-                        /* evaluate the interactions if the queue is full. */
-                        if ( icount == 4 ) {
+                    /* Get the other particle */
+                    part_i = &( parts_i[ pairs[i] ] );
 
-                            potential_eval_vec_4single( potq , r2q , e , f );
-
-                            /* update the forces and the energy */
-                            for ( l = 0 ; l < 4 ; l++ ) {
-                                epot += e[l];
-                                for ( k = 0 ; k < 3 ; k++ ) {
-                                    w = f[l] * dxq[l*3+k];
-                                    effi[l][k] -= w;
-                                    effj[l][k] += w;
-                                    }
-                                }
-
-                            /* re-set the counter. */
-                            icount = 0;
-
-                            }
-                    #elif defined(FPTYPE_DOUBLE)
-                        /* evaluate the interactions if the queue is full. */
-                        if ( icount == 4 ) {
-
-                            potential_eval_vec_4double( potq , r2q , e , f );
-
-                            /* update the forces and the energy */
-                            for ( l = 0 ; l < 4 ; l++ ) {
-                                epot += e[l];
-                                for ( k = 0 ; k < 3 ; k++ ) {
-                                    w = f[l] * dxq[l*3+k];
-                                    effi[l][k] -= w;
-                                    effj[l][k] += w;
-                                    }
-                                }
-
-                            /* re-set the counter. */
-                            icount = 0;
-
-                            }
-                    #endif
-                #else
-                    /* evaluate the interaction */
-                    #ifdef EXPLICIT_POTENTIALS
-                        potential_eval_expl( pot , r2 , &e , &f );
-                    #else
-                        potential_eval( pot , r2 , &e , &f );
-                    #endif
-
-                    /* update the forces */
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        w = f * dx[k];
-                        part_i->f[k] -= w;
-                        pjf[k] += w;
+                    /* get the distance between both particles */
+                    for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                        dx[k] = part_i->x[k] - pjx[k];
+                        r2 += dx[k] * dx[k];
                         }
 
-                    /* tabulate the energy */
-                    epot += e;
-                #endif
+                    /* is this within cutoff? */
+                    if ( r2 > cutoff2 )
+                        continue;
+                    /* runner_rcount += 1; */
 
-                } /* loop over pairs. */
-        
-            } /* loop over particles in cell_i. */
-    
+                    /* fetch the potential (non-NULL by design). */
+                    pot = pots[ pjoff + part_i->type ];
+
+                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                        /* add this interaction to the interaction queue. */
+                        r2q[icount] = r2;
+                        dxq[icount*3] = dx[0];
+                        dxq[icount*3+1] = dx[1];
+                        dxq[icount*3+2] = dx[2];
+                        effi[icount] = part_i->f;
+                        effj[icount] = pjf;
+                        potq[icount] = pot;
+                        icount += 1;
+
+                        #if defined(FPTYPE_SINGLE)
+                            /* evaluate the interactions if the queue is full. */
+                            if ( icount == 4 ) {
+
+                                potential_eval_vec_4single( potq , r2q , e , f );
+
+                                /* update the forces and the energy */
+                                for ( l = 0 ; l < 4 ; l++ ) {
+                                    epot += e[l];
+                                    for ( k = 0 ; k < 3 ; k++ ) {
+                                        w = f[l] * dxq[l*3+k];
+                                        effi[l][k] -= w;
+                                        effj[l][k] += w;
+                                        }
+                                    }
+
+                                /* re-set the counter. */
+                                icount = 0;
+
+                                }
+                        #elif defined(FPTYPE_DOUBLE)
+                            /* evaluate the interactions if the queue is full. */
+                            if ( icount == 4 ) {
+
+                                potential_eval_vec_4double( potq , r2q , e , f );
+
+                                /* update the forces and the energy */
+                                for ( l = 0 ; l < 4 ; l++ ) {
+                                    epot += e[l];
+                                    for ( k = 0 ; k < 3 ; k++ ) {
+                                        w = f[l] * dxq[l*3+k];
+                                        effi[l][k] -= w;
+                                        effj[l][k] += w;
+                                        }
+                                    }
+
+                                /* re-set the counter. */
+                                icount = 0;
+
+                                }
+                        #endif
+                    #else
+                        /* evaluate the interaction */
+                        #ifdef EXPLICIT_POTENTIALS
+                            potential_eval_expl( pot , r2 , &e , &f );
+                        #else
+                            potential_eval( pot , r2 , &e , &f );
+                        #endif
+
+                        /* update the forces */
+                        for ( k = 0 ; k < 3 ; k++ ) {
+                            w = f * dx[k];
+                            part_i->f[k] -= w;
+                            pjf[k] += w;
+                            }
+
+                        /* tabulate the energy */
+                        epot += e;
+                    #endif
+
+                    } /* loop over pairs. */
+
+                } /* loop over particles in cell_i. */
+
+            }
+            
         }
         
     #if defined(__SSE__) && defined(FPTYPE_SINGLE)
@@ -3586,9 +3567,9 @@ int runner_run_cell ( struct runner *r ) {
             return error(runner_err_engine);
             
         /* write the current cell data */
-        for ( i = 0 ; i < r->e->s.nr_cells ; i++ ) {
-            r->celldata[i].ni = r->e->s.cells[i].count;
-            r->celldata[i].ai = (unsigned long long)r->e->s.cells[i].parts;
+        for ( i = 0 ; i < s->nr_cells ; i++ ) {
+            r->celldata[i].ni = s->cells[i].count;
+            r->celldata[i].ai = (unsigned long long)s->cells[i].parts;
             }
 
         /* emit a reload message */
@@ -3599,10 +3580,10 @@ int runner_run_cell ( struct runner *r ) {
 
 
         /* while there are pairs... */
-        while ( r->e->s.next_pair < r->e->s.nr_pairs || count > 0 ) {
+        while ( s->next_pair < s->nr_pairs || count > 0 ) {
 
             /* if we have no p[0], try to get some... */
-            if ( p[0] == NULL && r->e->s.next_pair < r->e->s.nr_pairs ) {
+            if ( p[0] == NULL && s->next_pair < s->nr_pairs ) {
                 p[0] = space_getpair( &(r->e->s) , r->id , runner_bitesize , NULL , &err , count == 0 );
                 if ( err < 0 )
                     return runner_err_space;
@@ -3719,6 +3700,235 @@ int runner_run_cell ( struct runner *r ) {
 
 
 /**
+ * @brief The #runner's main routine (for the Cell/BE SPU, using
+ *      tuples).
+ *
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having paSSEd, calls #space_gettuple until there are no
+ * tuples available.
+ *
+ * Note that this routine is only compiled if @c CELL has been defined.
+ */
+
+int runner_run_cell_tuples ( struct runner *r ) {
+
+#ifdef CELL
+    int err = 0;
+    unsigned int buff[2];
+    int i, j, k, count = 0, res;
+    struct space *s;
+    struct celltuple *t;
+    int cid[runner_qlen][2];
+    FPTYPE shift[3];
+    
+
+    /* check the inputs */
+    if ( r == NULL )
+        return error(runner_err_null);
+        
+    /* init some local pointers. */
+    s = &(r->e->s);
+        
+    /* give a hoot */
+    printf("runner_run: runner %i is up and running (SPU)...\n",r->id); fflush(stdout);
+    
+    /* init the cellpair pointers */
+    for ( k = 0 ; k < runner_qlen ; k++ )
+        cid[k][0] = -1;
+        
+    /* main loop, in which the runner should stay forever... */
+    while ( 1 ) {
+    
+        /* wait at the engine barrier */
+        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
+        if ( engine_barrier(r->e) < 0)
+            return error(runner_err_engine);
+            
+        /* write the current cell data */
+        for ( i = 0 ; i < s->nr_cells ; i++ ) {
+            r->celldata[i].ni = s->cells[i].count;
+            r->celldata[i].ai = (unsigned long long)s->cells[i].parts;
+            }
+
+        /* emit a reload message */
+        buff[0] = 0xFFFFFFFF;
+        /* printf("runner_run: runner %i sending reload message...\n",r->id); */
+        if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
+            return runner_err_spe;
+
+
+        /* Loop over tuples... */
+        while ( 1 ) {
+        
+            /* Try to get a tuple. */
+            if ( ( res = space_gettuple( s , &t , count == 0 ) ) < 0 )
+                return r->err = runner_err_space;
+                
+            /* Did we get a tuple back? */
+            if ( res > 0 )
+                
+                /* Loop over the cell pairs in this tuple. */
+                for ( i = 0 ; i < t->n ; i++ )
+                    for ( j = i ; j < t->n ; j++ ) {
+
+                        /* Is this tuple active? */
+                        if ( !( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) )
+                            continue;
+
+                        /* Get the cell ids. */
+                        cid[0][0] = t->cellid[i];
+                        cid[0][1] = t->cellid[j];
+
+                        /* we've got an active slot! */
+                        count += 1;
+
+                        /* Compute the shift between ci and cj. */
+                        for ( k = 0 ; k < 3 ; k++ ) {
+                            shift[k] = s->cells[cid[0][1]].origin[k] - s->cells[cid[0][0]].origin[k];
+                            if ( shift[k] * 2 > s->dim[k] )
+                                shift[k] -= s->dim[k];
+                            else if ( shift[k] * 2 < -s->dim[k] )
+                                shift[k] += s->dim[k];
+                            }
+
+                        /* pack this pair's data */
+                        buff[0] = ( cid[0][0] << 20 ) + ( cid[0][1] << 8 ) + 1;
+                        if ( shift[0] > 0 )
+                            buff[0] += 1 << 6;
+                        else if ( shift[0] < 0 )
+                            buff[0] += 2 << 6;
+                        if ( shift[1] > 0 )
+                            buff[0] += 1 << 4;
+                        else if ( shift[1] < 0 )
+                            buff[0] += 2 << 4;
+                        if ( shift[2] > 0 )
+                            buff[0] += 1 << 2;
+                        else if ( shift[2] < 0 )
+                            buff[0] += 2 << 2;
+
+                        /* write the data to the mailbox */
+                        /* printf("runner_run: sending pair 0x%llx (n=%i), 0x%llx (n=%i) with shift=[%e,%e,%e].\n",
+                            (unsigned long long)s->cells[p[0]->i].parts,s->cells[p[0]->i].count,(unsigned long long)s->cells[p[0]->j].parts,s->cells[p[0]->j].count,
+                            p[0]->shift[0], p[0]->shift[1], p[0]->shift[2]); fflush(stdout); */
+                        /* printf("runner_run: runner %i sending pair to SPU...\n",r->id); fflush(stdout); */
+                        if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
+                            return runner_err_spe;
+                        /* printf("runner_run: runner %i sent pair to SPU.\n",r->id); fflush(stdout); */
+
+
+                        /* wait for the last pair to have been processed */
+                        if ( cid[runner_qlen-1][0] >= 0 ) {
+
+                            /* read a word from the spe */
+                            /* printf("runner_run: runner %i waiting for SPU response...\n",r->id); fflush(stdout); */
+                            /* if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
+                                return runner_err_spe; */
+                            /* printf("runner_run: runner %i got SPU response.\n",r->id); fflush(stdout); */
+
+                            /* release the last pair */
+                            if ( space_releasepair( s , cid[runner_qlen-1][0] , cid[runner_qlen-1][1] ) < 0 )
+                                return runner_err_space;
+
+                            /* we've got one less... */
+                            count -= 1;
+
+                            }
+
+                        /* move on in the chain */
+                        for ( k = runner_qlen-1 ; k > 0 ; k-- ) {
+                            cid[k][0] = cid[k-1][0];
+                            cid[k][1] = cid[k-1][1];
+                            }
+                        cid[0][0] = -1;
+
+                        }
+            
+            /* Did we get a stall? */
+            else if ( s->next_tuple < s->nr_tuples ) {
+            
+                /* wait for the last pair to have been processed */
+                if ( cid[runner_qlen-1][0] >= 0 ) {
+
+                    /* read a word from the spe */
+                    /* printf("runner_run: runner %i waiting for SPU response...\n",r->id); fflush(stdout); */
+                    /* if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
+                        return runner_err_spe; */
+                    /* printf("runner_run: runner %i got SPU response.\n",r->id); fflush(stdout); */
+
+                    /* release the last pair */
+                    if ( space_releasepair( s , cid[runner_qlen-1][0] , cid[runner_qlen-1][1] ) < 0 )
+                        return runner_err_space;
+
+                    /* we've got one less... */
+                    count -= 1;
+
+                    }
+
+                /* move on in the chain */
+                for ( k = runner_qlen-1 ; k > 0 ; k-- ) {
+                    cid[k][0] = cid[k-1][0];
+                    cid[k][1] = cid[k-1][1];
+                    }
+                cid[0][0] = -1;
+
+                }
+                
+            /* Otherwise, we're done. */
+            else
+                break;
+                    
+            }
+
+        /* If there is a non-empy slot, send a flush */
+        if ( count > 0 ) {
+
+            /* send a flush message... */
+            buff[0] = 0;
+            if ( spe_in_mbox_write( r->spe , buff , 2 , SPE_MBOX_ALL_BLOCKING ) != 2 )
+                return runner_err_spe;
+
+            /* wait for the reply... */
+            if ( spe_out_intr_mbox_read( r->spe , buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
+                return runner_err_spe;
+            /* printf("runner_run: got rcount=%u.\n",buff[0]); */
+
+            /* release the pairs still in the queue */
+            for ( k = 1 ; k < runner_qlen ; k++ )
+                if ( cid[k][0] >= 0 ) {
+                    if ( space_releasepair( &(r->e->s) , cid[k][0] , cid[k][1] ) < 0 )
+                        return runner_err_space;
+                    cid[k][0] = -1;
+                    count -= 1;
+                    }
+
+            }
+
+        /* did things go wrong? */
+        /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
+        if ( err < 0 )
+            return error(runner_err_space);
+    
+        }
+
+    /* end well... */
+    return runner_err_ok;
+
+#else
+
+    /* This functionality is not available */
+    return runner_err_unavail;
+    
+#endif
+
+    }
+
+
+/**
  * @brief The #runner's main routine (for Verlet lists).
  *
  * @param r Pointer to the #runner to run.
@@ -3770,7 +3980,7 @@ int runner_run_verlet ( struct runner *r ) {
             while ( 1 ) {
 
                 /* Get a tuple. */
-                if ( ( res = space_gettuple( s , &t ) ) < 0 )
+                if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
                     return r->err = runner_err_space;
 
                 /* If there were no tuples left, bail. */
@@ -4023,7 +4233,7 @@ int runner_run_tuples ( struct runner *r ) {
         while ( 1 ) {
         
             /* Get a tuple. */
-            if ( ( res = space_gettuple( s , &t ) ) < 0 )
+            if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
                 return r->err = runner_err_space;
                 
             /* If there were no tuples left, bail. */
@@ -4141,7 +4351,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
         while ( 1 ) {
         
             /* Get a tuple. */
-            if ( ( res = space_gettuple( s , &t ) ) < 0 )
+            if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
                 return r->err = runner_err_space;
                 
             /* If there were no tuples left, bail. */
@@ -4374,7 +4584,7 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
             return runner_err_spe;
             
         /* start the runner. */
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell,r) != 0)
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell_tuples,r) != 0)
 		    return error(runner_err_pthread);
             
         #else

@@ -305,12 +305,14 @@ int space_flush ( struct space *s ) {
  * 
  * @param s The #space in which to look for tuples.
  * @param out A pointer to a #celltuple in which to copy the result.
+ * @param wait A boolean value specifying if to wait for free tuples
+ *      or not.
  *
  * @return The number of #celltuple found or 0 if the list is empty and
  *      < 0 on error (see #space_err).
  */
  
-int space_gettuple ( struct space *s , struct celltuple **out ) {
+int space_gettuple ( struct space *s , struct celltuple **out , int wait ) {
 
     int i, j, k;
     struct celltuple *t;
@@ -371,9 +373,13 @@ int space_gettuple ( struct space *s , struct celltuple **out ) {
             }
             
         /* If we got here without catching anything, wait for a sign. */
-        s->nr_stalls += 1;
-        if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
-            return error(space_err_pthread);
+        if ( wait ) {
+            s->nr_stalls += 1;
+            if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
+                return error(space_err_pthread);
+            }
+        else
+            break;
     
         }
         

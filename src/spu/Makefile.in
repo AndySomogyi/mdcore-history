@@ -21,6 +21,7 @@ ifdef CELLTOP
     # CFLAGS := $(CFLAGS) -DVEC2
     # CFLAGS := $(CFLAGS) -DEXPLICIT_POTENTIALS
     # CFLAGS := $(CFLAGS) -DUSE_DOUBLES
+    LDFLAGS := -Wl,-q
 
     # Footer
     CELL_TOP = $(CELLTOP)/sdk

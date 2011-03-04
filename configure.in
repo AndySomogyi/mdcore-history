@@ -65,22 +65,22 @@ AX_OPENMP
 AC_SUBST(OPENMP_CFLAGS)
 
     
-# Check for parmetis
-AC_ARG_WITH([parmetis],
-    [AS_HELP_STRING([--with-parmetis=PATH],[prefix where the parmetis library is installed @<:@default=/opt/cell@:>@])],
-    [if test "x$with_parmetis" != "xno"
+# Check for metis
+AC_ARG_WITH([metis],
+    [AS_HELP_STRING([--with-metis=PATH],[prefix where the metis library is installed @<:@default=/opt/cell@:>@])],
+    [if test "x$with_metis" != "xno"
      then
-        if test "x$with_parmetis" != "xyes"
+        if test "x$with_metis" != "xyes"
         then
-            PARMETIS_LDFLAGS="-L$with_parmetis -lparmetis"
+            METIS_LDFLAGS="-L$with_metis -lmetis"
         else
-            PARMETIS_LDFLAGS="-lparmetis"
+            METIS_LDFLAGS="-lmetis"
         fi
-        AC_CHECK_LIB([parmetis],[ParMETIS_V3_PartKway],,AC_MSG_ERROR(something is wrong with the parmetis library!),$PARMETIS_LDFLAGS)
-        AC_DEFINE([HAVE_PARMETIS],[true],[The parmetis library appears to be present.])
+        AC_CHECK_LIB([metis],[METIS_PartGraphVKway],,AC_MSG_ERROR(something is wrong with the metis library!),$METIS_LDFLAGS)
+        AC_DEFINE([HAVE_METIS],[true],[The metis library appears to be present.])
      fi])
-AC_SUBST(PARMETIS_LDFLAGS)
-AM_CONDITIONAL([HAVEPARMETIS],[test -n "$PARMETIS_LDFLAGS"])
+AC_SUBST(METIS_LDFLAGS)
+AM_CONDITIONAL([HAVEMETIS],[test -n "$METIS_LDFLAGS"])
 
 
 

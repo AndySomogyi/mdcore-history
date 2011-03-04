@@ -14,7 +14,7 @@ ppu64_%.c: %.c
 
 # Local Defines
 IMPORTS = spu/librunner_spu.a -lspe2 -lm -lmisc
-LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g
+LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g -Wl,-q
 
 # Compiler flags and defines
 CC_OPT_LEVEL := -O3

@@ -52,15 +52,15 @@ int main ( int argc , char *argv[] ) {
     const double origin[3] = { 0.0 , 0.0 , 0.0 };
     // const double dim[3] = { 3.166 , 3.166 , 3.166 };
     // const int nr_mols = 1000, nx = 10;
-    const double dim[3] = { 6.332 , 6.332 , 6.332 };
-    const int nr_mols = 8000, nx = 20;
+    // const double dim[3] = { 6.332 , 6.332 , 6.332 };
+    // const int nr_mols = 8000, nx = 20;
     // const double dim[3] = { 4.0 , 4.0 , 4.0 };
     // const int nr_mols = 2016, nx = 13;
-    // const double dim[3] = { 8.0 , 8.0 , 8.0 };
-    // const int nr_mols = 16128, nx = 26;
+    const double dim[3] = { 8.0 , 8.0 , 8.0 };
+    const int nr_mols = 16128, nx = 26;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
-    double epot, ekin, v2, temp;
+    double epot, ekin, v2, temp, cutoff;
     // FPTYPE ee, eff;
     struct engine e;
     struct part p_O, p_H;
@@ -83,10 +83,17 @@ int main ( int argc , char *argv[] ) {
     #else
         tic = getticks();
     #endif
+    
+    // did the user supply a cutoff?
+    if ( argc > 4 )
+        cutoff = atof( argv[4] );
+    else
+        cutoff = 1.0;
+    printf("main: cutoff set to %22.16e.\n", cutoff);
 
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , 1.0 , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cutoff , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -108,7 +115,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the O-H potential
-    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OH = potential_create_Ewald( 0.1 , cutoff , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -122,7 +129,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the H-H potential
-    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_HH = potential_create_Ewald( 0.1 , cutoff , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -136,7 +143,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the O-O potential
-    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.03e-4 ) ) == NULL ) {
+    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , cutoff , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -254,7 +261,10 @@ int main ( int argc , char *argv[] ) {
         
     // set the time and time-step by hand
     e.time = 0;
-    e.dt = 0.002;
+    if ( argc > 3 )
+        e.dt = atof( argv[3] );
+    else
+        e.dt = 0.002;
     
     #ifdef CELL
         toc = __mftb();

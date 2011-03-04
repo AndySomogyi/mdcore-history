@@ -99,7 +99,7 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
     alpha1 = _load_vec_float4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
     alpha2 = _load_vec_float4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
     
-    // compute the index
+    // compute the index (spu_convtu returns zero for negative values).
     ind = spu_convtu( spu_madd( r , spu_madd( r , alpha2 , alpha1 ) , alpha0 ) , 0 );
     
     // get a pointer to the data for this interval

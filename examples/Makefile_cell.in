@@ -11,13 +11,13 @@ ppu64_%.c: %.c
 
 # Local Defines
 IMPORTS = ../src/.libs/libmdcore_cell.a ../src/spu/librunner_spu.a -lspe2 -lm -lmisc
-LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g
+LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g -Wl,-q
 
 # Compiler flags and defines
 CC_OPT_LEVEL := -O3
-CFLAGS := -g  -Wall -std=gnu99 -fno-strict-aliasing
+CFLAGS := -g  -Wall -Wl,-q -std=gnu99 -fno-strict-aliasing
 CFLAGS := $(CFLAGS) -I../src
-CFLAGS := $(CFLAGS) -DCELL -DFPTYPE_SINGLE -DCPU_TPS=2.5e7 -DENGINE_FLAGS="engine_flag_useSPU"
+CFLAGS := $(CFLAGS) -DCELL -DFPTYPE_SINGLE -DCPU_TPS=2.666418e7 -DENGINE_FLAGS="engine_flag_useSPU"
 
 # Rules for the object files
 
