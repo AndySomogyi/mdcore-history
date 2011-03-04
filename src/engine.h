@@ -45,6 +45,7 @@
 #define engine_flag_verlet_pairwise      256
 #define engine_flag_affinity             512
 #define engine_flag_prefetch             1024
+#define engine_flag_verlet_pairwise2     2048
 
 
 /** ID of the last error. */

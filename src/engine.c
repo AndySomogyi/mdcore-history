@@ -464,12 +464,12 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         return error(engine_err_space);
         
     /* Set some flag implications. */
+    if ( flags & engine_flag_verlet_pairwise2 )
+        flags |= engine_flag_verlet_pairwise;
     if ( flags & engine_flag_verlet_pairwise )
         flags |= engine_flag_verlet;
     if ( flags & engine_flag_verlet )
         flags |= engine_flag_tuples;
-    if ( flags & engine_flag_useSPU )
-        flags &= ~engine_flag_tuples;
         
     /* Set the flags. */
     e->flags = flags;

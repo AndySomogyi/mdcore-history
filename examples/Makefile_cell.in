@@ -17,7 +17,7 @@ LDFLAGS = -L/opt/cell/sdk/src/lib/misc/ppu64 -g -Wl,-q
 CC_OPT_LEVEL := -O3
 CFLAGS := -g  -Wall -Wl,-q -std=gnu99 -fno-strict-aliasing
 CFLAGS := $(CFLAGS) -I../src
-CFLAGS := $(CFLAGS) -DCELL -DFPTYPE_SINGLE -DCPU_TPS=2.666418e7 -DENGINE_FLAGS="engine_flag_useSPU"
+CFLAGS := $(CFLAGS) -DCELL -DFPTYPE_SINGLE -DCPU_TPS=2.666418e7 -DENGINE_FLAGS="engine_flag_useSPU | engine_flag_tuples"
 
 # Rules for the object files
 
