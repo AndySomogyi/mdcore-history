@@ -532,6 +532,10 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     /* Set the flags. */
     e->flags = flags;
     
+    /* Init the runners to 0. */
+    e->runners = NULL;
+    e->nr_runners = 0;
+    
     /* set the maximum nr of types */
     e->max_type = max_type;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )
