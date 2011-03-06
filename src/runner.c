@@ -4942,6 +4942,179 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
 
     
 /**
+ * @brief Initialize the runner associated to the given engine and
+ *      attach it to an SPU.
+ * 
+ * @param r The #runner to be initialized.
+ * @param e The #engine with which it is associated.
+ * @param id The ID of this #runner.
+ * 
+ * @return #runner_err_ok or < 0 on error (see #runner_err).
+ *
+ * If @c CELL is not defined, this routine will fail!
+ */
+
+int runner_init_SPU ( struct runner *r , struct engine *e , int id ) {
+
+#ifdef CELL
+    static void *data = NULL;
+    static int size_data = 0;
+    void *finger;
+    int nr_pots = 0, size_pots = 0, *pots, i, j, k, l;
+    struct potential *p;
+    unsigned int buff;
+
+    /* make sure the inputs are ok */
+    if ( r == NULL || e == NULL )
+        return error(runner_err_null);
+        
+    /* remember who i'm working for */
+    r->e = e;
+    r->id = id;
+    
+    /* if this has not been done before, init the runner data */
+    if ( data == NULL ) {
+
+        /* run through the potentials and count them and their size */
+        for ( i = 0 ; i < e->max_type ; i++ )
+            for ( j = i ; j < e->max_type ; j++ )
+                if ( e->p[ i * e->max_type + j ] != NULL ) {
+                    nr_pots += 1;
+                    size_pots += e->p[ i * e->max_type + j ]->n + 1;
+                    }
+
+        /* the main data consists of a pointer to the cell data (64 bit),
+           the nr of cells (int), the cutoff (float), the width of
+           each cell (float[3]), the max nr of types (int)
+           and an array of size max_type*max_type of offsets (int) */
+        size_data = sizeof(void *) + sizeof(int) + 4 * sizeof(float) + sizeof(int) * ( 1 + e->max_type*e->max_type );
+
+        /* stretch this data until we are aligned to 8 bytes */
+        size_data = ( size_data + 7 ) & ~7;
+
+        /* we then append nr_pots potentials consisting of three floats (alphas) */
+        /* and two ints (n and flags) */
+        size_data += nr_pots * ( 3 * sizeof(float) + 2 * sizeof(int) );
+
+        /* finally, we append the data of each interval of each potential */
+        /* which consists of eight floats */
+        size_data += size_pots * sizeof(float) * potential_chunk;
+
+        /* raise to multiple of 128 */
+        size_data = ( size_data + 127 ) & ~127;
+
+        /* allocate memory for the SPU data */
+        if ( ( data = malloc_align( size_data , 7 ) ) == NULL )
+            return error(runner_err_malloc);
+
+        /* fill-in the engine data (without the pots) */
+        finger = data;
+        *((unsigned long long *)finger) = 0; finger += sizeof(unsigned long long);
+        *((int *)finger) = e->s.nr_cells; finger += sizeof(int);
+        *((float *)finger) = e->s.cutoff; finger += sizeof(float);
+        *((float *)finger) = e->s.h[0]; finger += sizeof(float);
+        *((float *)finger) = e->s.h[1]; finger += sizeof(float);
+        *((float *)finger) = e->s.h[2]; finger += sizeof(float);
+        *((int *)finger) = e->max_type; finger += sizeof(int);
+        pots = (int *)finger; finger += e->max_type * e->max_type * sizeof(int);
+        for ( i = 0 ; i < e->max_type*e->max_type ; i++ )
+            pots[i] = 0;
+
+        /* move the finger until we are at an 8-byte boundary */
+        finger = (void *)( ( (unsigned long long)finger + 7 ) & ~7 );
+
+        /* loop over the potentials */
+        for ( i = 0 ; i < e->max_type ; i++ )
+            for ( j = i ; j < e->max_type ; j++ )
+                if ( pots[ i * e->max_type + j ] == 0 && e->p[ i * e->max_type + j ] != NULL ) {
+                    p = e->p[ i * e->max_type + j ];
+                    for ( k = 0 ; k < e->max_type*e->max_type ; k++ )
+                        if ( e->p[k] == p )
+                            pots[k] = finger - data;
+                    *((int *)finger) = p->n; finger += sizeof(int);
+                    *((int *)finger) = p->flags; finger += sizeof(int);
+                    *((float *)finger) = p->alpha[0]; finger += sizeof(float);
+                    *((float *)finger) = p->alpha[1]; finger += sizeof(float);
+                    *((float *)finger) = p->alpha[2]; finger += sizeof(float);
+                    /* loop explicitly in case FPTYPE is not float. */
+                    for ( k = 0 ; k <= p->n ; k++ ) {
+                        for ( l = 0 ; l < potential_chunk ; l++ ) {
+                            *((float *)finger) = p->c[k*potential_chunk+l];
+                            finger += sizeof(float);
+                            }
+                        }
+                    }
+
+        /* raise to multiple of 128 */
+        finger = (void *)( ( (unsigned long long)finger + 127 ) & ~127 );
+
+        /* if the effective size is smaller than the allocated size */
+        /* (e.g. duplicate potentials), be clean and re-allocate the data */
+        if ( finger - data < size_data ) {
+            size_data = finger - data;
+            if ( ( data = realloc_align( data , size_data , 7 ) ) == NULL )
+                return error(runner_err_malloc);
+            }
+
+        /* say something about it all */
+        /* printf("runner_init: initialized data with %i bytes.\n",size_data); */
+
+        } /* init runner data */
+
+    /* remember where the data is */
+    r->data = data;
+
+    /* allocate and set the cell data */
+    if ( ( r->celldata = (struct celldata *)malloc_align( ceil128( sizeof(struct celldata) * r->e->s.nr_cells ) , 7 ) ) == NULL )
+        return error(runner_err_malloc);
+    *((unsigned long long *)data) = (unsigned long long)r->celldata;
+
+    /* get a handle on an SPU */
+    if ( ( r->spe = spe_context_create(0, NULL) ) == NULL )
+        return error(runner_err_spe);
+
+    /* load the image onto the SPU */
+    if ( spe_program_load( r->spe , &runner_spu ) != 0 )
+        return error(runner_err_spe);
+
+    /* dummy function that just starts the SPU... */
+    int dummy ( struct runner *r ) {
+        return spe_context_run( r->spe , &(r->entry) , 0 , r->data , (void *)(unsigned long long)size_data , NULL );
+        }
+
+    /* start the SPU with a pointer to the data */
+    r->entry = SPE_DEFAULT_ENTRY;
+	if (pthread_create(&r->spe_thread,NULL,(void *(*)(void *))dummy,r) != 0)
+		return error(runner_err_pthread);
+
+    /* wait until the SPU is ready... */
+    if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
+        return runner_err_spe;
+
+    /* start the runner. */
+    if ( e->flags & engine_flag_tuples ) {
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell_tuples,r) != 0)
+		    return error(runner_err_pthread);
+        }
+    else {
+	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell,r) != 0)
+		    return error(runner_err_pthread);
+        }
+
+    /* all is well... */
+    return runner_err_ok;
+    
+#else
+        
+    /* if not compiled for cell, then this option is not available. */
+    return error(runner_err_unavail);
+        
+#endif
+        
+    }
+    
+    
+/**
  * @brief Initialize the runner associated to the given engine.
  * 
  * @param r The #runner to be initialized.
@@ -4953,14 +5126,6 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
 
 int runner_init ( struct runner *r , struct engine *e , int id ) {
 
-    #ifdef CELL
-        static void *data = NULL;
-        static int size_data = 0;
-        void *finger;
-        int nr_pots = 0, size_pots = 0, *pots, i, j, k, l;
-        struct potential *p;
-        unsigned int buff;
-    #endif
     #if defined(HAVE_SETAFFINITY) && !defined(CELL)
         cpu_set_t cpuset;
     #endif
@@ -4973,150 +5138,8 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->e = e;
     r->id = id;
     
-    /* If this runner will run on an SPU, it needs to init some data. */
-    if ( e->flags & engine_flag_useSPU ) {
-    
-        #ifdef CELL
-        /* if this has not been done before, init the runner data */
-        if ( data == NULL ) {
-    
-            /* run through the potentials and count them and their size */
-            for ( i = 0 ; i < e->max_type ; i++ )
-                for ( j = i ; j < e->max_type ; j++ )
-                    if ( e->p[ i * e->max_type + j ] != NULL ) {
-                        nr_pots += 1;
-                        size_pots += e->p[ i * e->max_type + j ]->n + 1;
-                        }
-
-            /* the main data consists of a pointer to the cell data (64 bit),
-               the nr of cells (int), the cutoff (float), the width of
-               each cell (float[3]), the max nr of types (int)
-               and an array of size max_type*max_type of offsets (int) */
-            size_data = sizeof(void *) + sizeof(int) + 4 * sizeof(float) + sizeof(int) * ( 1 + e->max_type*e->max_type );
-
-            /* stretch this data until we are aligned to 8 bytes */
-            size_data = ( size_data + 7 ) & ~7;
-            
-            /* we then append nr_pots potentials consisting of three floats (alphas) */
-            /* and two ints (n and flags) */
-            size_data += nr_pots * ( 3 * sizeof(float) + 2 * sizeof(int) );
-
-            /* finally, we append the data of each interval of each potential */
-            /* which consists of eight floats */
-            size_data += size_pots * sizeof(float) * potential_chunk;
-            
-            /* raise to multiple of 128 */
-            size_data = ( size_data + 127 ) & ~127;
-            
-            /* allocate memory for the SPU data */
-            if ( ( data = malloc_align( size_data , 7 ) ) == NULL )
-                return error(runner_err_malloc);
-
-            /* fill-in the engine data (without the pots) */
-            finger = data;
-            *((unsigned long long *)finger) = 0; finger += sizeof(unsigned long long);
-            *((int *)finger) = e->s.nr_cells; finger += sizeof(int);
-            *((float *)finger) = e->s.cutoff; finger += sizeof(float);
-            *((float *)finger) = e->s.h[0]; finger += sizeof(float);
-            *((float *)finger) = e->s.h[1]; finger += sizeof(float);
-            *((float *)finger) = e->s.h[2]; finger += sizeof(float);
-            *((int *)finger) = e->max_type; finger += sizeof(int);
-            pots = (int *)finger; finger += e->max_type * e->max_type * sizeof(int);
-            for ( i = 0 ; i < e->max_type*e->max_type ; i++ )
-                pots[i] = 0;
-                
-            /* move the finger until we are at an 8-byte boundary */
-            finger = (void *)( ( (unsigned long long)finger + 7 ) & ~7 );
-
-            /* loop over the potentials */
-            for ( i = 0 ; i < e->max_type ; i++ )
-                for ( j = i ; j < e->max_type ; j++ )
-                    if ( pots[ i * e->max_type + j ] == 0 && e->p[ i * e->max_type + j ] != NULL ) {
-                        p = e->p[ i * e->max_type + j ];
-                        for ( k = 0 ; k < e->max_type*e->max_type ; k++ )
-                            if ( e->p[k] == p )
-                                pots[k] = finger - data;
-                        *((int *)finger) = p->n; finger += sizeof(int);
-                        *((int *)finger) = p->flags; finger += sizeof(int);
-                        *((float *)finger) = p->alpha[0]; finger += sizeof(float);
-                        *((float *)finger) = p->alpha[1]; finger += sizeof(float);
-                        *((float *)finger) = p->alpha[2]; finger += sizeof(float);
-                        /* loop explicitly in case FPTYPE is not float. */
-                        for ( k = 0 ; k <= p->n ; k++ ) {
-                            for ( l = 0 ; l < potential_chunk ; l++ ) {
-                                *((float *)finger) = p->c[k*potential_chunk+l];
-                                finger += sizeof(float);
-                                }
-                            }
-                        }
-
-            /* raise to multiple of 128 */
-            finger = (void *)( ( (unsigned long long)finger + 127 ) & ~127 );
-            
-            /* if the effective size is smaller than the allocated size */
-            /* (e.g. duplicate potentials), be clean and re-allocate the data */
-            if ( finger - data < size_data ) {
-                size_data = finger - data;
-                if ( ( data = realloc_align( data , size_data , 7 ) ) == NULL )
-                    return error(runner_err_malloc);
-                }
-            
-            /* say something about it all */
-            /* printf("runner_init: initialized data with %i bytes.\n",size_data); */
-                
-            } /* init runner data */
-            
-        /* remember where the data is */
-        r->data = data;
-        
-        /* allocate and set the cell data */
-        if ( ( r->celldata = (struct celldata *)malloc_align( ceil128( sizeof(struct celldata) * r->e->s.nr_cells ) , 7 ) ) == NULL )
-            return error(runner_err_malloc);
-        *((unsigned long long *)data) = (unsigned long long)r->celldata;
-            
-        /* get a handle on an SPU */
-        if ( ( r->spe = spe_context_create(0, NULL) ) == NULL )
-            return error(runner_err_spe);
-        
-        /* load the image onto the SPU */
-        if ( spe_program_load( r->spe , &runner_spu ) != 0 )
-            return error(runner_err_spe);
-            
-        /* dummy function that just starts the SPU... */
-        int dummy ( struct runner *r ) {
-            return spe_context_run( r->spe , &(r->entry) , 0 , r->data , (void *)(unsigned long long)size_data , NULL );
-            }
-        
-        /* start the SPU with a pointer to the data */
-        r->entry = SPE_DEFAULT_ENTRY;
-	    if (pthread_create(&r->spe_thread,NULL,(void *(*)(void *))dummy,r) != 0)
-		    return error(runner_err_pthread);
-            
-        /* wait until the SPU is ready... */
-        if ( spe_out_intr_mbox_read( r->spe , &buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
-            return runner_err_spe;
-            
-        /* start the runner. */
-        if ( e->flags & engine_flag_tuples ) {
-	        if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell_tuples,r) != 0)
-		        return error(runner_err_pthread);
-            }
-        else {
-	        if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_cell,r) != 0)
-		        return error(runner_err_pthread);
-            }
-            
-        #else
-        
-            /* if not compiled for cell, then this option is not available. */
-            return error(runner_err_unavail);
-        
-        #endif
-        
-        }
-    
     /* init the thread using a pairwise Verlet list. */
-    else if ( e->flags & engine_flag_verlet_pairwise ) {
+    if ( e->flags & engine_flag_verlet_pairwise ) {
 	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet_pairwise,r) != 0)
 		    return error(runner_err_pthread);
         }

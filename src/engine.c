@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <math.h>
+#include <string.h>
 #ifdef CELL
     #include <libspe2.h>
 #endif
@@ -292,14 +293,71 @@ int engine_addpot ( struct engine *e , struct potential *p , int i , int j ) {
 int engine_start ( struct engine *e , int nr_runners ) {
 
     int i;
+    struct runner *temp;
 
-    /* allocate and initialize the runners */
-    e->nr_runners = nr_runners;
-    if ( (e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
-        return error(engine_err_malloc);
+    /* (re)allocate the runners */
+    if ( e->nr_runners == 0 ) {
+        if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
+            return error(engine_err_malloc);
+        }
+    else {
+        if ( ( temp = (struct runner *)malloc( sizeof(struct runner) * (e->nr_runners + nr_runners) )) == NULL )
+            return error(engine_err_malloc);
+        memcpy( temp , e->runners , sizeof(struct runner) * e->nr_runners );
+        e->runners = temp;
+        }
+        
+    /* initialize the runners. */
     for ( i = 0 ; i < nr_runners ; i++ )
-        if ( runner_init(&e->runners[i],e,i) < 0 )
+        if ( runner_init(&e->runners[e->nr_runners + i],e,i) < 0 )
             return error(engine_err_runner);
+    e->nr_runners += nr_runners;
+            
+    /* wait for the runners to be in place */
+    while (e->barrier_count != e->nr_runners)
+        if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
+            return error(engine_err_pthread);
+        
+    /* all is well... */
+    return engine_err_ok;
+    
+    }
+
+
+/**
+ * @brief Start the SPU-associated runners in the given #engine.
+ *
+ * @param e The #engine to start.
+ * @param nr_runners The number of runners start.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Allocates and starts the specified number of #runner.
+ */
+
+int engine_start_SPU ( struct engine *e , int nr_runners ) {
+
+    int i;
+    struct runner *temp;
+
+    /* (re)allocate the runners */
+    if ( e->nr_runners == 0 ) {
+        if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
+            return error(engine_err_malloc);
+        }
+    else {
+        if ( ( temp = (struct runner *)malloc( sizeof(struct runner) * (e->nr_runners + nr_runners) )) == NULL )
+            return error(engine_err_malloc);
+        memcpy( temp , e->runners , sizeof(struct runner) * e->nr_runners );
+        free( e->runners );
+        e->runners = temp;
+        }
+        
+    /* initialize the runners. */
+    for ( i = 0 ; i < nr_runners ; i++ )
+        if ( runner_init_SPU(&e->runners[e->nr_runners + i],e,i) < 0 )
+            return error(engine_err_runner);
+    e->nr_runners += nr_runners;
             
     /* wait for the runners to be in place */
     while (e->barrier_count != e->nr_runners)

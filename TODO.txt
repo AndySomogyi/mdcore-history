@@ -26,18 +26,13 @@ Things to do with functionality:
               mechanism to treat bonds, angles and torsions in parallel
 * 2010/12/03: Keep track of particles that wander into a ghost layer
               or out of the domain (is this really needed?).
-* 2010/12/11: Let the Cell/BE version also use tuples (is this really
-              necessary?).
-* 2010/12/11: Create PPU runners if all SPUs are full in CELL mode (check
-              return value of spe_context_create to see when this is the
-              case).
 * 2010/12/22: Add one-sided potentials for grid point pseudo-particles.
 * 2010/12/22: Add explicit electrostatics to the SPU code.
 * 2011/01/17: Add potential functions using automatic vectorization for gcc,
               check if this is significantly slower than using SSE/SSE2
               intrinsics directly.
 * 2011/01/24: What happens to the local ids when the user removes a part?
-* 2011/02/21: Use ParMetis to approximate the optimal tuples.
+* 2011/02/21: Use Metis to approximate the optimal tuples.
               
               
 Things to do with the configuration process:

@@ -276,17 +276,26 @@ int main ( int argc , char *argv[] ) {
     // did the user specify a number of runners?
     if ( argc > 1 )
         nr_runners = atoi( argv[1] );
-    #ifdef CELL
-        else
-            nr_runners = spe_cpu_info_get( SPE_COUNT_USABLE_SPES , -1 );
-    #endif
         
     // start the engine
-    if ( engine_start( &e , nr_runners ) != 0 ) {
-        printf("main: engine_start failed with engine_err=%i.\n",engine_err);
-        errs_dump(stdout);
-        return 1;
-        }
+    #ifdef CELL
+        if ( engine_start( &e , nr_runners ) != 0 ) {
+            printf("main: engine_start failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return 1;
+            }
+        if ( engine_start_SPU( &e , spe_cpu_info_get( SPE_COUNT_USABLE_SPES , -1 ) ) != 0 ) {
+            printf("main: engine_start_SPU failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return 1;
+            }
+    #else
+        if ( engine_start( &e , nr_runners ) != 0 ) {
+            printf("main: engine_start failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return 1;
+            }
+    #endif
     
     // did the user specify a number of steps?
     if ( argc > 2 )

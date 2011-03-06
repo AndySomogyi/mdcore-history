@@ -94,6 +94,7 @@ struct runner {
 
 /* associated functions */
 int runner_init ( struct runner *r , struct engine *e , int id );
+int runner_init_SPU ( struct runner *r , struct engine *e , int id );
 int runner_run_pairs ( struct runner *r );
 int runner_run_tuples ( struct runner *r );
 int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );

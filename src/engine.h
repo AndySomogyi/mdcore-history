@@ -37,15 +37,13 @@
 #define engine_flag_tuples               1
 #define engine_flag_static               2
 #define engine_flag_localparts           4
-#define engine_flag_useSPU               8
-#define engine_flag_usePPU               16
-#define engine_flag_GPU                  32
-#define engine_flag_explepot             64
-#define engine_flag_verlet               128
-#define engine_flag_verlet_pairwise      256
-#define engine_flag_affinity             512
-#define engine_flag_prefetch             1024
-#define engine_flag_verlet_pairwise2     2048
+#define engine_flag_GPU                  8
+#define engine_flag_explepot             16
+#define engine_flag_verlet               32
+#define engine_flag_verlet_pairwise      64
+#define engine_flag_affinity             128
+#define engine_flag_prefetch             256
+#define engine_flag_verlet_pairwise2     512
 
 
 /** ID of the last error. */
@@ -97,6 +95,7 @@ struct engine {
 /* associated functions */
 int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags );
 int engine_start ( struct engine *e , int nr_runners );
+int engine_start_SPU ( struct engine *e , int nr_runners );
 int engine_barrier ( struct engine *e );
 int engine_step ( struct engine *e );
 int engine_addpot ( struct engine *e , struct potential *p , int i , int j );
