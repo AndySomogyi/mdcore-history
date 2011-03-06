@@ -309,7 +309,7 @@ int engine_start ( struct engine *e , int nr_runners ) {
         
     /* initialize the runners. */
     for ( i = 0 ; i < nr_runners ; i++ )
-        if ( runner_init(&e->runners[e->nr_runners + i],e,i) < 0 )
+        if ( runner_init(&e->runners[e->nr_runners + i],e,e->nr_runners + i) < 0 )
             return error(engine_err_runner);
     e->nr_runners += nr_runners;
             
@@ -355,7 +355,7 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
         
     /* initialize the runners. */
     for ( i = 0 ; i < nr_runners ; i++ )
-        if ( runner_init_SPU(&e->runners[e->nr_runners + i],e,i) < 0 )
+        if ( runner_init_SPU(&e->runners[e->nr_runners + i],e,e->nr_runners + i) < 0 )
             return error(engine_err_runner);
     e->nr_runners += nr_runners;
             
