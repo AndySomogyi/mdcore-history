@@ -17,12 +17,12 @@
  * 
  ******************************************************************************/
 
-// make sure we're in cell mode (so the headers won't get messed-up).
+/* make sure we're in cell mode (so the headers won't get messed-up). */
 #ifndef CELL
     #define CELL
 #endif
 
-// include some header files
+/* include some header files */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -33,26 +33,26 @@
 #include "load_vec_float4.h"
 #include "dot_product3.h"
 
-// include some local header files
+/* include some local header files */
 #include "../part.h"
 
-// some definitions
+/* some definitions */
 #define bitesize                            3
 #define maxparts                            256
 #define maxqstack                           128
 #define vec_splat(_a, _b)	                spu_splats(spu_extract(_a, _b))
 
-// potential flags
+/* potential flags */
 #define potential_flag_none                  0
 #define potential_flag_LJ126                 1
 #define potential_flag_Ewald                 2
 #define potential_flag_Coulomb               4
 
-// potential degree (this has to match potential.h!)
+/* potential degree (this has to match potential.h!) */
 #define potential_degree                     5
 #define potential_chunk                      (potential_degree+3)
 
-// declare the local types we will use
+/* declare the LOCAL types we will use */
 struct potential {
     int n;
     unsigned int flags;
@@ -78,11 +78,11 @@ struct data *data = NULL;
 unsigned int rcount = 0;
 
 
-////////////////////////////////////////////////////////////////////////////////
-// void potential_eval_vec
+/*////////////////////////////////////////////////////////////////////////////// */
+/* void potential_eval_vec */
 //
-// evaluates the given potential at the given point.
-////////////////////////////////////////////////////////////////////////////////
+/* evaluates the given potential at the given point. */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vector float *e , vector float *f ) {
 
@@ -91,29 +91,29 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
     vector float x, ee, eff, r, alpha0, alpha1, alpha2, c, mi, hi;
     float *data[4];
     
-    // get the sqrt of r2
+    /* get the sqrt of r2 */
     r = sqrtf4( r2 );
     
-    // load the alphas
+    /* load the alphas */
     alpha0 = _load_vec_float4( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
     alpha1 = _load_vec_float4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
     alpha2 = _load_vec_float4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
     
-    // compute the index (spu_convtu returns zero for negative values).
+    /* compute the index (spu_convtu returns zero for negative values). */
     ind = spu_convtu( spu_madd( r , spu_madd( r , alpha2 , alpha1 ) , alpha0 ) , 0 );
     
-    // get a pointer to the data for this interval
+    /* get a pointer to the data for this interval */
     for ( k = 0 ; k < 4 ; k++ )
         data[k] = &( p[k]->data[ potential_chunk * spu_extract( ind , k ) ] );
     
-    // get mi and hi
+    /* get mi and hi */
     mi = _load_vec_float4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
     hi = _load_vec_float4( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
         
-    // adjust x to the interval
+    /* adjust x to the interval */
     x = spu_mul( spu_sub( r , mi ) , hi );
     
-    // compute the potential and its derivative
+    /* compute the potential and its derivative */
     eff = _load_vec_float4( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
     ee = spu_mul( eff , x );
     c = _load_vec_float4( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
@@ -124,17 +124,17 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
         ee = spu_madd( ee , x , c );
         }
 
-    // store the result
+    /* store the result */
     *e = ee; *f = eff * hi;    
     
     }
 
 
-////////////////////////////////////////////////////////////////////////////////
-// void potential_eval_vec2
+/*////////////////////////////////////////////////////////////////////////////// */
+/* void potential_eval_vec2 */
 //
-// evaluates the given potentials at the given point.
-////////////////////////////////////////////////////////////////////////////////
+/* evaluates the given potentials at the given point. */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 inline void potential_eval_vec2 ( struct potential *p[8] , vector float *r2 , vector float *e , vector float *f ) {
 
@@ -144,11 +144,11 @@ inline void potential_eval_vec2 ( struct potential *p[8] , vector float *r2 , ve
     vector float x_2, ee_2, eff_2, r_2, alpha0_2, alpha1_2, alpha2_2, c_2, mi_2, hi_2;
     float *data[8];
     
-    // get the sqrt of r2
+    /* get the sqrt of r2 */
     r_1 = sqrtf4( r2[0] );
     r_2 = sqrtf4( r2[1] );
     
-    // load the alphas
+    /* load the alphas */
     alpha0_1 = _load_vec_float4( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
     alpha1_1 = _load_vec_float4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
     alpha2_1 = _load_vec_float4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
@@ -156,27 +156,27 @@ inline void potential_eval_vec2 ( struct potential *p[8] , vector float *r2 , ve
     alpha1_2 = _load_vec_float4( p[4]->alpha[1] , p[5]->alpha[1] , p[6]->alpha[1] , p[7]->alpha[1] );
     alpha2_2 = _load_vec_float4( p[4]->alpha[2] , p[5]->alpha[2] , p[6]->alpha[2] , p[7]->alpha[2] );
     
-    // compute the index
+    /* compute the index */
     ind_1 = spu_convtu( spu_madd( r_1 , spu_madd( r_1 , alpha2_1 , alpha1_1 ) , alpha0_1 ) , 0 );
     ind_2 = spu_convtu( spu_madd( r_2 , spu_madd( r_2 , alpha2_2 , alpha1_2 ) , alpha0_2 ) , 0 );
     
-    // get a pointer to the data for this interval
+    /* get a pointer to the data for this interval */
     for ( k = 0 ; k < 4 ; k++ )
         data[k] = &( p[k]->data[ potential_chunk * spu_extract( ind_1 , k ) ] );
     for ( k = 0 ; k < 4 ; k++ )
         data[k+4] = &( p[k+4]->data[ potential_chunk * spu_extract( ind_2 , k ) ] );
     
-    // get mi and hi
+    /* get mi and hi */
     mi_1 = _load_vec_float4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
     hi_1 = _load_vec_float4( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
     mi_2 = _load_vec_float4( data[4][0] , data[5][0] , data[6][0] , data[7][0] );
     hi_2 = _load_vec_float4( data[4][1] , data[5][1] , data[6][1] , data[7][1] );
         
-    // adjust x to the interval
+    /* adjust x to the interval */
     x_1 = spu_mul( spu_sub( r_1 , mi_1 ) , hi_1 );
     x_2 = spu_mul( spu_sub( r_2 , mi_2 ) , hi_2 );
     
-    // compute the potential and its derivative
+    /* compute the potential and its derivative */
     eff_1 = _load_vec_float4( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
     eff_2 = _load_vec_float4( data[4][2] , data[5][2] , data[6][2] , data[7][2] );
     ee_1 = spu_mul( eff_1 , x_1 );
@@ -194,18 +194,18 @@ inline void potential_eval_vec2 ( struct potential *p[8] , vector float *r2 , ve
         ee_2 = spu_madd( ee_2 , x_2 , c_2 );
         }
 
-    // store the result
+    /* store the result */
     e[0] = ee_1; f[0] = eff_1 * hi_1;    
     e[1] = ee_2; f[1] = eff_2 * hi_2;    
     
     }
 
 
-////////////////////////////////////////////////////////////////////////////////
-// void potential_eval_expl
+/*////////////////////////////////////////////////////////////////////////////// */
+/* void potential_eval_expl */
 //
-// evaluates the given potential at the given point.
-////////////////////////////////////////////////////////////////////////////////
+/* evaluates the given potential at the given point. */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 #ifdef USE_DOUBLES
 inline void potential_eval_expl ( struct potential *p , double r2 , double *e , double *f ) {
@@ -214,42 +214,42 @@ inline void potential_eval_expl ( struct potential *p , double r2 , double *e , 
     const double kappa = 3.0;
     double r = sqrt(r2), ir = 1.0 / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
 
-    // init f and e
+    /* init f and e */
     *e = 0.0; *f = 0.0;
 
-    // do we have a Lennard-Jones interaction?
+    /* do we have a Lennard-Jones interaction? */
     if ( p->flags & potential_flag_LJ126 ) {
     
-        // init some variables
+        /* init some variables */
         ir4 = ir2 * ir2; ir6 = ir4 * ir2; ir12 = ir6 * ir6;
         
-        // compute the energy and the force
+        /* compute the energy and the force */
         *e = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
         *f = 6.0 * ir * ( -2.0 * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
     
         }
         
-    // do we have an Ewald short-range part?
+    /* do we have an Ewald short-range part? */
     if ( p->flags & potential_flag_Ewald ) {
     
-        // get some values we will re-use
+        /* get some values we will re-use */
         t2 = r * kappa;
         t1 = erfc( t2 );
     
-        // compute the energy and the force
+        /* compute the energy and the force */
         *e += p->alpha[2] * t1 * ir;
         *f += p->alpha[2] * ( -2.0 * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
     
         }
     
-    // do we have a Coulomb interaction?
+    /* do we have a Coulomb interaction? */
     if ( p->flags & potential_flag_Coulomb ) {
     
-        // get some values we will re-use
+        /* get some values we will re-use */
         t2 = r * kappa;
         t1 = erfc( t2 );
     
-        // compute the energy and the force
+        /* compute the energy and the force */
         *e += p->alpha[2] * ir;
         *f += -p->alpha[2] * ir2;
     
@@ -263,42 +263,42 @@ inline void potential_eval_expl ( struct potential *p , float r2 , float *e , fl
     const float kappa = 3.0f;
     float r = sqrt(r2), ir = 1.0f / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
 
-    // init f and e
+    /* init f and e */
     *e = 0.0f; *f = 0.0f;
 
-    // do we have a Lennard-Jones interaction?
+    /* do we have a Lennard-Jones interaction? */
     if ( p->flags & potential_flag_LJ126 ) {
     
-        // init some variables
+        /* init some variables */
         ir4 = ir2 * ir2; ir6 = ir4 * ir2; ir12 = ir6 * ir6;
         
-        // compute the energy and the force
+        /* compute the energy and the force */
         *e = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
         *f = 6.0f * ir * ( -2.0f * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
     
         }
         
-    // do we have an Ewald short-range part?
+    /* do we have an Ewald short-range part? */
     if ( p->flags & potential_flag_Ewald ) {
     
-        // get some values we will re-use
+        /* get some values we will re-use */
         t2 = r * kappa;
         t1 = erfc( t2 );
     
-        // compute the energy and the force
+        /* compute the energy and the force */
         *e += p->alpha[2] * t1 * ir;
         *f += p->alpha[2] * ( -2.0f * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
     
         }
     
-    // do we have a Coulomb interaction?
+    /* do we have a Coulomb interaction? */
     if ( p->flags & potential_flag_Coulomb ) {
     
-        // get some values we will re-use
+        /* get some values we will re-use */
         t2 = r * kappa;
         t1 = erfc( t2 );
     
-        // compute the energy and the force
+        /* compute the energy and the force */
         *e += p->alpha[2] * ir;
         *f += -p->alpha[2] * ir2;
     
@@ -308,11 +308,11 @@ inline void potential_eval_expl ( struct potential *p , float r2 , float *e , fl
 #endif
 
 
-////////////////////////////////////////////////////////////////////////////////
-// void potential_eval
+/*////////////////////////////////////////////////////////////////////////////// */
+/* void potential_eval */
 //
-// evaluates the given potential at the given point.
-////////////////////////////////////////////////////////////////////////////////
+/* evaluates the given potential at the given point. */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 #ifdef USE_DOUBLES
 inline void potential_eval ( struct potential *p , double r2 , double *e , double *f ) {
@@ -321,20 +321,20 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
     double x, ee, eff, r = sqrt(r2);
     float *data;
     
-    // is r in the house?
-    // if ( r < p->a || r > p->b )
-    //     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b);
+    /* is r in the house? */
+    /* if ( r < p->a || r > p->b ) */
+    /*     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
     
-    // compute the index
+    /* compute the index */
     ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
-    // get a pointer to the data for this interval
+    /* get a pointer to the data for this interval */
     data = &( p->data[ potential_chunk * ind ] );
     
-    // adjust x to the interval
+    /* adjust x to the interval */
     x = (r - data[0]) * data[1];
     
-    // compute the potential and its derivative
+    /* compute the potential and its derivative */
     ee = data[2] * x + data[3];
     eff = data[2];
     for ( k = 4 ; k < potential_chunk ; k++ ) {
@@ -342,7 +342,7 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
         ee = ee * x + data[k];
         }
 
-    // store the result
+    /* store the result */
     *e = ee; *f = eff * data[1];
     
     }
@@ -352,16 +352,16 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
     int ind, k;
     float x, ee, eff, *data, r = sqrt(r2);
     
-    // compute the index
+    /* compute the index */
     ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
-    // get a pointer to the data for this interval
+    /* get a pointer to the data for this interval */
     data = &( p->data[ potential_chunk * ind ] );
     
-    // adjust x to the interval
+    /* adjust x to the interval */
     x = (r - data[0]) * data[1];
     
-    // compute the potential and its derivative
+    /* compute the potential and its derivative */
     ee = data[2] * x + data[3];
     eff = data[2];
     for ( k = 4 ; k < potential_chunk ; k++ ) {
@@ -369,7 +369,7 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
         ee = ee * x + data[k];
         }
 
-    // store the result
+    /* store the result */
     *e = ee; *f = eff * data[1];
     
     }
@@ -377,12 +377,12 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
 
 
 #ifdef VECTORIZE
-////////////////////////////////////////////////////////////////////////////////
-// sortedpair
+/*////////////////////////////////////////////////////////////////////////////// */
+/* sortedpair */
 //
-// compute the pairwise interactions for the given pair using the sorted
-// interactions algorithm
-////////////////////////////////////////////////////////////////////////////////
+/* compute the pairwise interactions for the given pair using the sorted */
+/* interactions algorithm */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *shift ) {
 
@@ -402,12 +402,12 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         vector float *effi[4], *effj[4], dx, dxv[4], fv, ev, r2v, nshiftv, shiftv, tempv, pjx;
     #endif
     
-    // get the space and cutoff
+    /* get the space and cutoff */
     cutoff = data->cutoff;
     cutoff2 = cutoff * cutoff;
     emt = data->max_type;
         
-    // init r2v and make the compiler happy
+    /* init r2v and make the compiler happy */
     #ifdef VEC2
         r2v[0] = spu_splats( 0.0f );
         r2v[1] = spu_splats( 0.0f );
@@ -415,10 +415,10 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         r2v = spu_splats( 0.0f );
     #endif
     
-    // extract the shift vector
+    /* extract the shift vector */
     shiftv = _load_vec_float4( shift[0] , shift[1] , shift[2] , 0.0f );
         
-    // start by filling the particle ids of both cells into ind and d
+    /* start by filling the particle ids of both cells into ind and d */
     tempv = spu_mul( shiftv , shiftv );
     nshiftv = spu_mul( shiftv , rsqrtf4( spu_splats( spu_extract( tempv , 0 ) + spu_extract( tempv , 1 ) + spu_extract( tempv , 2 ) ) ) );
     for ( i = 0 ; i < ni ; i++ ) {
@@ -426,7 +426,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         ind[count] = -i - 1;
         tempv = spu_mul( nshiftv , part_i->x );
         d[count] = spu_extract( tempv , 0 ) + spu_extract( tempv , 1 ) + spu_extract( tempv , 2 );
-        // d[count] = _dot_product3( nshiftv , part_i->x );
+        /* d[count] = _dot_product3( nshiftv , part_i->x ); */
         count += 1;
         }
     for ( i = 0 ; i < nj ; i++ ) {
@@ -434,11 +434,11 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         ind[count] = i;
         tempv = spu_mul( nshiftv , spu_add( part_i->x , shiftv ) );
         d[count] = spu_extract( tempv , 0 ) + spu_extract( tempv , 1 ) + spu_extract( tempv , 2 ) - cutoff;
-        // d[count] = _dot_product3( nshiftv , spu_add( part_i->x , shiftv ) ) - cutoff;
+        /* d[count] = _dot_product3( nshiftv , spu_add( part_i->x , shiftv ) ) - cutoff; */
         count += 1;
         }
         
-    // sort with quicksort
+    /* sort with quicksort */
     qstack[0].lo = 0; qstack[0].hi = count - 1; qpos = 0;
     while ( qpos >= 0 ) {
         lo = qstack[qpos].lo; hi = qstack[qpos].hi;
@@ -482,53 +482,53 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
             }
         }
         
-    // sort with selection sort
-    // for ( i = 0 ; i < count-1 ; i++ ) {
-    //     imax = i;
-    //     for ( j = i+1 ; j < count ; j++ )
-    //         if ( __builtin_expect( d[j] > d[imax] , 0 ) )
-    //             imax = j;
-    //     if ( __builtin_expect( imax != i , 1 ) ) {
-    //         k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-    //         temp = d[imax]; d[imax] = d[i]; d[i] = temp;
-    //         }
-    //     }
+    /* sort with selection sort */
+    /* for ( i = 0 ; i < count-1 ; i++ ) { */
+    /*     imax = i; */
+    /*     for ( j = i+1 ; j < count ; j++ ) */
+    /*         if ( __builtin_expect( d[j] > d[imax] , 0 ) ) */
+    /*             imax = j; */
+    /*     if ( __builtin_expect( imax != i , 1 ) ) { */
+    /*         k = ind[imax]; ind[imax] = ind[i]; ind[i] = k; */
+    /*         temp = d[imax]; d[imax] = d[i]; d[i] = temp; */
+    /*         } */
+    /*     } */
         
-    // loop over the sorted list of particles
+    /* loop over the sorted list of particles */
     for ( i = 0 ; i < count ; i++ ) {
     
-        // is this a particle from the left?
+        /* is this a particle from the left? */
         if ( ind[i] < 0 )
             left[lcount++] = -ind[i] - 1;
             
-        // it's from the right, interact with all left particles
+        /* it's from the right, interact with all left particles */
         else {
         
-            // get a handle on this particle
+            /* get a handle on this particle */
             part_j = &( pj[ind[i]] );
             pjx = spu_add( part_j->x , shiftv );
             pjoff = emt * part_j->type;
         
-            // loop over the left particles
+            /* loop over the left particles */
             for ( j = lcount-1 ; j >= 0 ; j-- ) {
             
-                // get a handle on the second particle
+                /* get a handle on the second particle */
                 part_i = &( pi[left[j]] );
             
-                // get the distance between both particles
+                /* get the distance between both particles */
                 dx = spu_sub( part_i->x , pjx );
                 r2 = _dot_product3( dx , dx );
                 
-                // is this within cutoff?
+                /* is this within cutoff? */
                 if ( r2 > cutoff2 )
                     continue;
                 
-                // fetch the potential, if any
+                /* fetch the potential, if any */
                 pot = data->p[ pjoff + part_i->type ];
                 if ( __builtin_expect( pot == NULL , 0 ) )
                     continue;
                     
-                // add this interaction to the interaction queue
+                /* add this interaction to the interaction queue */
                 #ifdef VEC2
                     r2v[pcount/4][pcount%4] = r2;
                     dxv[pcount] = dx;
@@ -536,48 +536,48 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                     effj[pcount] = &( part_j->f );
                     potv[pcount] = pot;
                     pcount += 1;
-                    // rcount += 1;
+                    /* rcount += 1; */
 
-                    // do we have a full set to evaluate?
+                    /* do we have a full set to evaluate? */
                     if ( __builtin_expect( pcount == 8 , 0 ) ) {
 
-                        // evaluate the potentials
+                        /* evaluate the potentials */
                         potential_eval_vec2( potv , r2v , ev , fv );
 
-                        // for each entry, update the forces
+                        /* for each entry, update the forces */
                         for ( k = 0 ; k < 8 ; k++ ) {
                             tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                             *effi[k] = spu_sub( *effi[k] , tempv );
                             *effj[k] = spu_add( *effj[k] , tempv );
                             }
 
-                        // re-set the counter
+                        /* re-set the counter */
                         pcount = 0;
 
                         }
                 #else
-                    r2v[pcount] = r2;
+                    spu_insert( r2 , r2v , pcount );
                     dxv[pcount] = dx;
                     effi[pcount] = &( part_i->f );
                     effj[pcount] = &( part_j->f );
                     potv[pcount] = pot;
                     pcount += 1;
-                    // rcount += 1;
+                    /* rcount += 1; */
 
-                    // do we have a full set to evaluate?
+                    /* do we have a full set to evaluate? */
                     if ( __builtin_expect( pcount == 4 , 0 ) ) {
 
-                        // evaluate the potentials
+                        /* evaluate the potentials */
                         potential_eval_vec( potv , r2v , &ev , &fv );
 
-                        // for each entry, update the forces
+                        /* for each entry, update the forces */
                         for ( k = 0 ; k < 4 ; k++ ) {
                             tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
                             *effi[k] = spu_sub( *effi[k] , tempv );
                             *effj[k] = spu_add( *effj[k] , tempv );
                             }
 
-                        // re-set the counter
+                        /* re-set the counter */
                         pcount = 0;
 
                         }
@@ -587,20 +587,20 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
         
             }
     
-        } // loop over all particles
+        } /* loop over all particles */
         
-    // are there any leftovers?
+    /* are there any leftovers? */
     #if VEC2
         if ( pcount > 0 ) {
 
-            // copy the first potential to the last entries
+            /* copy the first potential to the last entries */
             for ( k = pcount ; k < 8 ; k++ )
                 potv[k] = potv[0];
 
-            // evaluate the potentials
+            /* evaluate the potentials */
             potential_eval_vec2( potv , r2v , ev , fv );
 
-            // for each entry, update the forces
+            /* for each entry, update the forces */
             for ( k = 0 ; k < pcount ; k++ ) {
                 tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                 *effi[k] = spu_sub( *effi[k] , tempv );
@@ -611,14 +611,14 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
     #else
         if ( pcount > 0 ) {
 
-            // copy the first potential to the last entries
+            /* copy the first potential to the last entries */
             for ( k = pcount ; k < 4 ; k++ )
                 potv[k] = potv[0];
 
-            // evaluate the potentials
+            /* evaluate the potentials */
             potential_eval_vec( potv , r2v , &ev , &fv );
 
-            // for each entry, update the forces
+            /* for each entry, update the forces */
             for ( k = 0 ; k < pcount ; k++ ) {
                 tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
                 *effi[k] = spu_sub( *effi[k] , tempv );
@@ -631,11 +631,11 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
     }
 
 
-////////////////////////////////////////////////////////////////////////////////
-// int dopair_vec
+/*////////////////////////////////////////////////////////////////////////////// */
+/* int dopair_vec */
 //
-// compute the interactions between a pair of cells
-////////////////////////////////////////////////////////////////////////////////
+/* compute the interactions between a pair of cells */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift ) {
 
@@ -650,40 +650,40 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     struct part *part_i, *part_j;
     struct potential *pot, *potv[8];
     
-    // get some useful data
+    /* get some useful data */
     emt = data->max_type;
 
-    // is this a genuine pair or a cell against itself
+    /* is this a genuine pair or a cell against itself */
     if ( pj == NULL ) {
     
-        // loop over all particles
+        /* loop over all particles */
         for ( i = 1 ; i < ni ; i++ ) {
         
-            // get the particle
+            /* get the particle */
             part_i = &( pi[i] );
             pix = part_i->x;
             pioff = part_i->type * emt;
         
-            // loop over all other particles
+            /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
             
-                // get the other particle
+                /* get the other particle */
                 part_j = &( pi[j] );
                 
-                // get the distance between both particles
+                /* get the distance between both particles */
                 dx = spu_sub( pix , part_j->x );
                 r2 = _dot_product3( dx , dx );
                 
-                // is this within cutoff?
+                /* is this within cutoff? */
                 if ( __builtin_expect( r2 > cutoff2 , 0 ) )
                     continue;
                 
-                // fetch the potential, if any
+                /* fetch the potential, if any */
                 pot = data->p[ pioff + part_j->type ];
                 if ( __builtin_expect( pot == NULL , 0 ) )
                     continue;
                     
-                // add this interaction to the interaction queue
+                /* add this interaction to the interaction queue */
                 #ifdef VEC2
                     r2v[count/4][count%4] = r2;
                     dxv[count] = dx;
@@ -693,20 +693,20 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     count += 1;
                     rcount += 1;
 
-                    // do we have a full set to evaluate?
+                    /* do we have a full set to evaluate? */
                     if ( __builtin_expect( count == 8 , 0 ) ) {
 
-                        // evaluate the potentials
+                        /* evaluate the potentials */
                         potential_eval_vec2( potv , r2v , ev , fv );
 
-                        // for each entry, update the forces
+                        /* for each entry, update the forces */
                         for ( k = 0 ; k < 8 ; k++ ) {
                             tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                             *effi[k] = spu_sub( *effi[k] , tempv );
                             *effj[k] = spu_add( *effj[k] , tempv );
                             }
 
-                        // re-set the counter
+                        /* re-set the counter */
                         count = 0;
 
                         }
@@ -719,41 +719,41 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     count += 1;
                     rcount += 1;
 
-                    // do we have a full set to evaluate?
+                    /* do we have a full set to evaluate? */
                     if ( __builtin_expect( count == 4 , 0 ) ) {
 
-                        // evaluate the potentials
+                        /* evaluate the potentials */
                         potential_eval_vec( potv , r2v , &ev , &fv );
 
-                        // for each entry, update the forces
+                        /* for each entry, update the forces */
                         for ( k = 0 ; k < 4 ; k++ ) {
                             tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
                             *effi[k] = spu_sub( *effi[k] , tempv );
                             *effj[k] = spu_add( *effj[k] , tempv );
                             }
 
-                        // re-set the counter
+                        /* re-set the counter */
                         count = 0;
 
                         }
                 #endif
                     
-                } // loop over all other particles
+                } /* loop over all other particles */
         
-            } // loop over all particles
+            } /* loop over all particles */
     
         }
         
-    // no, it's a genuine pair
+    /* no, it's a genuine pair */
     else {
     
-        // extract shiftv
+        /* extract shiftv */
         shiftv = spu_splats( 0.0f );
         shiftv = spu_insert( shift[0] , shiftv , 0 );
         shiftv = spu_insert( shift[1] , shiftv , 1 );
         shiftv = spu_insert( shift[2] , shiftv , 2 );
         
-        // init r2v and make the compiler happy
+        /* init r2v and make the compiler happy */
         #ifdef VEC2
             r2v[0] = spu_splats( 0.0f );
             r2v[1] = spu_splats( 0.0f );
@@ -761,37 +761,37 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
             r2v = spu_splats( 0.0f );
         #endif
     
-        // loop over all particles
+        /* loop over all particles */
         for ( i = 0 ; i < ni ; i++ ) {
         
-            // get the particle
+            /* get the particle */
             part_i = &( pi[i] );
             pix = spu_sub( part_i->x , shiftv );
             pioff = part_i->type * emt;
         
-            // loop over all other particles
+            /* loop over all other particles */
             for ( j = 0 ; j < nj ; j++ ) {
             
-                // get the other particle
+                /* get the other particle */
                 part_j = &( pj[j] );
                 
                 if ( part_i->id == 572 && part_j->id == 1450 )
                     printf("dopair: oops...\n");
 
-                // get the distance between both particles
+                /* get the distance between both particles */
                 dx = spu_sub( pix , part_j->x );
                 r2 = _dot_product3( dx , dx );
                 
-                // is this within cutoff?
+                /* is this within cutoff? */
                 if ( __builtin_expect( r2 > cutoff2 , 1 ) )
                     continue;
                 
-                // fetch the potential, if any
+                /* fetch the potential, if any */
                 pot = data->p[ pioff + part_j->type ];
                 if ( __builtin_expect( pot == NULL , 0 ) )
                     continue;
                     
-                // add this interaction to the interaction queue
+                /* add this interaction to the interaction queue */
                 #ifdef VEC2
                     r2v[count/4][count%4] = r2;
                     dxv[count] = dx;
@@ -801,20 +801,20 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     count += 1;
                     rcount += 1;
 
-                    // do we have a full set to evaluate?
+                    /* do we have a full set to evaluate? */
                     if ( __builtin_expect( count == 8 , 0 ) ) {
 
-                        // evaluate the potentials
+                        /* evaluate the potentials */
                         potential_eval_vec2( potv , r2v , ev , fv );
 
-                        // for each entry, update the forces
+                        /* for each entry, update the forces */
                         for ( k = 0 ; k < 8 ; k++ ) {
                             tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
                             *effi[k] = spu_sub( *effi[k] , tempv );
                             *effj[k] = spu_add( *effj[k] , tempv );
                             }
 
-                        // re-set the counter
+                        /* re-set the counter */
                         count = 0;
 
                         }
@@ -827,43 +827,43 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     count += 1;
                     rcount += 1;
 
-                    // do we have a full set to evaluate?
+                    /* do we have a full set to evaluate? */
                     if ( __builtin_expect( count == 4 , 0 ) ) {
 
-                        // evaluate the potentials
+                        /* evaluate the potentials */
                         potential_eval_vec( potv , r2v , &ev , &fv );
 
-                        // for each entry, update the forces
+                        /* for each entry, update the forces */
                         for ( k = 0 ; k < 4 ; k++ ) {
                             tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
                             *effi[k] = spu_sub( *effi[k] , tempv );
                             *effj[k] = spu_add( *effj[k] , tempv );
                             }
 
-                        // re-set the counter
+                        /* re-set the counter */
                         count = 0;
 
                         }
                 #endif
                     
-                } // loop over all other particles
+                } /* loop over all other particles */
         
-            } // loop over all particles
+            } /* loop over all particles */
 
         }
         
-    // are there any leftovers?
+    /* are there any leftovers? */
     #ifdef VEC2
     if ( count > 0 ) {
     
-        // copy the first potential to the last entries
+        /* copy the first potential to the last entries */
         for ( k = count ; k < 8 ; k++ )
             potv[k] = potv[0];
             
-        // evaluate the potentials
+        /* evaluate the potentials */
         potential_eval_vec2( potv , r2v , ev , fv );
 
-        // for each entry, update the forces
+        /* for each entry, update the forces */
         for ( k = 0 ; k < count ; k++ ) {
             tempv = spu_mul( dxv[k] , vec_splat( fv[k/4] , k%4 ) );
             *effi[k] = spu_sub( *effi[k] , tempv );
@@ -874,14 +874,14 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     #else
     if ( count > 0 ) {
     
-        // copy the first potential to the last entries
+        /* copy the first potential to the last entries */
         for ( k = count ; k < 4 ; k++ )
             potv[k] = potv[0];
             
-        // evaluate the potentials
+        /* evaluate the potentials */
         potential_eval_vec( potv , r2v , &ev , &fv );
 
-        // for each entry, update the forces
+        /* for each entry, update the forces */
         for ( k = 0 ; k < count ; k++ ) {
             tempv = spu_mul( dxv[k] , vec_splat( fv , k ) );
             *effi[k] = spu_sub( *effi[k] , tempv );
@@ -894,12 +894,12 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     }
 
 #else
-////////////////////////////////////////////////////////////////////////////////
-// sortedpair
+/*////////////////////////////////////////////////////////////////////////////// */
+/* sortedpair */
 //
-// compute the pairwise interactions for the given pair using the sorted
-// interactions algorithm
-////////////////////////////////////////////////////////////////////////////////
+/* compute the pairwise interactions for the given pair using the sorted */
+/* interactions algorithm */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *pshift ) {
 
@@ -919,12 +919,12 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
         int lo, hi;
         } qstack[maxqstack];
     
-    // get the space and cutoff
+    /* get the space and cutoff */
     cutoff = data->cutoff;
     cutoff2 = cutoff * cutoff;
     emt = data->max_type;
         
-    // start by filling the particle ids of both cells into ind and d
+    /* start by filling the particle ids of both cells into ind and d */
     temp = 1.0 / sqrt( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
     shift[0] = pshift[0]*temp; shift[1] = pshift[1]*temp; shift[2] = pshift[2]*temp;
     for ( i = 0 ; i < ni ; i++ ) {
@@ -940,7 +940,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
         count += 1;
         }
         
-    // sort with quicksort
+    /* sort with quicksort */
     qstack[0].lo = 0; qstack[0].hi = count - 1; qpos = 0;
     while ( qpos >= 0 ) {
         lo = qstack[qpos].lo; hi = qstack[qpos].hi;
@@ -984,65 +984,65 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
             }
         }
         
-    // sort with selection sort
-    // for ( i = 0 ; i < count-1 ; i++ ) {
-    //     imax = i;
-    //     for ( j = i+1 ; j < count ; j++ )
-    //         if ( d[j] > d[imax] )
-    //             imax = j;
-    //     if ( imax != i ) {
-    //         k = ind[imax]; ind[imax] = ind[i]; ind[i] = k;
-    //         temp = d[imax]; d[imax] = d[i]; d[i] = temp;
-    //         }
-    //     }
+    /* sort with selection sort */
+    /* for ( i = 0 ; i < count-1 ; i++ ) { */
+    /*     imax = i; */
+    /*     for ( j = i+1 ; j < count ; j++ ) */
+    /*         if ( d[j] > d[imax] ) */
+    /*             imax = j; */
+    /*     if ( imax != i ) { */
+    /*         k = ind[imax]; ind[imax] = ind[i]; ind[i] = k; */
+    /*         temp = d[imax]; d[imax] = d[i]; d[i] = temp; */
+    /*         } */
+    /*     } */
         
-    // loop over the sorted list of particles
+    /* loop over the sorted list of particles */
     for ( i = 0 ; i < count ; i++ ) {
     
-        // is this a particle from the left?
+        /* is this a particle from the left? */
         if ( ind[i] < 0 )
             left[lcount++] = -ind[i] - 1;
             
-        // it's from the right, interact with all left particles
+        /* it's from the right, interact with all left particles */
         else {
         
-            // get a handle on this particle
+            /* get a handle on this particle */
             part_j = &( pj[ind[i]] );
             pjx[0] = part_j->x[0] + pshift[0];
             pjx[1] = part_j->x[1] + pshift[1];
             pjx[2] = part_j->x[2] + pshift[2];
             pjoff = part_j->type * emt;
         
-            // loop over the left particles
+            /* loop over the left particles */
             for ( j = lcount-1 ; j >= 0 ; j-- ) {
             
-                // get a handle on the second particle
+                /* get a handle on the second particle */
                 part_i = &( pi[left[j]] );
             
-                // get the distance between both particles
+                /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = part_i->x[k] - pjx[k];
                     r2 += dx[k] * dx[k];
                     }
                     
-                // is this within cutoff?
+                /* is this within cutoff? */
                 if ( r2 >= cutoff2 )
                     continue;
                 
-                // fetch the potential, if any
+                /* fetch the potential, if any */
                 pot = data->p[ pjoff + part_i->type ];
                 if ( pot == NULL )
                     continue;
                     
-                // evaluate the interaction
-                // rcount += 1;
+                /* evaluate the interaction */
+                /* rcount += 1; */
                 #ifdef EXPLICIT_POTENTIALS
                     potential_eval_expl( pot , r2 , &e , &f );
                 #else
                     potential_eval( pot , r2 , &e , &f );
                 #endif
                 
-                // update the forces
+                /* update the forces */
                 for ( k = 0 ; k < 3 ; k++ ) {
                     part_i->f[k] += -f * dx[k];
                     part_j->f[k] += f * dx[k];
@@ -1052,16 +1052,16 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *p
         
             }
     
-        } // loop over all particles
+        } /* loop over all particles */
         
     }
 
 
-////////////////////////////////////////////////////////////////////////////////
-// int dopair
+/*////////////////////////////////////////////////////////////////////////////// */
+/* int dopair */
 //
-// compute the interactions between a pair of cells
-////////////////////////////////////////////////////////////////////////////////
+/* compute the interactions between a pair of cells */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift ) {
 
@@ -1075,133 +1075,133 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
     struct part *part_i, *part_j;
     struct potential *pot;
     
-    // get the max type
+    /* get the max type */
     emt = data->max_type;
 
-    // is this a genuine pair or a cell against itself
+    /* is this a genuine pair or a cell against itself */
     if ( pj == NULL ) {
     
-        // loop over all particles
+        /* loop over all particles */
         for ( i = 1 ; i < ni ; i++ ) {
         
-            // get the particle
+            /* get the particle */
             part_i = &(pi[i]);
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
         
-            // loop over all other particles
+            /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
             
-                // get the other particle
+                /* get the other particle */
                 part_j = &(pi[j]);
                 
-                // get the distance between both particles
+                /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
-                // is this within cutoff?
+                /* is this within cutoff? */
                 if ( r2 >= cutoff2 )
                     continue;
                 
-                // fetch the potential, if any
+                /* fetch the potential, if any */
                 pot = data->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
                     
-                // evaluate the interaction
-                // rcount += 1;
+                /* evaluate the interaction */
+                /* rcount += 1; */
                 #ifdef EXPLICIT_POTENTIALS
                     potential_eval_expl( pot , r2 , &e , &f );
                 #else
                     potential_eval( pot , r2 , &e , &f );
                 #endif
                 
-                // update the forces
+                /* update the forces */
                 for ( k = 0 ; k < 3 ; k++ ) {
                     part_i->f[k] += -f * dx[k];
                     part_j->f[k] += f * dx[k];
                     }
                     
-                } // loop over all other particles
+                } /* loop over all other particles */
         
-            } // loop over all particles
+            } /* loop over all particles */
     
         }
         
-    // no, it's a genuine pair
+    /* no, it's a genuine pair */
     else {
     
-        // loop over all particles
+        /* loop over all particles */
         for ( i = 0 ; i < ni ; i++ ) {
         
-            // get the particle
+            /* get the particle */
             part_i = &(pi[i]);
             pix[0] = part_i->x[0] - shift[0];
             pix[1] = part_i->x[1] - shift[1];
             pix[2] = part_i->x[2] - shift[2];
             pioff = part_i->type * emt;
         
-            // loop over all other particles
+            /* loop over all other particles */
             for ( j = 0 ; j < nj ; j++ ) {
             
-                // get the other particle
+                /* get the other particle */
                 part_j = &(pj[j]);
 
-                // if ( part_i->id == 572 && part_j->id == 1450 )
-                //     printf("dopair: oops...\n");
+                /* if ( part_i->id == 572 && part_j->id == 1450 ) */
+                /*     printf("dopair: oops...\n"); */
 
-                // get the distance between both particles
+                /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = pix[k] - part_j->x[k];
                     r2 += dx[k] * dx[k];
                     }
                     
-                // is this within cutoff?
+                /* is this within cutoff? */
                 if ( r2 >= cutoff2 )
                     continue;
                 
-                // fetch the potential, if any
+                /* fetch the potential, if any */
                 pot = data->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
                     
-                // evaluate the interaction
-                // rcount += 1;
+                /* evaluate the interaction */
+                /* rcount += 1; */
                 #ifdef EXPLICIT_POTENTIALS
                     potential_eval_expl( pot , r2 , &e , &f );
                 #else
                     potential_eval( pot , r2 , &e , &f );
                 #endif
                 
-                // update the forces
+                /* update the forces */
                 for ( k = 0 ; k < 3 ; k++ ) {
                     part_i->f[k] += -f * dx[k];
                     part_j->f[k] += f * dx[k];
                     }
                 
-                } // loop over all other particles
+                } /* loop over all other particles */
         
-            } // loop over all particles
+            } /* loop over all particles */
 
         }
         
     }
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
-// void my_get
+/*////////////////////////////////////////////////////////////////////////////// */
+/* void my_get */
 //
-// wrapper for mfc_get that checks for sizes above 16k and breaks things
-// down to multiple calls.
-////////////////////////////////////////////////////////////////////////////////
+/* wrapper for mfc_get that checks for sizes above 16k and breaks things */
+/* down to multiple calls. */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 inline void my_get ( void *to , unsigned long long from , unsigned int size , unsigned int tid ) {
 
-    // cut off chunks while the data is too large...
+    /* cut off chunks while the data is too large... */
     while ( __builtin_expect( size > 0x4000 , 0 ) ) {
         mfc_get( to , from , 0x4000 , tid , 0 , 0 );
         from += 0x4000;
@@ -1209,22 +1209,22 @@ inline void my_get ( void *to , unsigned long long from , unsigned int size , un
         size -= 0x4000;
         }
         
-    // send the leftovers
+    /* send the leftovers */
     mfc_get( to , from , size , tid , 0 , 0 );
 
     }
     
 
-////////////////////////////////////////////////////////////////////////////////
-// void my_put
+/*////////////////////////////////////////////////////////////////////////////// */
+/* void my_put */
 //
-// wrapper for mfc_put that checks for sizes above 16k and breaks things
-// down to multiple calls.
-////////////////////////////////////////////////////////////////////////////////
+/* wrapper for mfc_put that checks for sizes above 16k and breaks things */
+/* down to multiple calls. */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 inline void my_put ( void *from , unsigned long long to , unsigned int size , unsigned int tid ) {
 
-    // cut off chunks while the data is too large...
+    /* cut off chunks while the data is too large... */
     while ( __builtin_expect( size > 0x4000 , 0 ) ) {
         mfc_put( from , to , 0x4000 , tid , 0 , 0 );
         from += 0x4000;
@@ -1232,17 +1232,17 @@ inline void my_put ( void *from , unsigned long long to , unsigned int size , un
         size -= 0x4000;
         }
         
-    // send the leftovers
+    /* send the leftovers */
     mfc_put( from , to , size , tid , 0 , 0 );
 
     }
     
 
-////////////////////////////////////////////////////////////////////////////////
-// int main
+/*////////////////////////////////////////////////////////////////////////////// */
+/* int main */
 //
-// this is the main entry point for the spu routine
-////////////////////////////////////////////////////////////////////////////////
+/* this is the main entry point for the spu routine */
+/*////////////////////////////////////////////////////////////////////////////// */
 
 int main ( unsigned long long id , unsigned long long argp , unsigned long long envp ) {
 
@@ -1258,7 +1258,7 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
     struct cell *cells;
 
 
-    // say hello
+    /* say hello */
     printf("runner_spu: spu 0x%llx says hi.\n",id); fflush(stdout);
     #ifdef VECTORIZE
         printf("runner_spu: VECTORIZE is on.\n");
@@ -1268,36 +1268,36 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
     #endif
     
     
-    // allocate some local space for the engine data
+    /* allocate some local space for the engine data */
     if ( ( data = (struct data *)malloc_align( size_data , 7 ) ) == NULL )
         return -__LINE__;
         
-    // reserve the DMA tags
+    /* reserve the DMA tags */
     for ( k = 0 ; k < bitesize ; k++ )
         if ( ( tid[k] = mfc_tag_reserve() ) == MFC_TAG_INVALID )
             return -__LINE__;
     
-    // make a call to get the data
+    /* make a call to get the data */
     my_get( data , argp , size_data , tid[0] );
     mfc_write_tag_mask( 1 << tid[0] );
     mfc_read_tag_status_all();
     
-    // say something
-    // printf("runner_spu: loaded %i bytes of data from main store.\n", size_data); fflush(stdout);
+    /* say something */
+    /* printf("runner_spu: loaded %i bytes of data from main store.\n", size_data); fflush(stdout); */
     
-    // hook-up the data structures
+    /* hook-up the data structures */
     for ( i = 0 ; i < data->max_type * data->max_type ; i++ )
         if ( data->p[i] != NULL )
             data->p[i] = (struct potential *)( (unsigned int)data + (unsigned int)data->p[i] );
         else
             data->p[i] = NULL;
             
-    // allocate space for the cells list
+    /* allocate space for the cells list */
     if ( ( cells = (struct cell *)malloc_align( mfc_ceil128( sizeof(struct cell) * data->nr_cells ) , 7 ) ) == NULL )
         return -__LINE__;
             
             
-    // init some stuff
+    /* init some stuff */
     for ( k = 0 ; k < bitesize ; k++ ) {
         ai[k] = 0; aj[k] = 0;
         pi[k] = NULL; pj[k] = NULL;
@@ -1307,58 +1307,58 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
         if ( ( pbuff[k] = (struct part *)malloc_align( mfc_ceil128( sizeof(struct part) * maxparts ) , 7 ) ) == NULL )
             return -__LINE__;
         
-    // tell the PPU that we are ready.
+    /* tell the PPU that we are ready. */
     spu_write_out_intr_mbox( 1 );
     
     
             
-    // this is the main loop which picks up a pair and computes its
-    // interactions.
+    /* this is the main loop which picks up a pair and computes its */
+    /* interactions. */
     while ( 1 ) {
     
-        // First step: feed third pipe.
+        /* First step: feed third pipe. */
         
-        // check if there is new data waiting
+        /* check if there is new data waiting */
         if ( ( spu_stat_in_mbox() > 0 ) ||
             ( status[bid] == 0 && status[nid] == 0 && status[nnid] == 0 ) ) {
             
-            // get the data for the next pair
-            // printf("runner_spu: runner 0x%llx waiting on mailbox input...\n",id); fflush(stdout);
+            /* get the data for the next pair */
+            /* printf("runner_spu: runner 0x%llx waiting on mailbox input...\n",id); fflush(stdout); */
             buff = spu_read_in_mbox();
             dummy = spu_read_in_mbox();
-            // printf("runner_spu: runner 0x%llx got mbox input.\n",id); fflush(stdout);
+            /* printf("runner_spu: runner 0x%llx got mbox input.\n",id); fflush(stdout); */
 
-            // did we get a flush message?
+            /* did we get a flush message? */
             if ( buff == 0 ) {
             
-                // mark this...
-                // printf("runner_run: spu 0x%llx got a flush message...\n",id); fflush(stdout);
+                /* mark this... */
+                /* printf("runner_run: spu 0x%llx got a flush message...\n",id); fflush(stdout); */
                 status[nnid] = -1;
                 
                 }
                 
-            // did we get a reload message?
+            /* did we get a reload message? */
             else if ( buff == 0xFFFFFFFF ) {
             
-                // printf("runner_run: spu 0x%llx got a reload message...\n",id); fflush(stdout);
+                /* printf("runner_run: spu 0x%llx got a reload message...\n",id); fflush(stdout); */
                 
-                // emit mfc
+                /* emit mfc */
                 my_get( cells , data->cell_addr , mfc_ceil128( sizeof(struct cell) * data->nr_cells ) , tid[nnid] );
                 
-                // wait for the data
+                /* wait for the data */
                 mfc_write_tag_mask( 1 << tid[nnid] );
                 mfc_read_tag_status_all();
                 
-                // carry on as if nothing happened...
-                // printf("runner_run: spu 0x%llx executed reload.\n",id); fflush(stdout);
+                /* carry on as if nothing happened... */
+                /* printf("runner_run: spu 0x%llx executed reload.\n",id); fflush(stdout); */
                 continue;
             
                 }
                 
-            // we got a genuine cell pair 
+            /* we got a genuine cell pair  */
             else {
 
-                // unpack the data
+                /* unpack the data */
                 i = buff >> 20;
                 j = (buff >> 8) & 4095;
                 ni[nnid] = cells[i].ni;
@@ -1386,7 +1386,7 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
                 /* printf("runner_spu: got pair 0x%llx (n=%i), 0x%llx (n=%i) with shift=[%e,%e,%e].\n",
                     ai[nnid],ni[nnid],aj[nnid],nj[nnid],shift[nnid*3+0],shift[nnid*3+1],shift[nnid*3+2]); fflush(stdout); */
 
-                // check if we can recycle any of these buffers
+                /* check if we can recycle any of these buffers */
                 pi[nnid] = NULL; pj[nnid] = NULL;
                 wbi[nnid] = 1; wbj[nnid] = ( ai[nnid] != aj[nnid] );
                 if ( status[nid] > 0 && ai[nid] == ai[nnid] ) {
@@ -1416,7 +1416,7 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
                         }
                     }
 
-                // emit the load for the particles of this pair if needed
+                /* emit the load for the particles of this pair if needed */
                 if ( pi[nnid] == NULL ) {
                     pi[nnid] = pbuff[ pbuff_first ]; pbuff_first = ( pbuff_first + 1 ) % ( 2 * bitesize );
                     my_get( pi[nnid] , ai[nnid] , mfc_ceil128( sizeof(struct part) * ni[nnid] ) , tid[nnid] );
@@ -1426,7 +1426,7 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
                     my_get( pj[nnid] , aj[nnid] , mfc_ceil128( sizeof(struct part) * nj[nnid] ) , tid[nnid] );
                     }
 
-                // set the status
+                /* set the status */
                 status[nnid] = 1;
                 
                 }
@@ -1434,15 +1434,15 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
             }
                         
             
-        // Second step: wait for get, compute, and send put on second pipe
+        /* Second step: wait for get, compute, and send put on second pipe */
         
         if ( status[nid] > 0 ) {
         
-            // wait for the current data
+            /* wait for the current data */
             mfc_write_tag_mask( 1 << tid[nid] );
             mfc_read_tag_status_all();
             
-            // compute the interactions in this pair
+            /* compute the interactions in this pair */
             if ( ai[nid] == aj[nid] )
                 dopair( ni[nid] , 0 , pi[nid] , NULL , NULL );
             else
@@ -1452,8 +1452,8 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
                     dopair( ni[nid] , nj[nid] , pi[nid] , pj[nid] , &( shift[nid*3] ) );
                 #endif
                 
-            // write the data back to the main memory and free the buffers,
-            // if needed.
+            /* write the data back to the main memory and free the buffers, */
+            /* if needed. */
             if ( wbi[nid] )
                 my_put( pi[nid] , ai[nid] , mfc_ceil128( ni[nid] * sizeof(struct part) ) , tid[nid] );
             if ( wbj[nid] )
@@ -1462,15 +1462,15 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
             }
             
             
-        // Third step: wait for put and signal on first pipe
+        /* Third step: wait for put and signal on first pipe */
         
         if ( status[bid] > 0 ) {
         
-            // wait for any data on this channel to have been written...
+            /* wait for any data on this channel to have been written... */
             mfc_write_tag_mask( 1 << tid[bid] );
             mfc_read_tag_status_all();
             
-            // return the buffers to the queue
+            /* return the buffers to the queue */
             if ( wbi[bid] ) {
                 pbuff[ pbuff_last ] = pi[bid];
                 pbuff_last = ( pbuff_last + 1 ) % ( 2 * bitesize );
@@ -1480,31 +1480,31 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
                 pbuff_last = ( pbuff_last + 1 ) % ( 2 * bitesize );
                 }
             
-            // signal that we are done with this pair (if there was anything there)
-            // printf("runner_spu: runner 0x%llx waiting on mailbox output...\n",id); fflush(stdout);
-            // spu_write_out_intr_mbox( rcount );
-            // printf("runner_spu: runner 0x%llx got mailbox output...\n",id); fflush(stdout);
+            /* signal that we are done with this pair (if there was anything there) */
+            /* printf("runner_spu: runner 0x%llx waiting on mailbox output...\n",id); fflush(stdout); */
+            /* spu_write_out_intr_mbox( rcount ); */
+            /* printf("runner_spu: runner 0x%llx got mailbox output...\n",id); fflush(stdout); */
             
-            // done with this box
+            /* done with this box */
             status[bid] = 0;
 
             }
             
-        // or did we get a flush?
+        /* or did we get a flush? */
         else if ( status[bid] < 0 ) {
         
-            // signal to the PPU that we are through...
-            // printf("runner_run: spu 0x%llx executing flush...\n",id); fflush(stdout);
+            /* signal to the PPU that we are through... */
+            /* printf("runner_run: spu 0x%llx executing flush...\n",id); fflush(stdout); */
             spu_write_out_intr_mbox( rcount );
-            // printf("runner_run: spu 0x%llx executed flush.\n",id); fflush(stdout);
+            /* printf("runner_run: spu 0x%llx executed flush.\n",id); fflush(stdout); */
             
-            // done with this box
+            /* done with this box */
             status[bid] = 0;
         
             }
         
 
-        // move on...
+        /* move on... */
         bid = nid;
         nid = nnid;
         nnid = ( nid + 1 ) % bitesize;

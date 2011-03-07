@@ -52,12 +52,12 @@ int main ( int argc , char *argv[] ) {
     const double origin[3] = { 0.0 , 0.0 , 0.0 };
     // const double dim[3] = { 3.166 , 3.166 , 3.166 };
     // const int nr_mols = 1000, nx = 10;
-    const double dim[3] = { 6.332 , 6.332 , 6.332 };
-    const int nr_mols = 8000, nx = 20;
+    // const double dim[3] = { 6.332 , 6.332 , 6.332 };
+    // const int nr_mols = 8000, nx = 20;
     // const double dim[3] = { 4.0 , 4.0 , 4.0 };
     // const int nr_mols = 2016, nx = 13;
-    // const double dim[3] = { 8.0 , 8.0 , 8.0 };
-    // const int nr_mols = 16128, nx = 26;
+    const double dim[3] = { 8.0 , 8.0 , 8.0 };
+    const int nr_mols = 16128, nx = 26;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp, cutoff;
