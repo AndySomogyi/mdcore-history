@@ -20,7 +20,9 @@
 // include some standard headers
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <math.h>
+#include <float.h>
 #include <pthread.h>
 #include <time.h>
 #ifdef CELL
@@ -258,6 +260,7 @@ int main ( int argc , char *argv[] ) {
             for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
                 e.s.cells[cid].parts[pid].v[k] -= vtot[k] / 8000;
     printf("done.\n"); fflush(stdout);
+    printf("main: inserted %i particles.\n", e.s.nr_parts);
         
     // set the time and time-step by hand
     e.time = 0;
@@ -284,11 +287,11 @@ int main ( int argc , char *argv[] ) {
             errs_dump(stdout);
             return 1;
             }
-        if ( engine_start_SPU( &e , spe_cpu_info_get( SPE_COUNT_USABLE_SPES , -1 ) ) != 0 ) {
+        /* if ( engine_start_SPU( &e , spe_cpu_info_get( SPE_COUNT_USABLE_SPES , -1 ) ) != 0 ) {
             printf("main: engine_start_SPU failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
-            }
+            } */
     #else
         if ( engine_start( &e , nr_runners ) != 0 ) {
             printf("main: engine_start failed with engine_err=%i.\n",engine_err);
@@ -380,9 +383,9 @@ int main ( int argc , char *argv[] ) {
                     }
                     
                 // check the tolerances
-                if ( fabs( d_OH1 - 0.1*0.1 ) < 1e-10 &&
-                    fabs( d_OH2 - 0.1*0.1 ) < 1e-10 &&  
-                    fabs( d_HH - 0.1633*0.1633 ) < 1e-10 )
+                if ( fabs( d_OH1 - 0.1*0.1 ) < 100*FPTYPE_EPSILON &&
+                    fabs( d_OH2 - 0.1*0.1 ) < 100*FPTYPE_EPSILON &&  
+                    fabs( d_HH - 0.1633*0.1633 ) < 100*FPTYPE_EPSILON )
                     break;
                     
                 // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));

@@ -33,14 +33,14 @@
 #endif
 #ifdef __ALTIVEC__
     #include <altivec.h>
-    inline vector float vec_sqrt( vector float a ) {
+    inline static vector float vec_sqrt( vector float a ) {
         vector float z = ( vector float ){ 0.0f };
         vector float estimate = vec_rsqrte( a );
         vector float estimateSquared = vec_madd( estimate, estimate, z );
         vector float halfEstimate = vec_madd( estimate, (vector float){0.5}, z );
         return vec_madd( a, vec_madd( vec_nmsub( a, estimateSquared, (vector float){1.0} ), halfEstimate, estimate ), z);
         }
-    inline vector float vec_load4 ( float a , float b , float c , float d ) {
+    inline static vector float vec_load4 ( float a , float b , float c , float d ) {
         return vec_mergeh( vec_mergeh( vec_promote(a,0) , vec_promote(c,0) ) , vec_mergeh( vec_promote(b,0) , vec_promote(d,0) ) );
         }
     #define vec_mul(a,b) vec_madd((a),(b),(vector float){0.0f})

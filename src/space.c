@@ -1145,9 +1145,6 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                                 s->pairs[s->nr_pairs].shift[0] = shift[0];
                                 s->pairs[s->nr_pairs].shift[1] = shift[1];
                                 s->pairs[s->nr_pairs].shift[2] = shift[2];
-                                #ifdef VECTORIZE
-                                    s->pairs[s->nr_pairs].shift[3] = 0.0;
-                                #endif
                                 s->nr_pairs++;
                                 }
 

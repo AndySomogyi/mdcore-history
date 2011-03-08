@@ -49,29 +49,14 @@ extern int part_err;
  */
 struct part {
 
-    #ifdef CELL
-    
-        /** Particle position */
-        vector float x;
+    /** Particle position */
+    FPTYPE x[4] __attribute__ ((aligned (16)));
 
-        /** Particle velocity */
-        vector float v;
+    /** Particle velocity */
+    FPTYPE v[4] __attribute__ ((aligned (16)));
 
-        /** Particle force */
-        vector float f;
-    
-    #else
-    
-        /** Particle position */
-        FPTYPE x[4];
-
-        /** Particle velocity */
-        FPTYPE v[4];
-
-        /** Particle force */
-        FPTYPE f[4];
-    
-    #endif
+    /** Particle force */
+    FPTYPE f[4] __attribute__ ((aligned (16)));
     
     /** individual particle charge, if needed. */
     float q;

@@ -2041,7 +2041,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 pot = eng->p[ pioff + part_j->type ];
                 if ( pot == NULL )
                     continue;
-                /* runner_rcount += 1; */
+                // runner_rcount += 1;
                     
                 #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
@@ -2227,7 +2227,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     pot = pots[ pjoff + part_i->type ];
                     if ( pot == NULL )
                         continue;
-                    /* runner_rcount += 1; */
+                    // runner_rcount += 1;
 
                     #if defined(VECTORIZE)
                         /* add this interaction to the interaction queue. */
@@ -4402,7 +4402,7 @@ int runner_run_cell_tuples ( struct runner *r ) {
             /* wait for the reply... */
             if ( spe_out_intr_mbox_read( r->spe , buff , 1 , SPE_MBOX_ALL_BLOCKING ) < 1 )
                 return runner_err_spe;
-            /* printf("runner_run: got rcount=%u.\n",buff[0]); */
+            // printf("runner_run: got rcount=%u.\n",buff[0]);
 
             /* release the pairs still in the queue */
             for ( k = 1 ; k < runner_qlen ; k++ )
@@ -4800,7 +4800,7 @@ int runner_run_tuples ( struct runner *r ) {
             } /* loop over the tuples. */
 
         /* give the reaction count */
-        /* printf("runner_run_tuples: runner_rcount=%u.\n",runner_rcount); */
+        // printf("runner_run_tuples: runner_rcount=%u.\n",runner_rcount);
             
         }
 

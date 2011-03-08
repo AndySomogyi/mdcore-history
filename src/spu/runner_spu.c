@@ -33,9 +33,6 @@
 #include "load_vec_float4.h"
 #include "dot_product3.h"
 
-/* include some local header files */
-#include "../part.h"
-
 /* some definitions */
 #define bitesize                            3
 #define maxparts                            256
@@ -52,12 +49,29 @@
 #define potential_degree                     5
 #define potential_chunk                      (potential_degree+3)
 
+/* particle flags */
+#define part_flag_none                  0
+#define part_flag_frozen                1
+#define part_flag_ghost                 2
+
 /* declare the LOCAL types we will use */
 struct potential {
     int n;
     unsigned int flags;
     float alpha[3];
     float data[];
+    };
+    
+/* This has to match part.h! note the use of vector types instead
+   of arrays of FPTYPE... */
+struct part {
+    vector float x;
+    vector float v;
+    vector float f;
+    float q;
+    int id, vid;
+    short int type;
+    unsigned short int flags;
     };
     
 struct data {
@@ -536,7 +550,7 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
                     effj[pcount] = &( part_j->f );
                     potv[pcount] = pot;
                     pcount += 1;
-                    /* rcount += 1; */
+                    // rcount += 1;
 
                     /* do we have a full set to evaluate? */
                     if ( __builtin_expect( pcount == 8 , 0 ) ) {
@@ -556,13 +570,13 @@ void sortedpair ( int ni , int nj , struct part *pi , struct part *pj , float *s
 
                         }
                 #else
-                    spu_insert( r2 , r2v , pcount );
+                    r2v[pcount] = r2;
                     dxv[pcount] = dx;
                     effi[pcount] = &( part_i->f );
                     effj[pcount] = &( part_j->f );
                     potv[pcount] = pot;
                     pcount += 1;
-                    /* rcount += 1; */
+                    // rcount += 1;
 
                     /* do we have a full set to evaluate? */
                     if ( __builtin_expect( pcount == 4 , 0 ) ) {
@@ -691,7 +705,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     effj[count] = &( part_j->f );
                     potv[count] = pot;
                     count += 1;
-                    rcount += 1;
+                    // rcount += 1;
 
                     /* do we have a full set to evaluate? */
                     if ( __builtin_expect( count == 8 , 0 ) ) {
@@ -717,7 +731,7 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                     effj[count] = &( part_j->f );
                     potv[count] = pot;
                     count += 1;
-                    rcount += 1;
+                    // rcount += 1;
 
                     /* do we have a full set to evaluate? */
                     if ( __builtin_expect( count == 4 , 0 ) ) {
@@ -775,9 +789,6 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                 /* get the other particle */
                 part_j = &( pj[j] );
                 
-                if ( part_i->id == 572 && part_j->id == 1450 )
-                    printf("dopair: oops...\n");
-
                 /* get the distance between both particles */
                 dx = spu_sub( pix , part_j->x );
                 r2 = _dot_product3( dx , dx );
@@ -1151,9 +1162,6 @@ void dopair ( int ni , int nj , struct part *pi , struct part *pj , float *shift
                 /* get the other particle */
                 part_j = &(pj[j]);
 
-                /* if ( part_i->id == 572 && part_j->id == 1450 ) */
-                /*     printf("dopair: oops...\n"); */
-
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = pix[k] - part_j->x[k];
@@ -1256,7 +1264,6 @@ int main ( unsigned long long id , unsigned long long argp , unsigned long long 
     unsigned int buff, dummy;
     int pbuff_first = 0, pbuff_last = 0;
     struct cell *cells;
-
 
     /* say hello */
     printf("runner_spu: spu 0x%llx says hi.\n",id); fflush(stdout);
