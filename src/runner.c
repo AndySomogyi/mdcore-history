@@ -104,7 +104,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
     FPTYPE pix[3];
     FPTYPE cutoff, cutoff2, r2, dx[3], w, h[3];
     double epot = 0.0;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
     FPTYPE *effi[4], *effj[4], *pif;
@@ -133,7 +133,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
         pix[1] = part_i->x[1];
         pix[2] = part_i->x[2];
         nrpairs = s->verlet_nrpairs[i];
-        #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+        #if defined(VECTORIZE)
             pif = &( f_out[i*4] );
         #endif
         
@@ -157,7 +157,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
             /* fetch the potential, should be non-NULL by design! */
             pot = verlet_list[j].pot;
 
-            #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+            #ifdef VECTORIZE
                 /* add this interaction to the interaction queue. */
                 r2q[icount] = r2;
                 dxq[icount*3] = dx[0];
@@ -232,7 +232,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
             
         }
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -256,7 +256,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers (single entry)? */
         if ( icount > 0 ) {
 
@@ -328,7 +328,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     int pid, pind, ishift[3];
     struct verlet_entry *vbuff;
     double epot = 0.0;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
     FPTYPE *effi[4], *effj[4];
@@ -428,7 +428,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                     continue;
                 /* runner_rcount += 1; */
 
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
                     r2q[icount] = r2;
                     dxq[icount*3] = dx[0];
@@ -637,7 +637,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                         continue;
                     /* runner_rcount += 1; */
 
-                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    #if defined(VECTORIZE)
                         /* add this interaction to the interaction queue. */
                         r2q[icount] = r2;
                         dxq[icount*3] = dx[0];
@@ -719,7 +719,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
 
         }
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -743,7 +743,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers (single entry)? */
         if ( icount > 0 ) {
 
@@ -833,7 +833,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     int pind, pid, nr_pairs, count_i, count_j;
     double epot = 0.0;
     short int *pairs;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
     FPTYPE *effi[4], *effj[4];
@@ -917,7 +917,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 if ( pot == NULL )
                     continue;
 
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
                     r2q[icount] = r2;
                     dxq[icount*3] = dx[0];
@@ -1135,7 +1135,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                             continue;
                         /* runner_rcount += 1; */
 
-                        #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                        #if defined(VECTORIZE)
                             /* add this interaction to the interaction queue. */
                             r2q[icount] = r2;
                             dxq[icount*3] = dx[0];
@@ -1256,7 +1256,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     /* fetch the potential (non-NULL by design). */
                     pot = pots[ pjoff + part_i->type ];
 
-                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    #if defined(VECTORIZE)
                         /* add this interaction to the interaction queue. */
                         r2q[icount] = r2;
                         dxq[icount*3] = dx[0];
@@ -1335,7 +1335,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             
         }
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -1359,7 +1359,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers (single entry)? */
         if ( icount > 0 ) {
 
@@ -1455,7 +1455,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     FPTYPE pix[3], pjx[3], *pif, *pjf;
     int pid, count_i, count_j;
     double epot = 0.0;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
     FPTYPE *effi[4], *effj[4];
@@ -1539,7 +1539,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 if ( pot == NULL )
                     continue;
 
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
                     r2q[icount] = r2;
                     dxq[icount*3] = dx[0];
@@ -1763,7 +1763,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                         continue;
                     /* runner_rcount += 1; */
 
-                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    #if defined(VECTORIZE)
                         /* add this interaction to the interaction queue. */
                         r2q[icount] = r2;
                         dxq[icount*3] = dx[0];
@@ -1842,7 +1842,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
             
         }
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -1866,7 +1866,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers (single entry)? */
         if ( icount > 0 ) {
 
@@ -1961,7 +1961,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
     FPTYPE pjx[3], pix[3], *pif, *pjf;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
     FPTYPE *effi[4], *effj[4];
@@ -2043,7 +2043,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     continue;
                 /* runner_rcount += 1; */
                     
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
                     r2q[icount] = r2;
                     dxq[icount*3] = dx[0];
@@ -2229,7 +2229,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                         continue;
                     /* runner_rcount += 1; */
 
-                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    #if defined(VECTORIZE)
                         /* add this interaction to the interaction queue. */
                         r2q[icount] = r2;
                         dxq[icount*3] = dx[0];
@@ -2241,7 +2241,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                         icount += 1;
 
                         /* evaluate the interactions if the queue is full. */
-                        #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+                        #if defined(FPTYPE_SINGLE)
                             if ( icount == 4 ) {
 
                                 potential_eval_vec_4single( potq , r2q , e , f );
@@ -2260,7 +2260,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                                 icount = 0;
 
                                 }
-                        #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+                        #elif defined(FPTYPE_DOUBLE)
                             if ( icount == 4 ) {
 
                                 potential_eval_vec_4double( potq , r2q , e , f );
@@ -2307,7 +2307,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
             
         } /* pair or self interaction. */
 
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -2331,7 +2331,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers (single entry)? */
         if ( icount > 0 ) {
 
@@ -2425,7 +2425,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     short int pivot;
     FPTYPE shift[3], inshift;
     FPTYPE pjx[3], pix[3], piq, pjq, pijq;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     struct potential *potq[4], *potq_2[4];
     int icount = 0, icount_2 = 0, l;
     FPTYPE *effi[4], *effj[4], *pjf;
@@ -2514,7 +2514,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 if ( pot == NULL && pijq == 0.0f )
                     continue;
                     
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     
                     /* both potential and charge. */
                     if ( pot != 0 && pijq != 0.0 ) {
@@ -2771,7 +2771,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjoff = part_j->type * emt;
                 pjq = part_j->q;
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     pjf = part_j->f;
                 #endif
 
@@ -2797,7 +2797,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                     if ( pot == NULL && pijq == 0.0f )
                         continue;
 
-                    #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                    #if defined(VECTORIZE)
 
                         /* both potential and charge. */
                         if ( pot != 0 && pijq != 0.0 ) {
@@ -2961,7 +2961,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
             
         } /* genuine pair? */
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -3007,7 +3007,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -3103,7 +3103,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
     struct part *part_i, *part_j, *parts_i, *parts_j;
     struct potential *pot;
     struct space *s;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+#if defined(VECTORIZE)
     int l, icount = 0;
     FPTYPE *effi[4], *effj[4];
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
@@ -3177,7 +3177,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                 if ( pot == NULL )
                     continue;
                     
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
                     r2q[icount] = r2;
                     dxq[icount*3] = dx[0];
@@ -3289,7 +3289,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                 if ( pot == NULL )
                     continue;
                     
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
                     r2q[icount] = r2;
                     dxq[icount*3] = dx[0];
@@ -3366,7 +3366,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
 
         }
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -3390,7 +3390,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers (single entry)? */
         if ( icount > 0 ) {
 
@@ -3470,7 +3470,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
     struct potential *pot, *ep;
     struct space *s;
     int count_i, count_j;
-#if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#if defined(VECTORIZE)
     int l, icount = 0, icount_2 = 0;
     FPTYPE *effi[4], *effj[4], *effi_2[4], *effj_2[4];
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
@@ -3551,7 +3551,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
                 if ( pot == NULL && pijq == 0.0f )
                     continue;
                     
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     
                     /* both potential and charge. */
                     if ( pot != 0 && pijq != 0.0 ) {
@@ -3749,7 +3749,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
                 if ( pot == NULL && pijq == 0.0f )
                     continue;
                     
-                #if (defined(__SSE__) && defined(FPTYPE_SINGLE)) || (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+                #if defined(VECTORIZE)
                     
                     /* both potential and charge. */
                     else if ( pot != 0 && pijq != 0.0 ) {
@@ -3911,7 +3911,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
 
         }
         
-    #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    #if defined(VEC_SINGLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
@@ -3957,7 +3957,7 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
                 }
 
             }
-    #elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    #elif defined(VEC_DOUBLE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 

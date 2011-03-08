@@ -31,3 +31,12 @@
     #endif
     #define FPTYPE_DEFINED
 #endif
+
+/* Define some macros for single/double precision vector operations. */
+#if ( (defined(__SSE__) || defined(__ALTIVEC__)) && defined(FPTYPE_SINGLE))
+    #define VEC_SINGLE
+    #define VECTORIZE
+#elif (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+    #define VEC_DOUBLE
+    #define VECTORIZE
+#endif
