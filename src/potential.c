@@ -1260,6 +1260,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     FPTYPE *c_l, *c_r, *c_m;
     int i, k;
     FPTYPE e;
+    FPTYPE mtol = 10 * FPTYPE_EPSILON;
 
     /* check inputs */
     if ( p == NULL || f == NULL || fp == NULL )
@@ -1294,7 +1295,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         return error(potential_err_malloc);
     for ( i = 0 ; i <= l ; i++ ) {
         xi_l[i] = a + (b - a) * i / l;
-        while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > 3 * l * FPTYPE_EPSILON )
+        while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > l * mtol )
             xi_l[i] += e / (l * (p->alpha[1] + 2*xi_l[i]*p->alpha[2]));
         }
     if ( potential_getcoeffs(f,fp,xi_l,l,&c_l[potential_chunk],&err_l) < 0 )
@@ -1330,7 +1331,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
             return error(potential_err_malloc);
         for ( i = 0 ; i <= r ; i++ ) {
             xi_r[i] = a + (b - a) * i / r;
-            while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > 3 * r * FPTYPE_EPSILON )
+            while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > r * mtol )
                 xi_r[i] += e / (r * (p->alpha[1] + 2*xi_r[i]*p->alpha[2]));
             }
         if ( potential_getcoeffs(f,fp,xi_r,r,&c_r[potential_chunk],&err_r) < 0 )
@@ -1364,7 +1365,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
             return error(potential_err_malloc);
         for ( i = 0 ; i <= m ; i++ ) {
             xi_m[i] = a + (b - a) * i / m;
-            while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > 3 * m * FPTYPE_EPSILON )
+            while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > m * mtol )
                 xi_m[i] += e / (m * (p->alpha[1] + 2*xi_m[i]*p->alpha[2]));
             }
         if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_chunk],&err_m) != 0 )
