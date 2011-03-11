@@ -40,19 +40,19 @@
 #define vec_splat(_a, _b)	                spu_splats(spu_extract(_a, _b))
 
 /* potential flags */
-#define potential_flag_none                  0
-#define potential_flag_LJ126                 1
-#define potential_flag_Ewald                 2
-#define potential_flag_Coulomb               4
+#define potential_flag_none                 0
+#define potential_flag_LJ126                1
+#define potential_flag_Ewald                2
+#define potential_flag_Coulomb              4
 
 /* potential degree (this has to match potential.h!) */
-#define potential_degree                     5
-#define potential_chunk                      (potential_degree+3)
+#define potential_degree                    5
+#define potential_chunk                     (potential_degree+3)
 
 /* particle flags */
-#define part_flag_none                  0
-#define part_flag_frozen                1
-#define part_flag_ghost                 2
+#define part_flag_none                      0
+#define part_flag_frozen                    1
+#define part_flag_ghost                     2
 
 /* declare the LOCAL types we will use */
 struct potential {

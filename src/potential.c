@@ -177,9 +177,8 @@ void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
         }
 
     /* store the result */
-    eff.v = vec_mul( eff.v , hi.v );
-    memcpy( e , &ee , sizeof(vector float) );
-    memcpy( f , &eff , sizeof(vector float) );
+    *((vector float *)e) = ee.v;
+    *((vector float *)f) = vec_mul( eff.v , hi.v );
         
 #else
     int k;
