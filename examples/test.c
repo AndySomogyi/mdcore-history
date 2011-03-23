@@ -37,7 +37,7 @@
     #define ENGINE_FLAGS engine_flag_tuples
 #endif
 #ifndef CPU_TPS
-    #define CPU_TPS 2.501e+9
+    #define CPU_TPS 2.67e+9
 #endif
 
 // include local headers
@@ -53,22 +53,23 @@ int main ( int argc , char *argv[] ) {
 
     const double origin[3] = { 0.0 , 0.0 , 0.0 };
     // const double dim[3] = { 3.166 , 3.166 , 3.166 };
-    // const int nr_mols = 1000, nx = 10;
+    // const int nr_mols = 1000;
     // const double dim[3] = { 6.332 , 6.332 , 6.332 };
-    // const int nr_mols = 8000, nx = 20;
+    // const int nr_mols = 8000;
     // const double dim[3] = { 4.0 , 4.0 , 4.0 };
-    // const int nr_mols = 2016, nx = 13;
-    const double dim[3] = { 8.0 , 8.0 , 8.0 };
-    const int nr_mols = 16128, nx = 26;
+    // const int nr_mols = 2016;
+    double dim[3] = { 8.0 , 8.0 , 8.0 };
+    int nr_mols = 16128;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
-    double epot, ekin, v2, temp, cutoff;
+    double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;
     // FPTYPE ee, eff;
     struct engine e;
     struct part p_O, p_H;
     struct potential *pot_OO, *pot_OH, *pot_HH;
     // struct potential *pot_ee;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
+    int nx, ny, nz;
     double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
     double v_OH1[3], v_OH2[3], v_HH[3];
     double d_OH1, d_OH2, d_HH, lambda;
@@ -87,20 +88,31 @@ int main ( int argc , char *argv[] ) {
     #endif
     
     // did the user supply a cutoff?
-    if ( argc > 4 )
-        cutoff = atof( argv[4] );
+    if ( argc > 4 ) {
+        cellwidth = atof( argv[4] );
+        nr_mols *= ( cellwidth * cellwidth * cellwidth );
+        for ( k = 0 ; k < 3 ; k++ )
+            dim[k] *= cellwidth * (1.0 + DBL_EPSILON);
+        }
     else
-        cutoff = 1.0;
-    printf("main: cutoff set to %22.16e.\n", cutoff);
-
+        cellwidth = 1.0;
+    printf("main: cell width set to %22.16e.\n", cutoff);
+    
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cutoff , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cellwidth , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
         }
     printf("done.\n"); fflush(stdout);
+    
+    // set the interaction cutoff
+    e.s.cutoff = cutoff;
+    e.s.cutoff2 = cutoff * cutoff;
+    printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
+    printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
+    printf("main: cutoff set to %22.16e.\n", cutoff);
         
     /* mix-up the pair list just for kicks
     printf("main: shuffling the interaction pairs... "); fflush(stdout);
@@ -117,7 +129,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the O-H potential
-    if ( ( pot_OH = potential_create_Ewald( 0.1 , cutoff , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -131,7 +143,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the H-H potential
-    if ( ( pot_HH = potential_create_Ewald( 0.1 , cutoff , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -145,7 +157,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the O-O potential
-    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , cutoff , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -216,6 +228,9 @@ int main ( int argc , char *argv[] ) {
     
     // create and add the particles
     printf("main: initializing particles... "); fflush(stdout);
+    nx = ceil( pow( nr_mols , 1.0/3 ) );
+    ny = ceil( sqrt( ((double)nr_mols) / nx ) );
+    nz = ceil( ((double)nr_mols) / nx / ny );
     for ( i = 0 ; i < nx ; i++ ) {
         x[0] = 0.1 + i * 0.31;
         for ( j = 0 ; j < nx ; j++ ) {
@@ -268,6 +283,7 @@ int main ( int argc , char *argv[] ) {
         e.dt = atof( argv[3] );
     else
         e.dt = 0.002;
+    printf("main: dt set to %f fs.\n", e.dt*1000 );
     
     #ifdef CELL
         toc = __mftb();

@@ -40,9 +40,10 @@
         vector float halfEstimate = vec_madd( estimate, (vector float){0.5}, z );
         return vec_madd( a, vec_madd( vec_nmsub( a, estimateSquared, (vector float){1.0} ), halfEstimate, estimate ), z);
         }
-    inline static vector float vec_load4 ( float a , float b , float c , float d ) {
+    /* inline static vector float vec_load4 ( float a , float b , float c , float d ) {
         return vec_mergeh( vec_mergeh( vec_promote(a,0) , vec_promote(c,0) ) , vec_mergeh( vec_promote(b,0) , vec_promote(d,0) ) );
-        }
+        } */
+    #define vec_load4(a,b,c,d) vec_mergeh( vec_mergeh( vec_promote((a),0) , vec_promote((c),0) ) , vec_mergeh( vec_promote((b),0) , vec_promote((d),0) ) )
     #define vec_mul(a,b) vec_madd((a),(b),(vector float){0.0f})
 #endif
 
@@ -92,7 +93,7 @@ char *potential_err_msg[5] = {
  * this function simply calls #potential_eval on each entry.
  */
 
-void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
+void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j, k;
@@ -182,8 +183,11 @@ void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
         
 #else
     int k;
-    for ( k = 0 ; k < 4 ; k++ )
-        potential_eval( p[k] , r2[k] , &e[k] , &f[k] );
+    FPTYPE ee, eff;
+    for ( k = 0 ; k < 4 ; k++ ) {
+        potential_eval( p[k] , r2[k] , &ee , &eff );
+        e[k] = ee; f[k] = eff;
+        }
 #endif
         
     }
@@ -212,7 +216,7 @@ void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
  * this function simply calls #potential_eval on each entry.
  */
 
-void potential_eval_vec_8single ( struct potential *p[8] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
+void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e , float *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j;
@@ -348,8 +352,11 @@ void potential_eval_vec_8single ( struct potential *p[8] , FPTYPE *r2 , FPTYPE *
     
 #else
     int k;
-    for ( k = 0 ; k < 8 ; k++ )
-        potential_eval( p[k] , r2[k] , &e[k] , &f[k] );
+    FPTYPE ee, eff;
+    for ( k = 0 ; k < 8 ; k++ ) {
+        potential_eval( p[k] , r2[k] , &ee , &eff );
+        e[k] = ee; f[k] = eff;
+        }
 #endif
         
     }

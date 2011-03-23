@@ -82,8 +82,8 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
 void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 , FPTYPE q , FPTYPE *e , FPTYPE *f );
 void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_vec_4single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_vec_8single ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f );
+void potential_eval_vec_8single ( struct potential *p[4] , float *r2 , float *e , float *f );
 void potential_eval_vec_4single_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_2double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
