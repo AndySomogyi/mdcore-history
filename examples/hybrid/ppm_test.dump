@@ -1,0 +1,18 @@
+main[0]: MPI is up and running...
+main[0]: PPM is up and running...
+main[0]: initializing particles... done.
+main[0]: generated 387072 particles.
+main[0]: Created topology (ncost=1).
+main[0]: now have 387072 particles. 
+main[0]: ppm_minphys is [ 0.000000e+00 , 0.000000e+00 , 0.000000e+00 ].
+main[0]: ppm_maxphys is [ 1.600000e+01 , 1.600000e+01 , 1.600000e+01 ].
+main[0]: initializing the engine... done.
+main[0]: constructed OH-potential with 8 intervals.
+main[0]: constructed HH-potential with 7 intervals.
+main[0]: constructed OO-potential with 21 intervals.
+runner_run: runner 1 is up and running (tuples)...
+runner_run: runner 0 is up and running (tuples)...
+main: ghost setup took 72452.162 ms.
+main: engine_load took 7384.691 ms.
+main: engine_step took 2386.207 ms.
+main: engine_unload took 24.875 ms.
