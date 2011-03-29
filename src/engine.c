@@ -58,6 +58,30 @@ char *engine_err_msg[7] = {
 	};
     
     
+/**
+ * @brief Clear all particles from this #engine.
+ *
+ * @param e The #engine to flush.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_flush ( struct engine *e ) {
+
+    /* check input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Clear the space. */
+    if ( space_flush( &e->s ) < 0 )
+        return error(engine_err_space);
+        
+    /* done for now. */
+    return engine_err_ok;
+
+    }
+
+
 /** 
  * @brief Set the explicit electrostatic potential.
  *
@@ -104,6 +128,7 @@ int engine_setexplepot ( struct engine *e , struct potential *ep ) {
  * @param x An @c N times 3 array of the particle positions.
  * @param v An @c N times 3 array of the particle velocities.
  * @param type A vector of length @c N of the particle type IDs.
+ * @param vid A vector of length @c N of the particle vidtual IDs.
  * @param q A vector of length @c N of the individual particle charges.
  * @param flags A vector of length @c N of the particle flags.
  * @param N the maximum number of particles.
@@ -111,10 +136,10 @@ int engine_setexplepot ( struct engine *e , struct potential *ep ) {
  * @return The number of particles unloaded or < 0 on
  *      error (see #engine_err).
  *
- * The fields @c x, @c v, @c type, @c q and/or @c flags may be NULL.
+ * The fields @c x, @c v, @c type, @c vid, @c q and/or @c flags may be NULL.
  */
  
-int engine_unload ( struct engine *e , double *x , double *v , int *type , double *q , unsigned int *flags , int N ) {
+int engine_unload ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , int N ) {
 
     struct part *p;
     struct cell *c;
@@ -143,6 +168,8 @@ int engine_unload ( struct engine *e , double *x , double *v , int *type , doubl
                 v[pid*3+j] = p->v[j];
         if ( type != NULL )
             type[pid] = p->type;
+        if ( vid != NULL )
+            vid[pid] = p->vid;
         if ( q != NULL )
             q[pid] = p->q;
         if ( flags != NULL )
@@ -163,17 +190,18 @@ int engine_unload ( struct engine *e , double *x , double *v , int *type , doubl
  * @param x An @c N times 3 array of the particle positions.
  * @param v An @c N times 3 array of the particle velocities.
  * @param type A vector of length @c N of the particle type IDs.
+ * @param type A vector of length @c N of the particle virtual IDs.
  * @param q A vector of length @c N of the individual particle charges.
  * @param flags A vector of length @c N of the particle flags.
  * @param N the number of particles to load.
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  *
- * If the parameters @c v, @c flags or @c q are @c NULL, then
+ * If the parameters @c v, @c flags, @c vid or @c q are @c NULL, then
  * these values are set to zero.
  */
  
-int engine_load ( struct engine *e , double *x , double *v , int *type , double *q , unsigned int *flags , int N ) {
+int engine_load ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , int N ) {
 
     struct part p;
     int k, pid;
@@ -193,6 +221,8 @@ int engine_load ( struct engine *e , double *x , double *v , int *type , double 
         /* set the particle data. */
         p.id = pid;
         p.type = type[pid];
+        if ( vid != NULL )
+            p.vid = vid[pid];
         if ( flags != NULL )
             p.flags = flags[pid];
         if ( v != NULL )
@@ -424,6 +454,8 @@ int engine_step ( struct engine *e ) {
     dt = e->dt;
     for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
         c = &(s->cells[cid]);
+        if ( c->flags & cell_flag_ghost )
+            continue;
         for ( pid = 0 ; pid < c->count ; pid++ ) {
             p = &(c->parts[pid]);
             w = dt * e->types[p->type].imass;

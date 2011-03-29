@@ -15,6 +15,16 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Recurse into the subdirs
-SUBDIRS = bulk btree hybrid
+# Automake stuff
+AUTOMAKE_OPTIONS=gnu
+
+# Add the source directory and debug to CFLAGS
+AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
+
+# Set-up the library
+bin_PROGRAMS = btree_test
+
+# Sources for btree_test
+btree_test_SOURCES = btree_test.c
+btree_test_LDADD = ../../src/.libs/libmdcore.a
 

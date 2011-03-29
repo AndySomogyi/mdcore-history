@@ -303,9 +303,9 @@ void ppm_topo_mkgeom ( int *topoid , int decomp , int assig , double *min_phys ,
     *cost = (double *)dcost.base_addr;
     *ncost = dcost.dim[0].upper_bound - dcost.dim[0].lower_bound + 1;
     }
-void ppm_topo_mkpart ( int *topoid , double *xp , int npart , int decomp , int assig , double *min_phys , double *max_phys , int *bcdef , double ghostsize , double **cost , int *ncost , int *info ) {
+void ppm_topo_mkpart ( int *topoid , double *xp , int len , int npart , int decomp , int assig , double *min_phys , double *max_phys , int *bcdef , double ghostsize , double **cost , int *ncost , int *info ) {
     dvec dxp, dmin_phys, dmax_phys, dbcdef, dcost;
-    dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , npart );
+    dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , len );
     dvec_fill_1d( &dmin_phys , min_phys , GFC_DTYPE_REAL , sizeof(double) , 3 );
     dvec_fill_1d( &dmax_phys , max_phys , GFC_DTYPE_REAL , sizeof(double) , 3 );
     dvec_fill_1d( &dbcdef , bcdef , GFC_DTYPE_INTEGER , sizeof(int) , 6 );
@@ -314,57 +314,61 @@ void ppm_topo_mkpart ( int *topoid , double *xp , int npart , int decomp , int a
     *cost = (double *)dcost.base_addr;
     *ncost = dcost.dim[0].upper_bound - dcost.dim[0].lower_bound + 1;
     }
-void ppm_map_part_global ( int topoid , double *xp , int npart , int *info ) {
+void ppm_map_part_global ( int topoid , double *xp , int len , int npart , int *info ) {
     dvec dxp;
-    dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , npart );
+    dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , len );
     __ppm_module_map_part_global_MOD_ppm_map_part_global_d( &topoid , &dxp , &npart , info , NULL );
     }
-void ppm_map_part_push_1dd ( double *pdata , int npart , int *info , int pushpp ) {
+void ppm_map_part_push_1dd ( double *pdata , int len , int npart , int *info , int pushpp ) {
     dvec dpdata;
-    dvec_fill_1d( &dpdata , pdata , GFC_DTYPE_REAL , sizeof(double) , npart );
+    dvec_fill_1d( &dpdata , pdata , GFC_DTYPE_REAL , sizeof(double) , len );
     __ppm_module_map_part_MOD_ppm_map_part_push_1dd( &dpdata , &npart , info , &pushpp );
     }
-void ppm_map_part_push_1di ( int *pdata , int npart , int *info , int pushpp ) {
+void ppm_map_part_push_1di ( int *pdata , int len , int npart , int *info , int pushpp ) {
     dvec dpdata;
-    dvec_fill_1d( &dpdata , pdata , GFC_DTYPE_INTEGER , sizeof(int) , npart );
+    dvec_fill_1d( &dpdata , pdata , GFC_DTYPE_INTEGER , sizeof(int) , len );
     __ppm_module_map_part_MOD_ppm_map_part_push_1di( &dpdata , &npart , info , &pushpp );
     }
-void ppm_map_part_push_2dd ( double *pdata , int lda , int npart , int *info , int pushpp ) {
+void ppm_map_part_push_2dd ( double *pdata , int lda , int len , int npart , int *info , int pushpp ) {
     dvec dpdata;
-    dvec_fill_2d( &dpdata , pdata , GFC_DTYPE_REAL , sizeof(double) , lda , npart );
+    dvec_fill_2d( &dpdata , pdata , GFC_DTYPE_REAL , sizeof(double) , lda , len );
     __ppm_module_map_part_MOD_ppm_map_part_push_2dd( &dpdata , &lda , &npart , info , &pushpp );
     }
-void ppm_map_part_push_2di ( int *pdata , int lda , int npart , int *info , int pushpp ) {
+void ppm_map_part_push_2di ( int *pdata , int lda , int len , int npart , int *info , int pushpp ) {
     dvec dpdata;
-    dvec_fill_2d( &dpdata , pdata , GFC_DTYPE_INTEGER , sizeof(int) , lda , npart );
+    dvec_fill_2d( &dpdata , pdata , GFC_DTYPE_INTEGER , sizeof(int) , lda , len );
     __ppm_module_map_part_MOD_ppm_map_part_push_2di( &dpdata , &lda , &npart , info , &pushpp );
     }
 void ppm_map_part_send ( int npart , int *mpart , int *info ) {
     __ppm_module_map_part_MOD_ppm_map_part_send( &npart , mpart , info );
     }
-void ppm_map_part_pop_1dd ( double **pdata , int npart , int *mpart , int *info ) {
+void ppm_map_part_pop_1dd ( double **pdata , int *len , int npart , int *mpart , int *info ) {
     dvec dpdata;
-    dvec_fill_1d( &dpdata , *pdata , GFC_DTYPE_REAL , sizeof(double) , npart );
+    dvec_fill_1d( &dpdata , *pdata , GFC_DTYPE_REAL , sizeof(double) , *len );
     __ppm_module_map_part_MOD_ppm_map_part_pop_1dd( &dpdata , &npart , mpart , info );
     *pdata = (double *)dpdata.base_addr;
+    *len = dpdata.dim[0].upper_bound - dpdata.dim[0].lower_bound + 1;
     }
-void ppm_map_part_pop_1di ( int **pdata , int npart , int *mpart , int *info ) {
+void ppm_map_part_pop_1di ( int **pdata , int *len , int npart , int *mpart , int *info ) {
     dvec dpdata;
-    dvec_fill_1d( &dpdata , *pdata , GFC_DTYPE_INTEGER , sizeof(int) , npart );
+    dvec_fill_1d( &dpdata , *pdata , GFC_DTYPE_INTEGER , sizeof(int) , *len );
     __ppm_module_map_part_MOD_ppm_map_part_pop_1di( &dpdata , &npart , mpart , info );
     *pdata = (int *)dpdata.base_addr;
+    *len = dpdata.dim[0].upper_bound - dpdata.dim[0].lower_bound + 1;
     }
-void ppm_map_part_pop_2dd ( double **pdata , int lda , int npart , int *mpart , int *info ) {
+void ppm_map_part_pop_2dd ( double **pdata , int lda , int *len , int npart , int *mpart , int *info ) {
     dvec dpdata;
-    dvec_fill_2d( &dpdata , *pdata , GFC_DTYPE_REAL , sizeof(double) , lda , npart );
+    dvec_fill_2d( &dpdata , *pdata , GFC_DTYPE_REAL , sizeof(double) , lda , *len );
     __ppm_module_map_part_MOD_ppm_map_part_pop_2dd( &dpdata , &lda , &npart , mpart , info );
     *pdata = (double *)dpdata.base_addr;
+    *len = dpdata.dim[1].upper_bound - dpdata.dim[1].lower_bound + 1;
     }
-void ppm_map_part_pop_2di ( int **pdata , int lda , int npart , int *mpart , int *info ) {
+void ppm_map_part_pop_2di ( int **pdata , int *len , int lda , int npart , int *mpart , int *info ) {
     dvec dpdata;
-    dvec_fill_2d( &dpdata , *pdata , GFC_DTYPE_INTEGER , sizeof(int) , lda , npart );
+    dvec_fill_2d( &dpdata , *pdata , GFC_DTYPE_INTEGER , sizeof(int) , lda , *len );
     __ppm_module_map_part_MOD_ppm_map_part_pop_2di( &dpdata , &lda , &npart , mpart , info );
     *pdata = (int *)dpdata.base_addr;
+    *len = dpdata.dim[1].upper_bound - dpdata.dim[1].lower_bound + 1;
     }
 void ppm_topo_get ( int topoid , ppm_t_topo *topo , int *info ) {
     __ppm_module_topo_get_MOD_ppm_topo_get ( &topoid , topo , info );
@@ -375,9 +379,9 @@ void ppm_topo_getextent ( int topoid , double *min_phys , double *max_phys , int
     dvec_fill_1d( &dmax_phys , max_phys , GFC_DTYPE_REAL , sizeof(double) , 3 );
     __ppm_module_topo_get_MOD_ppm_topo_getextent ( &topoid , &dmin_phys , &dmax_phys, info );
     }
-void ppm_map_part_ghost_get ( int topoid , double *xp , int lda , int npart , int issym , double ghostsize , int *info ) {
+void ppm_map_part_ghost_get ( int topoid , double *xp , int lda , int len , int npart , int issym , double ghostsize , int *info ) {
     dvec dxp;
-    dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , npart );
+    dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , len );
     __ppm_module_map_part_ghost_MOD_ppm_map_part_ghost_get_d( &topoid , &dxp , &lda , &npart , &issym , &ghostsize , info );
     }
 

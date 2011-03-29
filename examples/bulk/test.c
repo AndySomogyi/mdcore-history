@@ -233,10 +233,10 @@ int main ( int argc , char *argv[] ) {
     nz = ceil( ((double)nr_mols) / nx / ny );
     for ( i = 0 ; i < nx ; i++ ) {
         x[0] = 0.1 + i * 0.31;
-        for ( j = 0 ; j < nx ; j++ ) {
+        for ( j = 0 ; j < ny ; j++ ) {
             x[1] = 0.1 + j * 0.31;
-            for ( k = 0 ; k < nx && k + nx * ( j + nx * i ) < nr_mols ; k++ ) {
-                p_O.id = 3 * (k + nx * ( j + nx * i ));
+            for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_mols ; k++ ) {
+                p_O.id = 3 * (k + nz * ( j + ny * i ));
                 x[2] = 0.1 + k * 0.31;
                 p_O.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 p_O.v[1] = ((double)rand()) / RAND_MAX - 0.5;
@@ -272,8 +272,8 @@ int main ( int argc , char *argv[] ) {
         }
     for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
         for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ )
-            for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                e.s.cells[cid].parts[pid].v[k] -= vtot[k] / 8000;
+            for ( k = 0 ; k < 3 ; k++ )
+                e.s.cells[cid].parts[pid].v[k] -= vtot[k] / nr_mols;
     printf("done.\n"); fflush(stdout);
     printf("main: inserted %i particles.\n", e.s.nr_parts);
         

@@ -72,3 +72,10 @@ Things to do with speed:
 * 2011/02/04: More refined use of __builtin_prefetch on cell particle lists?
 
 
+Things to do with hybrid simulation:
+
+* 2011/03/28: Make sure particles in ghost cells are not moved.
+* 2011/03/28: Somehow assign ghost layers.
+* 2011/03/28: Are interactions between ghost cells computed?
+
+

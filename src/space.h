@@ -32,6 +32,7 @@
 
 
 /* some constants */
+#define space_periodic_none             0
 #define space_periodic_x                1
 #define space_periodic_y                2
 #define space_periodic_z                4

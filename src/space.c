@@ -294,6 +294,9 @@ int space_flush ( struct space *s ) {
     for ( cid = 0 ; cid < s->nr_cells ; cid++ )
         s->cells[cid].count = 0;
         
+    /* Set the nr of parts to zero. */
+    s->nr_parts = 0;
+        
     /* done for now. */
     return space_err_ok;
 
@@ -585,6 +588,8 @@ int space_prepare ( struct space *s ) {
     /* run through the cells and re-set the potential energy and forces */
     for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
         s->cells[cid].epot = 0.0;
+        if ( s->cells[cid].flags & cell_flag_ghost )
+            continue;
         for ( pid = 0 ; pid < s->cells[cid].count ; pid++ )
             for ( k = 0 ; k < 3 ; k++ )
                 s->cells[cid].parts[pid].f[k] = 0.0;
@@ -620,6 +625,10 @@ int space_shuffle ( struct space *s ) {
     
         /* get the cell */
         c = &(s->cells[cid]);
+        
+        /* Skip ghost cells. */
+        if ( c->flags & cell_flag_ghost )
+            continue;
     
         /* loop over all particles in this cell */
         pid = 0;
@@ -664,11 +673,14 @@ int space_shuffle ( struct space *s ) {
         } /* loop over all cells */
         
     /* run through the cells again and reconstruct the partlist */
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+        if ( s->cells[cid].flags & cell_flag_ghost )
+            continue;
         for ( pid = 0 ; pid < s->cells[cid].count ; pid++ ) {
             s->partlist[ s->cells[cid].parts[pid].id ] = &( s->cells[cid].parts[pid] );
             s->celllist[ s->cells[cid].parts[pid].id ] = &( s->cells[cid] );
             }
+        }
             
     /* If we've got a Verlet list, reset the counts. */
     if ( s->verlet_nrpairs != NULL )
