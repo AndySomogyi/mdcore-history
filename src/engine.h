@@ -44,6 +44,7 @@
 #define engine_flag_affinity             128
 #define engine_flag_prefetch             256
 #define engine_flag_verlet_pairwise2     512
+#define engine_flag_partlist             1024
 
 
 /** ID of the last error. */
@@ -101,6 +102,10 @@ int engine_step ( struct engine *e );
 int engine_addpot ( struct engine *e , struct potential *p , int i , int j );
 int engine_addtype ( struct engine *e , int id , double mass , double charge );
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *vid , double *charge , unsigned int *flags , int N );
-int engine_unload ( struct engine *e , double *x , double *v , int *type , int *vid , double *charge , unsigned int *flags , int N );
+int engine_unload ( struct engine *e , double *x , double *v , int *type , int *vid , double *charge , unsigned int *flags , double *epot , int N );
 int engine_setexplepot ( struct engine *e , struct potential *ep );
 int engine_flush ( struct engine *e );
+int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , int N );
+int engine_unload_marked ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N );
+int engine_flush_ghosts ( struct engine *e );
+int engine_unload_strays ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N );

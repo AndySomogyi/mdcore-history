@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
-AM_CFLAGS = -g -Wall $(SIMD_FLAGS)
+AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS)
 AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers

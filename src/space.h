@@ -37,9 +37,14 @@
 #define space_periodic_y                2
 #define space_periodic_z                4
 #define space_periodic_full             7
+#define space_periodic_ghost_x          8
+#define space_periodic_ghost_y          16
+#define space_periodic_ghost_z          32
+#define space_periodic_ghost_full       56
 
 #define space_partlist_incr             100
 
+/** Maximum number of cells per tuple. */
 #define space_maxtuples                 4
 
 /** Maximum number of interactions per particle in the Verlet list. */
@@ -214,3 +219,4 @@ int space_flush ( struct space *s );
 int space_verlet_init ( struct space *s , int list_global );
 int space_verlet_get ( struct space *s , int maxcount , int *from );
 int space_verlet_force ( struct space *s , FPTYPE *f , double epot );
+int space_flush_ghosts ( struct space *s );

@@ -26,7 +26,7 @@
 
 
 /* some constants */
-#define cell_default_size               10
+#define cell_default_size               100
 #define cell_incr                       10
 
 /** Alignment when allocating parts. */
@@ -41,6 +41,7 @@
 #define cell_flag_ghost                 1
 #define cell_flag_wait                  2
 #define cell_flag_waited                4
+#define cell_flag_marked                8
 
 
 /* the last error */
@@ -72,11 +73,12 @@ struct cell {
     double epot;
     
     /* Mutex for synchronized cell access. */
-    pthread_mutex_t verlet_force_mutex;
+    pthread_mutex_t cell_mutex;
+	pthread_cond_t cell_cond;
     
     };
     
 
 /* associated functions */
 int cell_init ( struct cell *c , int *loc , double *origin , double *dim );
-struct part *cell_add ( struct cell *c , struct part *p );
+struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist );

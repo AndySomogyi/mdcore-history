@@ -62,9 +62,10 @@ int cell_err = cell_err_ok;
 /* location. assume the position has already been adjusted. */
 /*////////////////////////////////////////////////////////////////////////////// */
 
-struct part *cell_add ( struct cell *c , struct part *p ) {
+struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist ) {
 
     struct part *temp;
+    int k;
 
     /* check inputs */
     if ( c == NULL || p == NULL ) {
@@ -82,6 +83,9 @@ struct part *cell_add ( struct cell *c , struct part *p ) {
         free( c->parts );
         c->parts = temp;
         c->size += cell_incr;
+        if ( partlist != NULL )
+            for ( k = 0 ; k < c->count ; k++ )
+                partlist[ c->parts[k].id ] = &( c->parts[k] );
         }
         
     /* store this particle */
@@ -111,7 +115,9 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
     c->flags = cell_flag_none;
         
     /* Init this cell's mutex. */
-    if ( pthread_mutex_init( &c->verlet_force_mutex , NULL ) != 0 )
+    if ( pthread_mutex_init( &c->cell_mutex , NULL ) != 0 )
+        return error(cell_err_pthread);
+    if ( pthread_cond_init( &c->cell_cond , NULL ) != 0 )
         return error(cell_err_pthread);
         
     /* store values */

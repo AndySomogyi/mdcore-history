@@ -82,6 +82,30 @@ int engine_flush ( struct engine *e ) {
     }
 
 
+/**
+ * @brief Clear all particles from this #engine's ghost cells.
+ *
+ * @param e The #engine to flush.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_flush_ghosts ( struct engine *e ) {
+
+    /* check input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Clear the space. */
+    if ( space_flush_ghosts( &e->s ) < 0 )
+        return error(engine_err_space);
+        
+    /* done for now. */
+    return engine_err_ok;
+
+    }
+
+
 /** 
  * @brief Set the explicit electrostatic potential.
  *
@@ -131,54 +155,250 @@ int engine_setexplepot ( struct engine *e , struct potential *ep ) {
  * @param vid A vector of length @c N of the particle vidtual IDs.
  * @param q A vector of length @c N of the individual particle charges.
  * @param flags A vector of length @c N of the particle flags.
+ * @param epot A pointer to a #double in which to store the total potential energy.
  * @param N the maximum number of particles.
  *
  * @return The number of particles unloaded or < 0 on
  *      error (see #engine_err).
  *
- * The fields @c x, @c v, @c type, @c vid, @c q and/or @c flags may be NULL.
+ * The fields @c x, @c v, @c type, @c vid, @c q, @c epot and/or @c flags may be NULL.
  */
  
-int engine_unload ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , int N ) {
+int engine_unload ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N ) {
 
     struct part *p;
     struct cell *c;
-    int j, k, pid;
+    int j, k, cid, pid, count = 0;
+    double epot_acc = 0.0;
     
     /* check the inputs. */
     if ( e == NULL )
         return error(engine_err_null);
-    if ( N < e->s.nr_parts )
-        return error(engine_err_range);
         
-    /* loop over the entries. */
-    for ( k = 0 ; k < e->s.nr_parts ; k++ ) {
+    /* Loop over each cell. */
+    #pragma omp parallel for schedule(static,100), private(cid,c,k,p,pid,j), reduction(+:epot_acc,count)
+    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
     
-        /* get a handle on the particle. */
-        p = e->s.partlist[k];
-        c = e->s.celllist[k];
-        pid = p->id;
+        /* Get a hold of the cell. */
+        c = &( e->s.cells[cid] );
+    
+        /* Collect the potential energy if requested. */
+        epot_acc += c->epot;
+            
+        /* Loop over the parts in this cell. */
+        __builtin_prefetch( &( c->parts[0] ) );
+        __builtin_prefetch( &( c->parts[1] ) );
+        __builtin_prefetch( &( c->parts[2] ) );
+        __builtin_prefetch( &( c->parts[3] ) );
+        for ( k = 0 ; k < c->count ; k++ ) {
         
-        /* get this particle's data, where requested. */
-        if ( x != NULL )
-            for ( j = 0 ; j < 3 ; j++ )
-                x[pid*3+j] = c->origin[j] + p->x[j];
-        if ( v != NULL)
-            for ( j = 0 ; j < 3 ; j++ )
-                v[pid*3+j] = p->v[j];
-        if ( type != NULL )
-            type[pid] = p->type;
-        if ( vid != NULL )
-            vid[pid] = p->vid;
-        if ( q != NULL )
-            q[pid] = p->q;
-        if ( flags != NULL )
-            flags[pid] = p->flags;
-    
+            /* pre-fetch the next particle. */
+            __builtin_prefetch( &( c->parts[k+4] ) );
+        
+            /* Get a hold of the particle. */
+            p = &( c->parts[k] );
+            if ( ( pid = p->id ) >= N )
+                continue;
+            count += 1;
+        
+            /* get this particle's data, where requested. */
+            if ( x != NULL )
+                for ( j = 0 ; j < 3 ; j++ )
+                    x[pid*3+j] = c->origin[j] + p->x[j];
+            if ( v != NULL)
+                for ( j = 0 ; j < 3 ; j++ )
+                    v[pid*3+j] = p->v[j];
+            if ( type != NULL )
+                type[pid] = p->type;
+            if ( vid != NULL )
+                vid[pid] = p->vid;
+            if ( q != NULL )
+                q[pid] = p->q;
+            if ( flags != NULL )
+                flags[pid] = p->flags;
+                
+            }
+            
         }
         
+    /* Write back the potential energy, if requested. */
+    *epot += epot_acc;
+
     /* to the pub! */
-    return e->s.nr_parts;
+    return count;
+
+    }
+
+
+/**
+ * @brief Unload a set of particle data from the marked cells of an #engine
+ *
+ * @param e The #engine.
+ * @param x An @c N times 3 array of the particle positions.
+ * @param v An @c N times 3 array of the particle velocities.
+ * @param type A vector of length @c N of the particle type IDs.
+ * @param vid A vector of length @c N of the particle vidtual IDs.
+ * @param q A vector of length @c N of the individual particle charges.
+ * @param flags A vector of length @c N of the particle flags.
+ * @param epot A pointer to a #double in which to store the total potential energy.
+ * @param N the maximum number of particles.
+ *
+ * @return The number of particles unloaded or < 0 on
+ *      error (see #engine_err).
+ *
+ * The fields @c x, @c v, @c type, @c vid, @c q, @c epot and/or @c flags may be NULL.
+ */
+ 
+int engine_unload_marked ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N ) {
+
+    struct part *p;
+    struct cell *c;
+    int j, k, cid, count = 0;
+    double epot_acc = 0.0;
+    
+    /* check the inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Loop over each cell. */
+    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
+    
+        /* Get a hold of the cell. */
+        c = &( e->s.cells[cid] );
+        
+        /* Skip it? */
+        if ( !(c->flags & cell_flag_marked) )
+            continue;
+    
+        /* Collect the potential energy if requested. */
+        epot_acc += c->epot;
+            
+        /* Loop over the parts in this cell. */
+        __builtin_prefetch( &( c->parts[0] ) );
+        __builtin_prefetch( &( c->parts[1] ) );
+        __builtin_prefetch( &( c->parts[2] ) );
+        __builtin_prefetch( &( c->parts[3] ) );
+        for ( k = 0 ; k < c->count ; k++ ) {
+        
+            /* pre-fetch the next particle. */
+            __builtin_prefetch( &( c->parts[k+4] ) );
+        
+            /* Get a hold of the particle. */
+            p = &( c->parts[k] );
+        
+            /* get this particle's data, where requested. */
+            if ( x != NULL )
+                for ( j = 0 ; j < 3 ; j++ )
+                    x[count*3+j] = c->origin[j] + p->x[j];
+            if ( v != NULL)
+                for ( j = 0 ; j < 3 ; j++ )
+                    v[count*3+j] = p->v[j];
+            if ( type != NULL )
+                type[count] = p->type;
+            if ( vid != NULL )
+                vid[count] = p->vid;
+            if ( q != NULL )
+                q[count] = p->q;
+            if ( flags != NULL )
+                flags[count] = p->flags;
+                
+            /* increase the counter. */
+            count += 1;
+            
+            }
+            
+        }
+        
+    /* Write back the potential energy, if requested. */
+    if ( epot != NULL )
+        *epot += epot_acc;
+
+    /* to the pub! */
+    return count;
+
+    }
+
+
+/**
+ * @brief Unload real particles that may have wandered into a ghost cell.
+ *
+ * @param e The #engine.
+ * @param x An @c N times 3 array of the particle positions.
+ * @param v An @c N times 3 array of the particle velocities.
+ * @param type A vector of length @c N of the particle type IDs.
+ * @param vid A vector of length @c N of the particle vidtual IDs.
+ * @param q A vector of length @c N of the individual particle charges.
+ * @param flags A vector of length @c N of the particle flags.
+ * @param epot A pointer to a #double in which to store the total potential energy.
+ * @param N the maximum number of particles.
+ *
+ * @return The number of particles unloaded or < 0 on
+ *      error (see #engine_err).
+ *
+ * The fields @c x, @c v, @c type, @c vid, @c q, @c epot and/or @c flags may be NULL.
+ */
+ 
+int engine_unload_strays ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N ) {
+
+    struct part *p;
+    struct cell *c;
+    int j, k, cid, count = 0;
+    double epot_acc = 0.0;
+    
+    /* check the inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Loop over each cell. */
+    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
+    
+        /* Get a hold of the cell. */
+        c = &( e->s.cells[cid] );
+        
+        /* Skip it? */
+        if ( !(c->flags & cell_flag_ghost) )
+            continue;
+    
+        /* Collect the potential energy if requested. */
+        epot_acc += c->epot;
+            
+        /* Loop over the parts in this cell. */
+        for ( k = c->count-1 ; k >= 0 && !(c->parts[k].flags & part_flag_ghost) ; k-- ) {
+        
+            /* Get a hold of the particle. */
+            p = &( c->parts[k] );
+            if ( p->flags & part_flag_ghost )
+                continue;
+        
+            /* get this particle's data, where requested. */
+            if ( x != NULL )
+                for ( j = 0 ; j < 3 ; j++ )
+                    x[count*3+j] = c->origin[j] + p->x[j];
+            if ( v != NULL)
+                for ( j = 0 ; j < 3 ; j++ )
+                    v[count*3+j] = p->v[j];
+            if ( type != NULL )
+                type[count] = p->type;
+            if ( vid != NULL )
+                vid[count] = p->vid;
+            if ( q != NULL )
+                q[count] = p->q;
+            if ( flags != NULL )
+                flags[count] = p->flags;
+                
+            /* increase the counter. */
+            count += 1;
+            
+            }
+            
+        }
+        
+    /* Write back the potential energy, if requested. */
+    if ( epot != NULL )
+        *epot += epot_acc;
+
+    /* to the pub! */
+    return count;
 
     }
 
@@ -204,14 +424,19 @@ int engine_unload ( struct engine *e , double *x , double *v , int *type , int *
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , int N ) {
 
     struct part p;
+    struct space *s;
     int k, pid;
     
     /* check the inputs. */
     if ( e == NULL || x == NULL || type == NULL )
         return error(engine_err_null);
         
+    /* Get a handle on the space. */
+    s = &(e->s);
+        
     /* init the velocity and charge in case not specified. */
     p.v[0] = 0.0; p.v[1] = 0.0; p.v[2] = 0.0;
+    p.f[0] = 0.0; p.f[1] = 0.0; p.f[2] = 0.0;
     p.q = 0.0;
     p.flags = part_flag_none;
         
@@ -232,7 +457,73 @@ int engine_load ( struct engine *e , double *x , double *v , int *type , int *vi
             p.q = q[pid];
             
         /* add the part to the space. */
-        if ( space_addpart( &e->s , &p , &x[3*pid] ) < 0 )
+        if ( space_addpart( s , &p , &x[3*pid] ) < 0 )
+            return error(engine_err_space);
+    
+        }
+        
+    /* to the pub! */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Load a set of particle data as ghosts
+ *
+ * @param e The #engine.
+ * @param x An @c N times 3 array of the particle positions.
+ * @param v An @c N times 3 array of the particle velocities.
+ * @param type A vector of length @c N of the particle type IDs.
+ * @param type A vector of length @c N of the particle virtual IDs.
+ * @param q A vector of length @c N of the individual particle charges.
+ * @param flags A vector of length @c N of the particle flags.
+ * @param N the number of particles to load.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * If the parameters @c v, @c flags, @c vid or @c q are @c NULL, then
+ * these values are set to zero.
+ */
+ 
+int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , int N ) {
+
+    struct part p;
+    struct space *s;
+    int k, pid, nr_parts;
+    
+    /* check the inputs. */
+    if ( e == NULL || x == NULL || type == NULL )
+        return error(engine_err_null);
+        
+    /* Get a handle on the space. */
+    s = &(e->s);
+    nr_parts = s->nr_parts;
+        
+    /* init the velocity and charge in case not specified. */
+    p.v[0] = 0.0; p.v[1] = 0.0; p.v[2] = 0.0;
+    p.f[0] = 0.0; p.f[1] = 0.0; p.f[2] = 0.0;
+    p.q = 0.0;
+    p.flags = part_flag_ghost;
+        
+    /* loop over the entries. */
+    for ( pid = 0 ; pid < N ; pid++ ) {
+    
+        /* set the particle data. */
+        p.id = pid + nr_parts;
+        p.type = type[pid];
+        if ( vid != NULL )
+            p.vid = vid[pid];
+        if ( flags != NULL )
+            p.flags = flags[pid] | part_flag_ghost;
+        if ( v != NULL )
+            for ( k = 0 ; k < 3 ; k++ )
+                p.v[k] = v[pid*3+k];
+        if ( q != 0 )
+            p.q = q[pid];
+            
+        /* add the part to the space. */
+        if ( space_addpart( s , &p , &x[3*pid] ) < 0 )
             return error(engine_err_space);
     
         }
@@ -418,14 +709,16 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
 
 int engine_step ( struct engine *e ) {
 
-    int cid, pid, k;
-    struct cell *c;
+    int cid, pid, k, delta[3];
+    struct cell *c, *c_dest;
     struct part *p;
     struct space *s;
-    FPTYPE dt, w;
+    FPTYPE dt, w, h[3];
     
     /* Get a grip on the space. */
     s = &(e->s);
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
 
     /* increase the time stepper */
     e->time += 1;
@@ -452,25 +745,76 @@ int engine_step ( struct engine *e ) {
 
     /* update the particle velocities and positions */
     dt = e->dt;
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        c = &(s->cells[cid]);
-        if ( c->flags & cell_flag_ghost )
-            continue;
-        for ( pid = 0 ; pid < c->count ; pid++ ) {
-            p = &(c->parts[pid]);
-            w = dt * e->types[p->type].imass;
-            for ( k = 0 ; k < 3 ; k++ ) {
-                p->v[k] += p->f[k] * w;
-                p->x[k] += dt * p->v[k];
+    if ( e->flags & engine_flag_verlet )
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( c->flags & cell_flag_ghost )
+                continue;
+            __builtin_prefetch( &c->parts[0] );
+            __builtin_prefetch( &c->parts[1] );
+            __builtin_prefetch( &c->parts[2] );
+            __builtin_prefetch( &c->parts[3] );
+            for ( pid = 0 ; pid < c->count ; pid++ ) {
+                __builtin_prefetch( &c->parts[pid+4] );
+                p = &( c->parts[pid] );
+                w = dt * e->types[p->type].imass;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    p->v[k] += p->f[k] * w;
+                    p->x[k] += dt * p->v[k];
+                    }
                 }
             }
-        }
-
-    /* Only re-shuffle the space if we're not using a verlet list! */
-    if ( !( e->flags & engine_flag_verlet ) )
-        if ( space_shuffle( s ) != space_err_ok )
-            return error(engine_err_space);
-    
+    else
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( c->flags & cell_flag_ghost )
+                continue;
+            /* __builtin_prefetch( &c->parts[0] );
+            __builtin_prefetch( &c->parts[1] );
+            __builtin_prefetch( &c->parts[2] );
+            __builtin_prefetch( &c->parts[3] );
+            __builtin_prefetch( &c->parts[4] );
+            __builtin_prefetch( &c->parts[5] );
+            __builtin_prefetch( &c->parts[6] );
+            __builtin_prefetch( &c->parts[7] ); */
+            pid = 0;
+            while ( pid < c->count ) {
+            
+                /* __builtin_prefetch( &c->parts[pid+8] ); */
+                p = &( c->parts[pid] );
+                w = dt * e->types[p->type].imass;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    p->v[k] += p->f[k] * w;
+                    p->x[k] += dt * p->v[k];
+                    delta[k] = __builtin_isgreaterequal( p->x[k] , h[k] ) - __builtin_isless( p->x[k] , 0.0 );
+                    /* delta[k] = 0;
+                    if ( p->x[k] < 0.0 )
+                        delta[k] = -1;
+                    else if ( p->x[k] >= h[k] )
+                        delta[k] = 1; */
+                    }
+                    
+                /* do we have to move this particle? */
+                if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->x[k] -= delta[k] * h[k];
+                    c_dest = &( s->cells[ space_cellid( s ,
+                        (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
+                        (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
+                        (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
+                    s->partlist[ p->id ] = cell_add( c_dest , p , s->partlist );
+                    s->celllist[ p->id ] = c_dest;
+                    c->count -= 1;
+                    if ( pid < c->count ) {
+                        c->parts[pid] = c->parts[c->count];
+                        s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
+                        }
+                    }
+                else
+                    pid++;
+                }
+            }
+            
     /* return quietly */
     return engine_err_ok;
     

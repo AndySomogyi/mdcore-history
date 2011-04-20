@@ -92,7 +92,7 @@ int space_verlet_force ( struct space *s , FPTYPE *f , double epot ) {
         c = &(s->cells[scells[cid]]);
         
         /* Get a lock on the cell. */
-	    if ( pthread_mutex_lock( &c->verlet_force_mutex ) != 0 )
+	    if ( pthread_mutex_lock( &c->cell_mutex ) != 0 )
 		    return error(space_err_pthread);
         
         for ( pid = 0 ; pid < c->count ; pid++ ) {
@@ -103,7 +103,7 @@ int space_verlet_force ( struct space *s , FPTYPE *f , double epot ) {
             }
             
         /* Release the cells mutex */
-	    if ( pthread_mutex_unlock( &c->verlet_force_mutex ) != 0 )
+	    if ( pthread_mutex_unlock( &c->cell_mutex ) != 0 )
 		    return error(space_err_pthread);
         
         }
@@ -275,6 +275,35 @@ int space_verlet_init ( struct space *s , int list_global ) {
 
 
 /**
+ * @brief Clear all particles from the ghost cells in this #space.
+ *
+ * @param s The #space to flush.
+ *
+ * @return #space_err_ok or < 0 on error (see #space_err).
+ */
+ 
+int space_flush_ghosts ( struct space *s ) {
+
+    int cid;
+
+    /* check input. */
+    if ( s == NULL )
+        return error(space_err_null);
+        
+    /* loop through the cells. */
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+        if ( s->cells[cid].flags & cell_flag_ghost ) {
+            s->nr_parts -= s->cells[cid].count;
+            s->cells[cid].count = 0;
+            }
+        
+    /* done for now. */
+    return space_err_ok;
+
+    }
+
+
+/**
  * @brief Clear all particles from this #space.
  *
  * @param s The #space to flush.
@@ -406,7 +435,7 @@ int space_gettuple ( struct space *s , struct celltuple **out , int wait ) {
  
 int space_maketuples ( struct space *s ) {
 
-    int size, *w, w_max;
+    int size, *w, w_max, iw_max;
     int i, j, k;
     struct celltuple *t;
     struct cellpair *p, temppair;
@@ -488,7 +517,8 @@ int space_maketuples ( struct space *s ) {
                 w_max, s->nr_tuples-1, w_max, w[w_max] ); */
             
             /* Add this cell to the tuple. */
-            t->cellid[ t->n++ ] = w_max;
+            iw_max = t->n++;
+            t->cellid[ iw_max ] = w_max;
         
             /* Look for pairs that contain w_max and someone from the tuple. */
             for ( k = s->next_pair ; k < s->nr_pairs ; k++ ) {
@@ -497,8 +527,14 @@ int space_maketuples ( struct space *s ) {
                 p = &( s->pairs[ k ] );
                 
                 /* Get the tuple indices of the cells in this pair. */
-                for ( i = 0 ; i < t->n && t->cellid[i] != p->i ; i++ );
-                for ( j = 0 ; j < t->n && t->cellid[j] != p->j ; j++ );
+                if ( p->i == iw_max )
+                    i = iw_max;
+                else
+                    for ( i = 0 ; i < t->n && t->cellid[i] != p->i ; i++ );
+                if ( p->j == iw_max )
+                    j = iw_max;
+                else
+                    for ( j = 0 ; j < t->n && t->cellid[j] != p->j ; j++ );
                 
                 /* If this pair is not in the tuple, skip it. */
                 if ( i == t->n || j == t->n )
@@ -617,8 +653,13 @@ int space_prepare ( struct space *s ) {
 int space_shuffle ( struct space *s ) {
 
     int k, cid, pid, delta[3];
+    FPTYPE h[3];
     struct cell *c, *c_dest;
     struct part *p;
+    
+    /* Get a local copy of h. */
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
 
     /* loop over all cells */
     for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
@@ -631,17 +672,26 @@ int space_shuffle ( struct space *s ) {
             continue;
     
         /* loop over all particles in this cell */
+        __builtin_prefetch( &c->parts[0] );
+        __builtin_prefetch( &c->parts[1] );
+        __builtin_prefetch( &c->parts[2] );
+        __builtin_prefetch( &c->parts[3] );
+        __builtin_prefetch( &c->parts[4] );
+        __builtin_prefetch( &c->parts[5] );
+        __builtin_prefetch( &c->parts[6] );
+        __builtin_prefetch( &c->parts[7] );
         pid = 0;
         while ( pid < c->count ) {
         
             /* get a handle on the particle */
+            __builtin_prefetch( &c->parts[pid+8] );
             p = &(c->parts[pid]);
             
             /* check if this particle is out of bounds */
             for ( k = 0 ; k < 3 ; k++ ) {
                 if ( p->x[k] < 0.0 )
                     delta[k] = -1;
-                else if ( p->x[k] >= s->h[k] )
+                else if ( p->x[k] >= h[k] )
                     delta[k] = 1;
                 else
                     delta[k] = 0;
@@ -650,20 +700,23 @@ int space_shuffle ( struct space *s ) {
             /* do we have to move this particle? */
             if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
                 for ( k = 0 ; k < 3 ; k++ )
-                    p->x[k] -= delta[k] * s->h[k];
+                    p->x[k] -= delta[k] * h[k];
                 c_dest = &( s->cells[ space_cellid( s ,
                     (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
                     (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                     (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
-                cell_add( c_dest , p );
+                s->partlist[ p->id ] = cell_add( c_dest , p , s->partlist );
+                s->celllist[ p->id ] = c_dest;
                 c->count -= 1;
-                if ( pid < c->count )
+                if ( pid < c->count ) {
                     c->parts[pid] = c->parts[c->count];
-                /* printf("space_shuffle: moving particle %i from cell [%i,%i,%i] to cell [%i,%i,%i].\n", */
-                /*     p->id, c->loc[0], c->loc[1], c->loc[2], */
-                /*     c_dest->loc[0], c_dest->loc[1], c_dest->loc[2]); */
-                /* printf("space_shuffle: particle coords are [%e,%e,%e].\n", */
-                /*     p->x[0], p->x[1], p->x[2]); */
+                    s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
+                    }
+                /* printf("space_shuffle: moving particle %i from cell [%i,%i,%i] to cell [%i,%i,%i].\n",
+                    p->id, c->loc[0], c->loc[1], c->loc[2],
+                    c_dest->loc[0], c_dest->loc[1], c_dest->loc[2]);
+                printf("space_shuffle: particle coords are [%e,%e,%e].\n",
+                    p->x[0], p->x[1], p->x[2]); */
                 }
             else
                 pid++;
@@ -672,16 +725,6 @@ int space_shuffle ( struct space *s ) {
     
         } /* loop over all cells */
         
-    /* run through the cells again and reconstruct the partlist */
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        if ( s->cells[cid].flags & cell_flag_ghost )
-            continue;
-        for ( pid = 0 ; pid < s->cells[cid].count ; pid++ ) {
-            s->partlist[ s->cells[cid].parts[pid].id ] = &( s->cells[cid].parts[pid] );
-            s->celllist[ s->cells[cid].parts[pid].id ] = &( s->cells[cid] );
-            }
-        }
-            
     /* If we've got a Verlet list, reset the counts. */
     if ( s->verlet_nrpairs != NULL )
         bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
@@ -709,9 +752,9 @@ int space_shuffle ( struct space *s ) {
 
 int space_addpart ( struct space *s , struct part *p , double *x ) {
 
-    int k, cid, ind[3];
+    int k, ind[3];
     struct part **temp;
-    struct cell **tempc;
+    struct cell **tempc, *c;
 
     /* check input */
     if ( s == NULL || p == NULL || x == NULL )
@@ -745,16 +788,16 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
             return error(space_err_range);
 
     /* get the appropriate cell */
-    cid = space_cellid(s,ind[0],ind[1],ind[2]);
+    c = &( s->cells[ space_cellid(s,ind[0],ind[1],ind[2]) ] );
     
     /* make the particle position local */
     for ( k = 0 ; k < 3 ; k++ )
-        p->x[k] = x[k] - s->cells[cid].origin[k];
+        p->x[k] = x[k] - c->origin[k];
         
     /* delegate the particle to the cell */
-    if ( ( s->partlist[p->id] = cell_add(&s->cells[cid],p) ) == NULL )
+    if ( ( s->partlist[p->id] = cell_add( c , p , s->partlist ) ) == NULL )
         return error(space_err_cell);
-    s->celllist[p->id] = &( s->cells[cid] );
+    s->celllist[p->id] = c;
     
     /* end well */
     return space_err_ok;
@@ -1060,6 +1103,26 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
             }
         }
         
+    /* Make ghost layers if needed. */
+    if ( s->period & space_periodic_ghost_x )
+        for ( i = 0 ; i < s->cdim[0] ; i++ )
+            for ( j = 0 ; j < s->cdim[1] ; j++ ) {
+                s->cells[ space_cellid(s,i,j,0) ].flags |= cell_flag_ghost;
+                s->cells[ space_cellid(s,i,j,s->cdim[2]-1) ].flags |= cell_flag_ghost;
+                }
+    if ( s->period & space_periodic_ghost_y )
+        for ( i = 0 ; i < s->cdim[0] ; i++ )
+            for ( j = 0 ; j < s->cdim[2] ; j++ ) {
+                s->cells[ space_cellid(s,i,0,j) ].flags |= cell_flag_ghost;
+                s->cells[ space_cellid(s,i,s->cdim[1]-1,j) ].flags |= cell_flag_ghost;
+                }
+    if ( s->period & space_periodic_ghost_z )
+        for ( i = 0 ; i < s->cdim[1] ; i++ )
+            for ( j = 0 ; j < s->cdim[2] ; j++ ) {
+                s->cells[ space_cellid(s,0,i,j) ].flags |= cell_flag_ghost;
+                s->cells[ space_cellid(s,s->cdim[0]-1,i,j) ].flags |= cell_flag_ghost;
+                }
+        
     /* allocate the cell pairs array (pessimistic guess) */
     if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * s->nr_cells * 14 )) == NULL )
         return error(space_err_malloc);
@@ -1137,7 +1200,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                                 else
                                     continue;
                                 }
-                            else if ( kk >= s->cdim[0] ) {
+                            else if ( kk >= s->cdim[2] ) {
                                 if (s->period & space_periodic_z)
                                     kk = 0;
                                 else

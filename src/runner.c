@@ -770,7 +770,10 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     #endif
         
     /* Store the potential energy to cell_i. */
-    cell_i->epot += epot;
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* Write local data back if needed. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -1386,7 +1389,10 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     #endif
         
     /* Store the potential energy to cell_i. */
-    cell_i->epot += epot;
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* Write local data back if needed. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -1893,7 +1899,10 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     #endif
         
     /* Store the potential energy to cell_i. */
-    cell_i->epot += epot;
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* Write local data back if needed. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -2374,8 +2383,11 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 }
         }
         
-    /* store the amaSSEd potential energy. */
-    cell_i->epot += epot;
+    /* Store the potential energy to cell_i. */
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* since nothing bad happened to us... */
     return runner_err_ok;
@@ -3068,8 +3080,11 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 }
         }
         
-    /* store the amaSSEd potential energy. */
-    cell_i->epot += epot;
+    /* Store the potential energy to cell_i. */
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* since nothing bad happened to us... */
     return runner_err_ok;
@@ -3433,8 +3448,11 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                 }
         }
         
-    /* store the amaSSEd potential energy. */
-    cell_i->epot += epot;
+    /* Store the potential energy to cell_i. */
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* all is well that ends ok */
     return runner_err_ok;
@@ -4018,8 +4036,11 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
                 }
         }
         
-    /* store the amaSSEd potential energy. */
-    cell_i->epot += epot;
+    /* Store the potential energy to cell_i. */
+    if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
+        cell_i->epot += 0.5 * epot;
+    else
+        cell_i->epot += epot;
         
     /* all is well that ends ok */
     return runner_err_ok;
@@ -5140,25 +5161,25 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     
     /* init the thread using a pairwise Verlet list. */
     if ( e->flags & engine_flag_verlet_pairwise ) {
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet_pairwise,r) != 0)
+	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet_pairwise,r) != 0 )
 		    return error(runner_err_pthread);
         }
         
     /* init the thread using a global Verlet list. */
     else if ( e->flags & engine_flag_verlet ) {
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet,r) != 0)
+	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet,r) != 0 )
 		    return error(runner_err_pthread);
         }
         
     /* init the thread using tuples. */
     else if ( e->flags & engine_flag_tuples ) {
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0)
+	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0 )
 		    return error(runner_err_pthread);
         }
         
     /* default: use the normal pair-list instead. */
     else {
-	    if (pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_pairs,r) != 0)
+	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_pairs,r) != 0 )
 		    return error(runner_err_pthread);
         }
     

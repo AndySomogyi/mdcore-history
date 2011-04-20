@@ -1191,28 +1191,17 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
 
     struct potential *p;
     
-    double f ( double r2 ) {
-    
-        double ir2 = 1.0/r2, ir6 = ir2*ir2*ir2, ir12 = ir6 * ir6;
-    
-        return ( A * ir12 - B * ir6 );
-        
+    /* the potential functions */
+    double f ( double r ) {
+        return potential_LJ126 ( r , A , B );
         }
-
-    double fp ( double r2 ) {
-    
-        double ir2 = 1.0/r2, ir4 = ir2*ir2, ir12 = ir4 * ir4 * ir4;
-    
-        return 3 * ( -2 * A * ir12 * ir2 + B * ir4 * ir4 );
         
+    double dfdr ( double r ) {
+        return potential_LJ126_p ( r , A , B );
         }
-
-    double f6p ( double r2 ) {
-    
-        double ir2 = 1.0 / r2, ir6 = ir2*ir2*ir2, ir12 = ir6 * ir6;
-    
-        return 10080 * ( 33 * A * ir12 * ir12 - 2 * B * ir12 * ir6 );
         
+    double d6fdr6 ( double r ) {
+        return potential_LJ126_6p ( r , A , B );
         }
         
     /* allocate the potential */
@@ -1222,7 +1211,7 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &fp , &f6p , a , b , tol ) < 0 ) {
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
