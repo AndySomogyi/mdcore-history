@@ -55,6 +55,76 @@ char *cell_err_msg[] = {
 int cell_err = cell_err_ok;
 
 
+/**
+ * @brief Move particles from the incomming buffer to the cell.
+ *
+ * @param c The #cell.
+ * @param partlist A pointer to the partlist to set the part indices.
+ *
+ * @return #cell_err_ok or < 0 on error (see #cell_err).
+ */
+ 
+int cell_welcome ( struct cell *c , struct part **partlist ) {
+
+    int k;
+
+    /* Check inputs. */
+    if ( c == NULL )
+        return error(cell_err_null);
+        
+    /* Loop over the incomming parts. */
+    for ( k = 0 ; k < c->incomming_count ; k++ )
+        if ( cell_add( c , &c->incomming[k] , partlist ) < 0 )
+            return error(cell_err);
+        
+        
+    /* Clear the incomming particles list. */
+    c->incomming_count = 0;
+    
+    /* All done! */
+    return cell_err_ok;
+        
+    }
+
+
+/*////////////////////////////////////////////////////////////////////////////// */
+/* int cell_add */
+//
+/* add the given particle to the given space and return a pointer to its */
+/* location. assume the position has already been adjusted. */
+/*////////////////////////////////////////////////////////////////////////////// */
+
+struct part *cell_add_incomming ( struct cell *c , struct part *p ) {
+
+    struct part *temp;
+
+    /* check inputs */
+    if ( c == NULL || p == NULL ) {
+        error(cell_err_null);
+        return NULL;
+        }
+        
+    /* is there room for this particle? */
+    if ( c->incomming_count == c->incomming_size ) {
+        if ( posix_memalign( (void **)&temp , cell_partalign , align_ceil( sizeof(struct part) * ( c->incomming_size + cell_incr ) ) ) != 0 ) {
+            error(cell_err_malloc);
+            return NULL;
+            }
+        memcpy( temp , c->incomming , sizeof(struct part) * c->incomming_count );
+        free( c->incomming );
+        c->incomming = temp;
+        c->incomming_size += cell_incr;
+        }
+        
+    /* store this particle */
+    c->incomming[c->incomming_count] = *p;
+        
+    /* all is well */
+    return &( c->incomming[ c->incomming_count++ ] );
+
+    }
+
+
 /*////////////////////////////////////////////////////////////////////////////// */
 /* int cell_add */
 //
@@ -90,6 +160,8 @@ struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist
         
     /* store this particle */
     c->parts[c->count] = *p;
+    if ( partlist != NULL )
+        partlist[ p->id ] = &c->parts[ c->count ];
         
     /* all is well */
     return &( c->parts[ c->count++ ] );
@@ -132,6 +204,12 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
         return error(cell_err_malloc);
     c->size = cell_default_size;
     c->count = 0;
+    
+    /* allocate the incomming part buffer. */
+    if ( posix_memalign( (void **)&(c->incomming) , cell_partalign , align_ceil( sizeof(struct part) * cell_incr ) ) != 0 )
+        return error(cell_err_malloc);
+    c->incomming_size = cell_incr;
+    c->incomming_count = 0;
         
     /* all is well... */
     return cell_err_ok;

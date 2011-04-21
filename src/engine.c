@@ -47,14 +47,15 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[7] = {
+char *engine_err_msg[8] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
     "An error occured when calling a space function.",
     "A call to a pthread routine failed.",
     "An error occured when calling a runner function.",
-    "One or more values were outside of the allowed range."
+    "One or more values were outside of the allowed range.",
+    "An error occured while calling a cell function."
 	};
     
     
@@ -748,14 +749,15 @@ int engine_step ( struct engine *e ) {
     if ( e->flags & engine_flag_verlet )
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
+            s->epot += c->epot;
             if ( c->flags & cell_flag_ghost )
                 continue;
-            __builtin_prefetch( &c->parts[0] );
+            /* __builtin_prefetch( &c->parts[0] );
             __builtin_prefetch( &c->parts[1] );
             __builtin_prefetch( &c->parts[2] );
-            __builtin_prefetch( &c->parts[3] );
+            __builtin_prefetch( &c->parts[3] ); */
             for ( pid = 0 ; pid < c->count ; pid++ ) {
-                __builtin_prefetch( &c->parts[pid+4] );
+                /* __builtin_prefetch( &c->parts[pid+4] ); */
                 p = &( c->parts[pid] );
                 w = dt * e->types[p->type].imass;
                 for ( k = 0 ; k < 3 ; k++ ) {
@@ -764,9 +766,10 @@ int engine_step ( struct engine *e ) {
                     }
                 }
             }
-    else
+    else {
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
+            s->epot += c->epot;
             if ( c->flags & cell_flag_ghost )
                 continue;
             /* __builtin_prefetch( &c->parts[0] );
@@ -802,7 +805,7 @@ int engine_step ( struct engine *e ) {
                         (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
                         (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                         (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
-                    s->partlist[ p->id ] = cell_add( c_dest , p , s->partlist );
+                    cell_add_incomming( c_dest , p );
                     s->celllist[ p->id ] = c_dest;
                     c->count -= 1;
                     if ( pid < c->count ) {
@@ -811,9 +814,14 @@ int engine_step ( struct engine *e ) {
                         }
                     }
                 else
-                    pid++;
+                    pid += 1;
                 }
             }
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+            if ( !(c->flags & cell_flag_ghost) )
+                if ( cell_welcome( &s->cells[cid] , s->partlist ) < 0 )
+                    return error(engine_err_cell);
+        }
             
     /* return quietly */
     return engine_err_ok;

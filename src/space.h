@@ -48,7 +48,7 @@
 #define space_maxtuples                 4
 
 /** Maximum number of interactions per particle in the Verlet list. */
-#define space_verlet_maxpairs           500
+#define space_verlet_maxpairs           750
 
 
 /* some useful macros */

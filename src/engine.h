@@ -30,6 +30,7 @@
 #define engine_err_pthread               -4
 #define engine_err_runner                -5
 #define engine_err_range                 -6
+#define engine_err_cell                  -7
 
 
 /* some constants */

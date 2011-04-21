@@ -72,6 +72,10 @@ struct cell {
     /* buffer to store the potential energy */
     double epot;
     
+    /* a buffer to store incomming parts. */
+    struct part *incomming;
+    int incomming_size, incomming_count;
+    
     /* Mutex for synchronized cell access. */
     pthread_mutex_t cell_mutex;
 	pthread_cond_t cell_cond;
@@ -82,3 +86,5 @@ struct cell {
 /* associated functions */
 int cell_init ( struct cell *c , int *loc , double *origin , double *dim );
 struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist );
+struct part *cell_add_incomming ( struct cell *c , struct part *p );
+int cell_welcome ( struct cell *c , struct part **partlist );

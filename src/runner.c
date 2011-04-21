@@ -152,7 +152,7 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
             /* is this within cutoff? */
             if ( r2 > cutoff2 )
                 continue;
-            /* runner_rcount += 1; */
+            // runner_rcount += 1;
                 
             /* fetch the potential, should be non-NULL by design! */
             pot = verlet_list[j].pot;
@@ -426,7 +426,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
                     continue;
-                /* runner_rcount += 1; */
+                // runner_rcount += 1;
 
                 #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */
@@ -635,7 +635,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                     /* is this within cutoff? */
                     if ( r2 > cutoff2 )
                         continue;
-                    /* runner_rcount += 1; */
+                    // runner_rcount += 1;
 
                     #if defined(VECTORIZE)
                         /* add this interaction to the interaction queue. */
@@ -913,7 +913,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
                     continue;
-                /* runner_rcount += 1; */
+                // runner_rcount += 1;
 
                 /* fetch the potential, if any */
                 pot = pots[ pioff + part_j->type ];
@@ -1136,7 +1136,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                         /* is this within cutoff? */
                         if ( r2 > cutoff2 )
                             continue;
-                        /* runner_rcount += 1; */
+                        // runner_rcount += 1;
 
                         #if defined(VECTORIZE)
                             /* add this interaction to the interaction queue. */
@@ -1254,7 +1254,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     /* is this within cutoff? */
                     if ( r2 > cutoff2 )
                         continue;
-                    /* runner_rcount += 1; */
+                    // runner_rcount += 1;
 
                     /* fetch the potential (non-NULL by design). */
                     pot = pots[ pjoff + part_i->type ];
@@ -4499,7 +4499,7 @@ int runner_run_verlet ( struct runner *r ) {
         if ( engine_barrier(e) < 0)
             return error(runner_err_engine);
             
-        /* runner_rcount = 0; */
+        // runner_rcount = 0;
             
         /* Does the Verlet list need to be reconstructed? */
         if ( s->verlet_rebuild ) {
@@ -4565,8 +4565,6 @@ int runner_run_verlet ( struct runner *r ) {
             if ( res < 0 )
                 return error(runner_err_space);
                 
-            /* printf("runner_run_verlet: runner_rcount=%i.\n", runner_rcount); */
-            
             } /* reconstruct the Verlet list. */
             
         /* Otherwise, just run through the Verlet list. */
@@ -4614,6 +4612,9 @@ int runner_run_verlet ( struct runner *r ) {
             
             }
 
+            /* Print the rcount. */
+            // printf("runner_run_verlet: runner_rcount=%i.\n", runner_rcount);
+            
         }
 
     /* end well... */
@@ -4755,7 +4756,7 @@ int runner_run_tuples ( struct runner *r ) {
         if ( engine_barrier(e) < 0 )
             return r->err = runner_err_engine;
             
-        /* runner_rcount = 0; */
+        // runner_rcount = 0;
                         
         /* Loop over tuples. */
         while ( 1 ) {
@@ -4873,7 +4874,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
         if ( engine_barrier(e) < 0 )
             return r->err = runner_err_engine;
             
-        /* runner_rcount = 0; */
+        // runner_rcount = 0;
                         
         /* Loop over tuples. */
         while ( 1 ) {
@@ -4952,7 +4953,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
             } /* loop over the tuples. */
 
         /* give the reaction count */
-        /* printf("runner_run_verlet_pairwise: runner_rcount=%u.\n",runner_rcount); */
+        // printf("runner_run_verlet_pairwise: runner_rcount=%u.\n",runner_rcount);
             
         }
 
