@@ -242,7 +242,7 @@ int space_verlet_init ( struct space *s , int list_global ) {
     if ( s->verlet_rebuild ) {
     
         /* printf("space_verlet_init: (re)building verlet lists...\n"); */
-        printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin);
+        // printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin);
         
         /* Shuffle the domain. */
         if ( space_shuffle( s ) < 0 )
