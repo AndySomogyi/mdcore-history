@@ -77,5 +77,8 @@ Things to do with hybrid simulation:
 * 2011/03/28: Make sure particles in ghost cells are not moved.
 * 2011/03/28: Somehow assign ghost layers.
 * 2011/03/28: Are interactions between ghost cells computed?
+* 2011/03/29: Make engine_load and engine_unload work cell-wise so that
+              they can be parallelized with OpenMP?
+* 2011/03/29: Scale potential energy when interacting ghost/non-ghost cells.
 
 

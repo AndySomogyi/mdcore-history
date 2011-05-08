@@ -372,7 +372,7 @@ int space_gettuple ( struct space *s , struct celltuple **out , int wait ) {
             /* If so, mark-off the cells pair by pair. */
             for ( i = 0 ; i < t->n ; i++ )
                 for ( j = i ; j < t->n ; j++ )
-                    if ( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) {
+                    if ( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) {
                         s->cells_taboo[ t->cellid[i] ] += 1;
                         s->cells_taboo[ t->cellid[j] ] += 1;
                         }
@@ -484,7 +484,7 @@ int space_maketuples ( struct space *s ) {
         t->cellid[0] = p->i; t->n = 1;
         if ( p->j != p->i ) {
             t->cellid[ t->n++ ] = p->j;
-            t->pairs = ( 1 << ( 0 * space_maxtuples + 1 ) ) | ( 1 << ( 1 * space_maxtuples + 0 ) );
+            t->pairs = ( 1ULL << ( 0 * space_maxtuples + 1 ) ) | ( 1ULL << ( 1 * space_maxtuples + 0 ) );
             }
         else
             t->pairs = 1;
@@ -541,7 +541,7 @@ int space_maketuples ( struct space *s ) {
                     continue;
 
                 /* Add this pair to the tuple. */
-                t->pairs |= ( 1 << ( i * space_maxtuples + j ) ) | ( 1 << ( j * space_maxtuples + i ) );
+                t->pairs |= ( 1ULL << ( i * space_maxtuples + j ) ) | ( 1ULL << ( j * space_maxtuples + i ) );
                 /* printf("space_maketuples: adding pair [%i,%i] to tuple %i (w[%i]=%i).\n",
                     p->i, p->j, s->nr_tuples-1 , w_max , w[w_max] ); */
 
@@ -588,7 +588,7 @@ int space_maketuples ( struct space *s ) {
         printf("space_maketuples: tuple %i has pairs:",i);
         for ( k = 0 ; k < t->n ; k++ )
             for ( j = k ; j < t->n ; j++ )
-                if ( t->pairs & ( 1 << ( k * space_maxtuples + j ) ) )
+                if ( t->pairs & ( 1ULL << ( k * space_maxtuples + j ) ) )
                     printf(" [%i,%i]", t->cellid[j], t->cellid[k] );
         printf("\n");
         } */

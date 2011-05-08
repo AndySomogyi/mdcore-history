@@ -715,6 +715,7 @@ int engine_step ( struct engine *e ) {
     struct part *p;
     struct space *s;
     FPTYPE dt, w, h[3];
+    double epot = 0.0;
     
     /* Get a grip on the space. */
     s = &(e->s);
@@ -747,9 +748,10 @@ int engine_step ( struct engine *e ) {
     /* update the particle velocities and positions */
     dt = e->dt;
     if ( e->flags & engine_flag_verlet )
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,w), reduction(+:epot)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
-            s->epot += c->epot;
+            epot += c->epot;
             if ( c->flags & cell_flag_ghost )
                 continue;
             /* __builtin_prefetch( &c->parts[0] );
@@ -767,9 +769,10 @@ int engine_step ( struct engine *e ) {
                 }
             }
     else {
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,w,k,delta,c_dest), reduction(+:epot)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
-            s->epot += c->epot;
+            epot += c->epot;
             if ( c->flags & cell_flag_ghost )
                 continue;
             /* __builtin_prefetch( &c->parts[0] );
@@ -805,7 +808,11 @@ int engine_step ( struct engine *e ) {
                         (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
                         (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                         (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
+                    
+	                pthread_mutex_lock(&c_dest->cell_mutex);
                     cell_add_incomming( c_dest , p );
+	                pthread_mutex_unlock(&c_dest->cell_mutex);
+        
                     s->celllist[ p->id ] = c_dest;
                     c->count -= 1;
                     if ( pid < c->count ) {
@@ -817,12 +824,19 @@ int engine_step ( struct engine *e ) {
                     pid += 1;
                 }
             }
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+            
+        /* Welcome the new particles in each cell. */
+        #pragma omp parallel for schedule(static), private(c)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
             if ( !(c->flags & cell_flag_ghost) )
-                if ( cell_welcome( &s->cells[cid] , s->partlist ) < 0 )
-                    return error(engine_err_cell);
+                cell_welcome( c , s->partlist );
+            }
         }
             
+    /* Store the accumulated potential energy. */
+    s->epot += epot;
+        
     /* return quietly */
     return engine_err_ok;
     

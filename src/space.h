@@ -181,7 +181,7 @@ struct celltuple {
     int n;
     
     /** Cell pairs within this tuple. */
-    unsigned int pairs;
+    unsigned long long pairs;
     
     /** Pairwise Verlet lists. */
     struct verlet_pairwise_list verlet_lists[ space_maxtuples * space_maxtuples ];

@@ -54,8 +54,8 @@ int main ( int argc , char *argv[] ) {
     const double origin[3] = { 0.0 , 0.0 , 0.0 };
     double dim[3] = { 20.0 , 20.0 , 20.0 };
     int nr_parts = 121600;
-    // double dim[3] = { 16.0 , 16.0 , 16.0 };
-    // int nr_mols = 129024;
+    // double dim[3] = { 10.0 , 10.0 , 10.0 };
+    // int nr_parts = 15200;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;

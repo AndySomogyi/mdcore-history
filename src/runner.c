@@ -311,7 +311,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
-        int lo, hi;
+        short int lo, hi;
         } *qstack;
     struct part *parts_i, *parts_j;
     struct potential *pot, **pots;
@@ -518,8 +518,8 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
         
         /* Allocate work arrays on stack. */
         if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
-             ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
-             ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+             ( parts = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL ||
+             ( qstack = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL )
             return error(runner_err_malloc);
         
         /* start by filling the particle ids of both cells into ind and d */
@@ -819,7 +819,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
-        int lo, hi;
+        short int lo, hi;
         } *qstack;
     struct part *parts_i, *parts_j;
     struct potential *pot, **pots;
@@ -1023,8 +1023,8 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     
             /* Allocate work arrays on stack. */
             if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
-                 ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
-                 ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+                 ( parts = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL ||
+                 ( qstack = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL )
                 return error(runner_err_malloc);
         
             /* start by filling the particle ids of both cells into ind and d */
@@ -1445,7 +1445,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
-        int lo, hi;
+        short int lo, hi;
         } *qstack;
     struct part *parts_i, *parts_j;
     struct potential *pot, **pots;
@@ -1649,8 +1649,8 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 }
     
             /* Allocate work arrays on stack. */
-            if ( ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
-                 ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+            if ( ( parts = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL ||
+                 ( qstack = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL )
                 return error(runner_err_malloc);
         
             /* start by filling the particle ids of both cells into ind and d */
@@ -1955,7 +1955,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
-        int lo, hi;
+        short int lo, hi;
         } *qstack;
     struct part *parts_i, *parts_j;
     double epot = 0.0;
@@ -2134,8 +2134,8 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     
         /* Allocate work arrays on stack. */
         if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
-             ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
-             ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+             ( parts = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL ||
+             ( qstack = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL )
             return error(runner_err_malloc);
         
         /* start by filling the particle ids of both cells into ind and d */
@@ -2423,7 +2423,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     int *left, count = 0, lcount = 0;
     int i, j, k, imax, qpos, lo, hi;
     struct {
-        int lo, hi;
+        short int lo, hi;
         } *qstack;
     struct part *parts_i, *parts_j;
     double epot = 0.0;
@@ -2693,8 +2693,8 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
         
         /* Allocate work arrays on stack. */
         if ( ( left = (int *)alloca( sizeof(int) * count_i ) ) == NULL ||
-             ( parts = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL ||
-             ( qstack = alloca( sizeof(int) * 2 * (count_i + count_j) ) ) == NULL )
+             ( parts = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL ||
+             ( qstack = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL )
             return error(runner_err_malloc);
         
         /* start by filling the particle ids of both cells into ind and d */
@@ -4305,7 +4305,7 @@ int runner_run_cell_tuples ( struct runner *r ) {
                     for ( j = i ; j < t->n ; j++ ) {
 
                         /* Is this tuple active? */
-                        if ( !( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) )
+                        if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
                             continue;
 
                         /* Get the cell ids. */
@@ -4532,7 +4532,7 @@ int runner_run_verlet ( struct runner *r ) {
                     for ( j = i ; j < t->n ; j++ ) {
 
                         /* Is this pair active? */
-                        if ( !( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) )
+                        if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
                             continue;
 
                         /* Get the cell ID. */
@@ -4786,7 +4786,7 @@ int runner_run_tuples ( struct runner *r ) {
                 for ( j = i ; j < t->n ; j++ ) {
                 
                     /* Is this pair active? */
-                    if ( !( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) )
+                    if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
                         continue;
                         
                     /* Get the cell ID. */
@@ -4904,7 +4904,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
                 for ( j = i ; j < t->n ; j++ ) {
                 
                     /* Is this pair active? */
-                    if ( !( t->pairs & ( 1 << ( i * space_maxtuples + j ) ) ) )
+                    if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
                         continue;
                         
                     /* Get the cell ID. */

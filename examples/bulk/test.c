@@ -52,33 +52,37 @@
 int main ( int argc , char *argv[] ) {
 
     const double origin[3] = { 0.0 , 0.0 , 0.0 };
-    // const double dim[3] = { 3.166 , 3.166 , 3.166 };
-    // const int nr_mols = 1000;
+    // double dim[3] = { 3*3.166 , 3.166 , 3.166 };
+    // int nr_mols = 3*1000;
     // const double dim[3] = { 6.332 , 6.332 , 6.332 };
     // const int nr_mols = 8000;
     // const double dim[3] = { 4.0 , 4.0 , 4.0 };
     // const int nr_mols = 2016;
     double dim[3] = { 8.0 , 8.0 , 8.0 };
     int nr_mols = 16128;
+    // double dim[3] = { 16.0 , 16.0 , 16.0 };
+    // int nr_mols = 129024;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
-    double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;
+    double epot, ekin, temp, cutoff = 1.0, cellwidth;
     // FPTYPE ee, eff;
     struct engine e;
-    struct part p_O, p_H;
+    struct part pO, pH, *p_O, *p_H1, *p_H2;
     struct potential *pot_OO, *pot_OH, *pot_HH;
+    struct cell *c_O, *c_H1, *c_H2;
     // struct potential *pot_ee;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     int nx, ny, nz;
+    double hx, hy, hz;
     double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
     double v_OH1[3], v_OH2[3], v_HH[3];
     double d_OH1, d_OH2, d_HH, lambda;
     double vcom[3], vcom_tot[3], w;
     // struct cellpair cp;
     #ifdef CELL
-        unsigned long long tic, toc;
+        unsigned long long tic, toc, toc_step, toc_shake, toc_temp;
     #else
-        ticks tic, toc;
+        ticks tic, toc, toc_step, toc_shake, toc_temp;
     #endif
     
     #ifdef CELL
@@ -96,7 +100,7 @@ int main ( int argc , char *argv[] ) {
         }
     else
         cellwidth = 1.0;
-    printf("main: cell width set to %22.16e.\n", cutoff);
+    printf("main: cell width set to %22.16e.\n", cellwidth);
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
@@ -213,54 +217,54 @@ int main ( int argc , char *argv[] ) {
     
     // set fields for all particles
     srand(6178);
-    p_O.type = 0;
-    p_H.type = 1;
-    p_O.flags = part_flag_none;
-    p_H.flags = part_flag_none;
+    pO.type = 0;
+    pH.type = 1;
+    pO.flags = part_flag_none;
+    pH.flags = part_flag_none;
     for ( k = 0 ; k < 3 ; k++ ) {
-        p_O.v[k] = 0.0; p_H.v[k] = 0.0;
-        p_O.f[k] = 0.0; p_H.f[k] = 0.0;
+        pO.v[k] = 0.0; pH.v[k] = 0.0;
+        pO.f[k] = 0.0; pH.f[k] = 0.0;
         }
     #ifdef VECTORIZE
-        p_O.v[3] = 0.0; p_O.f[3] = 0.0; p_O.x[3] = 0.0;
-        p_H.v[3] = 0.0; p_H.f[3] = 0.0; p_H.x[3] = 0.0;
+        pO.v[3] = 0.0; pO.f[3] = 0.0; pO.x[3] = 0.0;
+        pH.v[3] = 0.0; pH.f[3] = 0.0; pH.x[3] = 0.0;
     #endif
     
     // create and add the particles
     printf("main: initializing particles... "); fflush(stdout);
-    nx = ceil( pow( nr_mols , 1.0/3 ) );
-    ny = ceil( sqrt( ((double)nr_mols) / nx ) );
-    nz = ceil( ((double)nr_mols) / nx / ny );
+    nx = ceil( pow( nr_mols , 1.0/3 ) ); hx = dim[0] / nx;
+    ny = ceil( sqrt( ((double)nr_mols) / nx ) ); hy = dim[1] / ny;
+    nz = ceil( ((double)nr_mols) / nx / ny ); hz = dim[2] / nz;
     for ( i = 0 ; i < nx ; i++ ) {
-        x[0] = 0.1 + i * 0.31;
+        x[0] = 0.05 + i * hx;
         for ( j = 0 ; j < ny ; j++ ) {
-            x[1] = 0.1 + j * 0.31;
+            x[1] = 0.05 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_mols ; k++ ) {
-                p_O.id = 3 * (k + nz * ( j + ny * i ));
-                x[2] = 0.1 + k * 0.31;
-                p_O.v[0] = ((double)rand()) / RAND_MAX - 0.5;
-                p_O.v[1] = ((double)rand()) / RAND_MAX - 0.5;
-                p_O.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.675 / sqrt( p_O.v[0]*p_O.v[0] + p_O.v[1]*p_O.v[1] + p_O.v[2]*p_O.v[2] );
-                p_O.v[0] *= temp; p_O.v[1] *= temp; p_O.v[2] *= temp;
-                vtot[0] += p_O.v[0]; vtot[1] += p_O.v[1]; vtot[2] += p_O.v[2];
-                if ( space_addpart( &(e.s) , &p_O , x ) != 0 ) {
+                pO.vid = 3 * (k + nz * ( j + ny * i ));
+                x[2] = 0.05 + k * hz;
+                pO.v[0] = ((double)rand()) / RAND_MAX - 0.5;
+                pO.v[1] = ((double)rand()) / RAND_MAX - 0.5;
+                pO.v[2] = ((double)rand()) / RAND_MAX - 0.5;
+                temp = 0.675 / sqrt( pO.v[0]*pO.v[0] + pO.v[1]*pO.v[1] + pO.v[2]*pO.v[2] );
+                pO.v[0] *= temp; pO.v[1] *= temp; pO.v[2] *= temp;
+                vtot[0] += pO.v[0]; vtot[1] += pO.v[1]; vtot[2] += pO.v[2];
+                if ( space_addpart( &(e.s) , &pO , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
                     return 1;
                     }
                 x[0] += 0.1;
-                p_H.id = 3 * (k + nx * ( j + nx * i )) + 1;
-                p_H.v[0] = p_O.v[0]; p_H.v[1] = p_O.v[1]; p_H.v[2] = p_O.v[2];
-                if ( space_addpart( &(e.s) , &p_H , x ) != 0 ) {
+                pH.vid = pO.vid + 1;
+                pH.v[0] = pO.v[0]; pH.v[1] = pO.v[1]; pH.v[2] = pO.v[2];
+                if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
                     return 1;
                     }
                 x[0] -= 0.13333;
                 x[1] += 0.09428;
-                p_H.id = 3 * (k + nx * ( j + nx * i )) + 2;
-                if ( space_addpart( &(e.s) , &p_H , x ) != 0 ) {
+                pH.vid = pO.vid + 2;
+                if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
                     return 1;
@@ -276,7 +280,8 @@ int main ( int argc , char *argv[] ) {
                 e.s.cells[cid].parts[pid].v[k] -= vtot[k] / nr_mols;
     printf("done.\n"); fflush(stdout);
     printf("main: inserted %i particles.\n", e.s.nr_parts);
-        
+    
+
     // set the time and time-step by hand
     e.time = 0;
     if ( argc > 3 )
@@ -335,31 +340,63 @@ int main ( int argc , char *argv[] ) {
             return 1;
             }
         #ifdef CELL
-            toc = __mftb();
+            toc_step = __mftb();
         #else
-            toc = getticks();
+            toc_step = getticks();
         #endif
         
+        /* Check virtual/local ids. */
+        /* for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
+            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ )
+                if ( e.s.cells[cid].parts[pid].id != e.s.cells[cid].parts[pid].vid )
+                    printf( "main: inconsistent particle id/vid (%i/%i)!\n",
+                        e.s.cells[cid].parts[pid].id, e.s.cells[cid].parts[pid].vid ); */
+
+        /* Verify integrity of partlist. */
+        /* for ( k = 0 ; k < nr_mols*3 ; k++ )
+            if ( e.s.partlist[k]->id != k )
+                printf( "main: inconsistent particle id/partlist (%i/%i)!\n", e.s.partlist[k]->id, k );
+        fflush(stdout); */
+        
+        /* printf( "main: position of part %i is [ %23.16e , %23.16e , %23.16e ].\n" ,
+            41140, e.s.partlist[41140]->x[0], e.s.partlist[41140]->x[1], e.s.partlist[41140]->x[2] );
+        printf( "main: velocity of part %i is [ %23.16e , %23.16e , %23.16e ].\n" ,
+            41140, e.s.partlist[41140]->v[0], e.s.partlist[41140]->v[1], e.s.partlist[41140]->v[2] );
+        printf( "main: force on part %i is [ %23.16e , %23.16e , %23.16e ].\n" ,
+            41140, e.s.partlist[41140]->f[0], e.s.partlist[41140]->f[1], e.s.partlist[41140]->f[2] ); */
+            
+        /* Check the max verlet_nrpairs. */
+        /* if ( e.s.verlet_nrpairs != NULL ) {
+            j = 0;
+            for ( k = 0 ; k < e.s.nr_parts ; k++ )
+                if ( e.s.verlet_nrpairs[k] > j )
+                    j = e.s.verlet_nrpairs[k];
+            printf( "main: max nr_pairs is %i.\n" , j );
+            } */
+            
         // shake the water molecules
-        #pragma omp parallel for schedule(dynamic,100), private(k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
+        #pragma omp parallel for schedule(dynamic,100), private(k,p_O,p_H1,p_H2,c_O,c_H1,c_H2,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
         for ( j = 0 ; j < nr_mols ; j++ ) {
         
             // unwrap the data
-            space_getpos( &(e.s) , j*3 , new_O );
-            space_getpos( &(e.s) , j*3+1 , new_H1 );
-            space_getpos( &(e.s) , j*3+2 , new_H2 );
+            p_O = e.s.partlist[j*3]; c_O = e.s.celllist[j*3];
+            p_H1 = e.s.partlist[j*3+1]; c_H1 = e.s.celllist[j*3+1];
+            p_H2 = e.s.partlist[j*3+2]; c_H2 = e.s.celllist[j*3+2];
             for ( k = 0 ; k < 3 ; k++ ) {
-                old_O[k] = new_O[k] - e.dt * e.s.partlist[j*3]->v[k];
+                new_O[k] = p_O->x[k] + c_O->origin[k];
+                new_H1[k] = p_H1->x[k] + c_H1->origin[k];
+                new_H2[k] = p_H2->x[k] + c_H2->origin[k];
+                old_O[k] = new_O[k] - e.dt * p_O->v[k];
                 if ( new_H1[k] - new_O[k] > e.s.dim[k] * 0.5 )
                     new_H1[k] -= e.s.dim[k];
                 else if ( new_H1[k] - new_O[k] < -e.s.dim[k] * 0.5 )
                     new_H1[k] += e.s.dim[k];
-                old_H1[k] = new_H1[k] - e.dt * e.s.partlist[j*3+1]->v[k];
+                old_H1[k] = new_H1[k] - e.dt * p_H1->v[k];
                 if ( new_H2[k] - new_O[k] > e.s.dim[k] * 0.5 )
                     new_H2[k] -= e.s.dim[k];
                 else if ( new_H2[k] - new_O[k] < -e.s.dim[k] * 0.5 )
                     new_H2[k] += e.s.dim[k];
-                old_H2[k] = new_H2[k] - e.dt * e.s.partlist[j*3+2]->v[k];
+                old_H2[k] = new_H2[k] - e.dt * p_H2->v[k];
                 v_OH1[k] = old_O[k] - old_H1[k];
                 v_OH2[k] = old_O[k] - old_H2[k];
                 v_HH[k] = old_H1[k] - old_H2[k];
@@ -399,9 +436,9 @@ int main ( int argc , char *argv[] ) {
                     }
                     
                 // check the tolerances
-                if ( fabs( d_OH1 - 0.1*0.1 ) < 100*FPTYPE_EPSILON &&
-                    fabs( d_OH2 - 0.1*0.1 ) < 100*FPTYPE_EPSILON &&  
-                    fabs( d_HH - 0.1633*0.1633 ) < 100*FPTYPE_EPSILON )
+                if ( fabs( d_OH1 - 0.1*0.1 ) < 10*FPTYPE_EPSILON &&
+                    fabs( d_OH2 - 0.1*0.1 ) < 10*FPTYPE_EPSILON &&  
+                    fabs( d_HH - 0.1633*0.1633 ) < 10*FPTYPE_EPSILON )
                     break;
                     
                 // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));
@@ -413,26 +450,19 @@ int main ( int argc , char *argv[] ) {
             for ( k = 0 ; k < 3 ; k++ ) {
             
                 // write O
-                e.s.partlist[j*3]->x[k] = new_O[k] - e.s.celllist[j*3]->origin[k];
-                e.s.partlist[j*3]->v[k] = (new_O[k] - old_O[k]) / e.dt;
+                p_O->x[k] = new_O[k] - c_O->origin[k];
+                p_O->v[k] = (new_O[k] - old_O[k]) / e.dt;
                 
                 // write H1
-                if ( new_H1[k] - e.s.celllist[j*3+1]->origin[k] > e.s.dim[k] * 0.5 )
-                    e.s.partlist[j*3+1]->x[k] = new_H1[k] - e.s.celllist[j*3+1]->origin[k] - e.s.dim[k];
-                else if ( new_H1[k] - e.s.celllist[j*3+1]->origin[k] < -e.s.dim[k] * 0.5 )
-                    e.s.partlist[j*3+1]->x[k] = new_H1[k] - e.s.celllist[j*3+1]->origin[k] + e.s.dim[k];
-                else
-                    e.s.partlist[j*3+1]->x[k] = new_H1[k] - e.s.celllist[j*3+1]->origin[k];
-                e.s.partlist[j*3+1]->v[k] = (new_H1[k] - old_H1[k]) / e.dt;
+                p_H1->x[k] -= e.dt * p_H1->v[k];
+                p_H1->v[k] = (new_H1[k] - old_H1[k]) / e.dt;
+                p_H1->x[k] += e.dt * p_H1->v[k];
                 
                 // write H2
-                if ( new_H2[k] - e.s.celllist[j*3+2]->origin[k] > e.s.dim[k] * 0.5 )
-                    e.s.partlist[j*3+2]->x[k] = new_H2[k] - e.s.celllist[j*3+2]->origin[k] - e.s.dim[k];
-                else if ( new_H2[k] - e.s.celllist[j*3+2]->origin[k] < -e.s.dim[k] * 0.5 )
-                    e.s.partlist[j*3+2]->x[k] = new_H2[k] - e.s.celllist[j*3+2]->origin[k] + e.s.dim[k];
-                else
-                    e.s.partlist[j*3+2]->x[k] = new_H2[k] - e.s.celllist[j*3+2]->origin[k];
-                e.s.partlist[j*3+2]->v[k] = (new_H2[k] - old_H2[k]) / e.dt;
+                p_H2->x[k] -= e.dt * p_H2->v[k];
+                p_H2->v[k] = (new_H2[k] - old_H2[k]) / e.dt;
+                p_H2->x[k] += e.dt * p_H2->v[k];
+                
                 }
                 
             } // shake molecules
@@ -444,11 +474,16 @@ int main ( int argc , char *argv[] ) {
                 errs_dump(stdout);
                 return 1;
                 }
+        #ifdef CELL
+            toc_shake = __mftb();
+        #else
+            toc_shake = getticks();
+        #endif
             
             
-        // get the total COM-velocities and ekin
+        // get the total COM-velocities, ekin and epot
         vcom_tot[0] = 0.0; vcom_tot[1] = 0.0; vcom_tot[2] = 0.0;
-        ekin = 0.0;
+        ekin = 0.0; epot = e.s.epot;
         for ( j = 0 ; j < nr_mols ; j++ ) {
             for ( k = 0 ; k < 3 ; k++ ) {
                 vcom[k] = ( e.s.partlist[j*3]->v[k] * 15.9994 +
@@ -458,9 +493,9 @@ int main ( int argc , char *argv[] ) {
                 }
             ekin += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
             }
-        vcom_tot[0] /= 1000 * 1.801528e+1;
-        vcom_tot[1] /= 1000 * 1.801528e+1;
-        vcom_tot[2] /= 1000 * 1.801528e+1;
+        for ( k = 0 ; k < 3 ; k++ )
+            vcom_tot[k] /= nr_mols * 1.801528e+1;
+        // printf("main: vcom_tot is [ %e , %e , %e ].\n",vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
                 
         // compute the temperature and scaling
         temp = ekin / ( 1.5 * 6.022045E23 * 1.380662E-26 * nr_mols );
@@ -485,20 +520,28 @@ int main ( int argc , char *argv[] ) {
                 
             } // apply molecular thermostat
             
-        // tabulate the total potential and kinetic energy
-        epot = e.s.epot; ekin = 0.0;
+        // re-compute the potential energy.
+        /* ekin = 0.0;
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            epot += e.s.cells[cid].epot;
             for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
                 for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
                     v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];
                 ekin += 0.5 * e.types[ e.s.cells[cid].parts[pid].type ].mass * v2;
                 }
-            }
+            } */
             
-            
-        printf("%i %e %e %e %i %i %.3f ms\n",
-            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc-tic) * 1000 / CPU_TPS); fflush(stdout);
+        #ifdef CELL
+            toc_temp = __mftb();
+        #else
+            toc_temp = getticks();
+        #endif
+        printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f ms\n",
+            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,
+                (double)(toc_temp-tic) * 1000 / CPU_TPS,
+                (double)(toc_step-tic) * 1000 / CPU_TPS,
+                (double)(toc_shake-toc_step) * 1000 / CPU_TPS,
+                (double)(toc_temp-toc_shake) * 1000 / CPU_TPS);
+        fflush(stdout);
         
         // print some particle data
         // printf("main: part 13322 is at [ %e , %e , %e ].\n",
