@@ -812,7 +812,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
  *
  */
  
-int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct verlet_pairwise_list *list ) {
+int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp ) {
 
     struct part *part_i, *part_j;
     struct space *s;
@@ -1004,19 +1004,19 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
         if ( s->verlet_rebuild ) {
 
             /* Has sufficient memory for the Verlet list been allocated? */
-            if ( list->pairs == NULL || list->size < count_i * count_j ) {
+            if ( cp->pairs == NULL || cp->size < count_i * count_j ) {
 
                 /* Clear lists if needed. */
-                if ( list->pairs != NULL )
-                    free( list->pairs );
+                if ( cp->pairs != NULL )
+                    free( cp->pairs );
 
                 /* Set the size and width. */
-                list->size = count_i * count_j;
+                cp->size = count_i * count_j;
 
                 /* Allocate the list data. */
-                if ( ( list->pairs = (short int *)malloc( sizeof(short int) * list->size ) ) == NULL )
+                if ( ( cp->pairs = (short int *)malloc( sizeof(short int) * cp->size ) ) == NULL )
                     return error(runner_err_malloc);
-                if ( list->nr_pairs == NULL && ( list->nr_pairs = (unsigned char *)malloc( sizeof(char) * 256 ) ) == NULL )
+                if ( cp->nr_pairs == NULL && ( cp->nr_pairs = (unsigned char *)malloc( sizeof(char) * 256 ) ) == NULL )
                     return error(runner_err_malloc);
 
                 }
@@ -1103,7 +1103,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     pjx[2] = part_j->x[2] + pshift[2];
                     pjoff = part_j->type * emt;
                     pind = 0;
-                    pairs = &( list->pairs[ pid * count_i ] );
+                    pairs = &( cp->pairs[ pid * count_i ] );
                     pjf = &( part_j->f[0] );
 
                     /* loop over the left particles */
@@ -1212,7 +1212,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                         }
                         
                     /* Store the number of pairs for pid. */
-                    list->nr_pairs[pid] = pind;
+                    cp->nr_pairs[pid] = pind;
                         
                     }
 
@@ -1227,7 +1227,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             for ( j = 0 ; j < count_j ; j++ ) {
 
                 /* Skip this particle before we get too involved. */
-                if ( ( nr_pairs = list->nr_pairs[j] ) == 0 )
+                if ( ( nr_pairs = cp->nr_pairs[j] ) == 0 )
                     continue;
 
                 /* Get the particle data. */
@@ -1236,7 +1236,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 pjx[1] = part_j->x[1] + pshift[1];
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjf = &( part_j->f[0] );
-                pairs = &( list->pairs[ j * count_i ] );
+                pairs = &( cp->pairs[ j * count_i ] );
                 pjoff = part_j->type * emt;
 
                 /* Loop over the entries in the Verlet list. */
@@ -1438,7 +1438,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
  *
  */
  
-int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct verlet_pairwise_list *list ) {
+int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp ) {
 
     struct part *part_i, *part_j;
     struct space *s;
@@ -1633,17 +1633,17 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
         if ( s->verlet_rebuild ) {
 
             /* Has sufficient memory for the Verlet list been allocated? */
-            if ( list->pairs == NULL || list->size < count_i + count_j ) {
+            if ( cp->pairs == NULL || cp->size < count_i + count_j ) {
 
                 /* Clear lists if needed. */
-                if ( list->pairs != NULL )
-                    free( list->pairs );
+                if ( cp->pairs != NULL )
+                    free( cp->pairs );
 
                 /* Set the size and width. */
-                list->size = count_i + count_j;
+                cp->size = count_i + count_j;
 
                 /* Allocate the list data. */
-                if ( ( list->pairs = (short int *)malloc( sizeof(short int) * list->size ) ) == NULL )
+                if ( ( cp->pairs = (short int *)malloc( sizeof(short int) * cp->size ) ) == NULL )
                     return error(runner_err_malloc);
 
                 }
@@ -1712,8 +1712,8 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 }
                 
             /* Copy the sorted array to the pairwise list. */
-            list->count = count;
-            ind = list->pairs;
+            cp->count = count;
+            ind = cp->pairs;
             for ( k = 0 ; k < count ; k++ )
                 ind[k] = parts[k].ind;
                 
@@ -1722,8 +1722,8 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
         else {
             
             /* Get local copies of the list data. */
-            count = list->count;
-            ind = list->pairs;
+            count = cp->count;
+            ind = cp->pairs;
             
             }
 
@@ -4532,7 +4532,7 @@ int runner_run_verlet ( struct runner *r ) {
                     for ( j = i ; j < t->n ; j++ ) {
 
                         /* Is this pair active? */
-                        if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
+                        if ( t->pairid[ space_pairind(i,j) ] < 0 )
                             continue;
 
                         /* Get the cell ID. */
@@ -4786,7 +4786,7 @@ int runner_run_tuples ( struct runner *r ) {
                 for ( j = i ; j < t->n ; j++ ) {
                 
                     /* Is this pair active? */
-                    if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
+                    if ( t->pairid[ space_pairind(i,j) ] < 0 )
                         continue;
                         
                     /* Get the cell ID. */
@@ -4853,7 +4853,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
     struct space *s;
     struct engine *e;
     struct cell *c;
-    struct verlet_pairwise_list *v;
+    struct cellpair *p;
 
     /* check the inputs */
     if ( r == NULL )
@@ -4904,7 +4904,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
                 for ( j = i ; j < t->n ; j++ ) {
                 
                     /* Is this pair active? */
-                    if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
+                    if ( t->pairid[ space_pairind( i , j ) ] < 0 )
                         continue;
                         
                     /* Get the cell ID. */
@@ -4925,20 +4925,20 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
                             
                     /* Prefetch the pairlist. */
                     if ( i != j && e->flags & engine_flag_prefetch ) {
-                        v = &(t->verlet_lists[ i * space_maxtuples + j ]);
+                        p = &( s->pairs[ t->pairid[ space_pairind(i,j) ] ] );
                         for ( k = 0 ; k < s->cells[ci].count * s->cells[cj].count ; k += 32 )
-                            __builtin_prefetch( &( v->pairs[k] ) );
+                            __builtin_prefetch( &( p->pairs[k] ) );
                         for ( k = 0 ; k < s->cells[ci].count + s->cells[cj].count ; k += 64 )
-                            __builtin_prefetch( &( v->nr_pairs[k] ) );
+                            __builtin_prefetch( &( p->nr_pairs[k] ) );
                         }
                     
                     /* Compute the interactions of this pair. */
                     if ( e->flags & engine_flag_verlet_pairwise2 ) {
-                        if ( runner_dopair_verlet2( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(t->verlet_lists[ i * space_maxtuples + j ]) ) < 0 )
+                        if ( runner_dopair_verlet2( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
                             return error(runner_err);
                         }
                     else {
-                        if ( runner_dopair_verlet( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(t->verlet_lists[ i * space_maxtuples + j ]) ) < 0 )
+                        if ( runner_dopair_verlet( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
                             return error(runner_err);
                         }
 

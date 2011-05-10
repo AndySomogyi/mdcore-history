@@ -55,7 +55,8 @@
 /** Converts the index triplet (@c i, @c j, @c k) to the cell id in the
     #space @c s. */
 #define space_cellid(s,i,j,k)           (  ((i)*(s)->cdim[1] + (j)) * (s)->cdim[2] + (k) )
-
+/** Convert tuple ids into the pairid index. */
+#define space_pairind(i,j)              ( space_maxtuples*(i) - (i)*((i)+1)/2 + (j) )
 
 /** ID of the last error */
 extern int space_err;
@@ -101,7 +102,7 @@ struct space {
     struct celltuple *tuples;
     
     /** The number of tuples. */
-    int nr_tuples, *tuple_index;
+    int nr_tuples;
     
     /** The ID of the next free tuple. */
     int next_tuple;
@@ -153,24 +154,17 @@ struct cellpair {
     /** Relative shift between cell centres. */
     FPTYPE shift[3];
     
+    /** Pairwise Verlet stuff. */
+    int size, count;
+    short int *pairs;
+    unsigned char *nr_pairs;
+    
     /** Pointer to chain pairs together. */
     struct cellpair *next;
     
     };
     
     
-/** Pairwise verlet list. */
-struct verlet_pairwise_list {
-
-    int size, count;
-
-    short int *pairs;
-    
-    unsigned char *nr_pairs;
-    
-    };
-    
-
 /** Struct for groups of cellpairs. */
 struct celltuple {
 
@@ -180,11 +174,10 @@ struct celltuple {
     /** Nr. of cells in this tuple. */
     int n;
     
-    /** Cell pairs within this tuple. */
-    unsigned long long pairs;
+    /** Ids of the underlying pairs. */
+    int pairid[ space_maxtuples * (space_maxtuples + 1) / 2 ];
     
-    /** Pairwise Verlet lists. */
-    struct verlet_pairwise_list verlet_lists[ space_maxtuples * space_maxtuples ];
+    int buff;
     
     };
     
