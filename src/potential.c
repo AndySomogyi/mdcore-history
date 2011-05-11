@@ -1248,13 +1248,13 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
 
 int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol ) {
 
-    FPTYPE alpha, w;
+    double alpha, w;
     int l = potential_ivalsmin, r = potential_ivalsmax, m;
     FPTYPE err_l, err_r, err_m;
     FPTYPE *xi_l, *xi_r, *xi_m;
     FPTYPE *c_l, *c_r, *c_m;
     int i, k;
-    FPTYPE e;
+    double e;
     FPTYPE mtol = 10 * FPTYPE_EPSILON;
 
     /* check inputs */
@@ -1274,7 +1274,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     
     /* compute the optimal alpha for this potential */
     alpha = potential_getalpha(f6p,a,b);
-    /* printf("potential_init: alpha is %e\n",alpha); fflush(stdout); */
+    /* printf("potential_init: alpha is %22.16e\n",(double)alpha); fflush(stdout); */
     
     /* compute the interval transform */
     w = 1.0 / (a - b); w *= w;
@@ -1288,14 +1288,19 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) * potential_chunk );
     if ( posix_memalign( (void **)&c_l , potential_align , sizeof(FPTYPE) * (l+1) * potential_chunk ) < 0 )
         return error(potential_err_malloc);
-    for ( i = 0 ; i <= l ; i++ ) {
+    xi_l[0] = a; xi_l[l] = b;
+    for ( i = 1 ; i < l ; i++ ) {
         xi_l[i] = a + (b - a) * i / l;
-        while ( fabs( (e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]))) ) > l * mtol )
+        while ( 1 ) {
+            e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*p->alpha[2]));
             xi_l[i] += e / (l * (p->alpha[1] + 2*xi_l[i]*p->alpha[2]));
+            if ( fabs(e) < l*mtol )
+                break;
+            }
         }
     if ( potential_getcoeffs(f,fp,xi_l,l,&c_l[potential_chunk],&err_l) < 0 )
         return error(potential_err);
-    /* fflush(stderr); printf("potential_init: err_l=%e.\n",err_l); */
+    /* fflush(stderr); printf("potential_init: err_l=%22.16e.\n",err_l); */
         
     /* if this interpolation is good enough, stop here! */
     if ( err_l < tol ) {
@@ -1324,14 +1329,19 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         xi_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r + 1) );
         if ( posix_memalign( (void **)&c_r , potential_align , sizeof(FPTYPE) * (r+1) * potential_chunk ) != 0 )
             return error(potential_err_malloc);
-        for ( i = 0 ; i <= r ; i++ ) {
+        xi_r[0] = a; xi_r[r] = b;
+        for ( i = 1 ; i < r ; i++ ) {
             xi_r[i] = a + (b - a) * i / r;
-            while ( fabs( (e = i - r*(p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]))) ) > r * mtol )
+            while ( 1 ) {
+                e = i - r * (p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*p->alpha[2]));
                 xi_r[i] += e / (r * (p->alpha[1] + 2*xi_r[i]*p->alpha[2]));
+                if ( fabs(e) < r*mtol )
+                    break;
+                }
             }
         if ( potential_getcoeffs(f,fp,xi_r,r,&c_r[potential_chunk],&err_r) < 0 )
             return error(potential_err);
-        /* printf("potential_init: err_r=%e.\n",err_r); fflush(stdout); */
+        /* printf("potential_init: err_r=%22.16e.\n",err_r); fflush(stdout); */
             
         /* if this is better than tolerance, break... */
         if ( err_r < tol )
@@ -1354,18 +1364,23 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         m = 0.5 * ( r + l );
         
         /* construct that interpolation */
-        // printf("potential_init: trying m=%i...\n",m); fflush(stdout);
+        /* printf("potential_init: trying m=%i...\n",m); fflush(stdout); */
         xi_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m + 1) );
         if ( posix_memalign( (void **)&c_m , potential_align , sizeof(FPTYPE) * (m+1) * potential_chunk ) != 0 )
             return error(potential_err_malloc);
-        for ( i = 0 ; i <= m ; i++ ) {
+        xi_m[0] = a; xi_m[m] = b;
+        for ( i = 1 ; i < m ; i++ ) {
             xi_m[i] = a + (b - a) * i / m;
-            while ( fabs( (e = i - m*(p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]))) ) > m * mtol )
+            while ( 1 ) {
+                e = i - m * (p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*p->alpha[2]));
                 xi_m[i] += e / (m * (p->alpha[1] + 2*xi_m[i]*p->alpha[2]));
+                if ( fabs(e) < m*mtol )
+                    break;
+                }
             }
         if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_chunk],&err_m) != 0 )
             return error(potential_err);
-        // printf("potential_init: err_m=%e.\n",err_m); fflush(stdout);
+        /* printf("potential_init: err_m=%22.16e.\n",err_m); fflush(stdout); */
             
         /* go left? */
         if ( err_m > tol ) {
