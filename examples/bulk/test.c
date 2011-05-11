@@ -62,6 +62,7 @@ int main ( int argc , char *argv[] ) {
     int nr_mols = 16128;
     // double dim[3] = { 16.0 , 16.0 , 16.0 };
     // int nr_mols = 129024;
+    double Temp = 300.0;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, temp, cutoff = 1.0, cellwidth;
@@ -117,6 +118,7 @@ int main ( int argc , char *argv[] ) {
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     printf("main: cutoff set to %22.16e.\n", cutoff);
+    printf("main: nr tuples: %i.\n",e.s.nr_tuples);
         
     /* mix-up the pair list just for kicks
     printf("main: shuffling the interaction pairs... "); fflush(stdout);
@@ -499,7 +501,7 @@ int main ( int argc , char *argv[] ) {
                 
         // compute the temperature and scaling
         temp = ekin / ( 1.5 * 6.022045E23 * 1.380662E-26 * nr_mols );
-        w = sqrt( 1.0 + 0.1 * ( 300.0 / temp - 1.0 ) );
+        w = sqrt( 1.0 + 0.1 * ( Temp / temp - 1.0 ) );
 
         // compute the molecular heat
         if ( i < 10000 ) {

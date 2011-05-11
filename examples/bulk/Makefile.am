@@ -25,7 +25,7 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = test test_single test_verlet test_single_verlet test_pwverlet test_single_pwverlet
+bin_PROGRAMS = test test_single test_verlet test_single_verlet test_pwverlet test_single_pwverlet test_pwverlet2 test_single_pwverlet2
 
 # Plain old tests
 # Sources for test
@@ -60,6 +60,18 @@ test_pwverlet_LDADD = ../../src/.libs/libmdcore.a
 test_single_pwverlet_SOURCES = test.c
 test_single_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
 test_single_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
+
+
+# Using pairwise Verlet lists of the second kind
+# Sources for test_pwverlet2
+test_pwverlet2_SOURCES = test.c
+test_pwverlet2_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+test_pwverlet2_LDADD = ../../src/.libs/libmdcore.a
+
+# Sources for test_single_verlet2
+test_single_pwverlet2_SOURCES = test.c
+test_single_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+test_single_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
 
 # Dummy target to make the Cell/BE version
 if HAVECELL
