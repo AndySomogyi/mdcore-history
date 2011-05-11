@@ -25,7 +25,7 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = argon argon_verlet argon_pwverlet
+bin_PROGRAMS = argon argon_verlet argon_pwverlet argon_pwverlet2
 
 # Plain old tests
 # Sources for test
@@ -46,4 +46,11 @@ argon_verlet_LDADD = ../../src/.libs/libmdcore_single.a
 argon_pwverlet_SOURCES = argon.c
 argon_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
 argon_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
+
+
+# Using pairwise Verlet lists of the second kind
+# Sources for argon_pwverlet2
+argon_pwverlet2_SOURCES = argon.c
+argon_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+argon_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
 

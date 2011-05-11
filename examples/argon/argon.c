@@ -56,6 +56,7 @@ int main ( int argc , char *argv[] ) {
     int nr_parts = 121600;
     // double dim[3] = { 10.0 , 10.0 , 10.0 };
     // int nr_parts = 15200;
+    double Temp = 215.0;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;
@@ -79,6 +80,8 @@ int main ( int argc , char *argv[] ) {
     #else
         tic = getticks();
     #endif
+    
+    printf("main: sizeof(struct celltuple) is %i.\n", sizeof(struct celltuple));
     
     // did the user supply a cutoff?
     if ( argc > 4 ) {
@@ -106,6 +109,7 @@ int main ( int argc , char *argv[] ) {
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     printf("main: cutoff set to %22.16e.\n", cutoff);
+    printf("main: nr tuples: %i.\n",e.s.nr_tuples);
         
     /* mix-up the pair list just for kicks
     printf("main: shuffling the interaction pairs... "); fflush(stdout);
@@ -281,7 +285,7 @@ int main ( int argc , char *argv[] ) {
                 
         // compute the temperature and scaling
         temp = ekin / ( 1.5 * 6.022045E23 * 1.380662E-26 * nr_parts );
-        w = sqrt( 1.0 + 0.1 * ( 215.0 / temp - 1.0 ) );
+        w = sqrt( 1.0 + 0.1 * ( Temp / temp - 1.0 ) );
             
         // scale the velocities
         #pragma omp parallel for schedule(static,100), private(cid,pid,k), reduction(+:epot,ekin)
