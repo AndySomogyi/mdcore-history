@@ -172,7 +172,7 @@ inline void dvec_fill_1d ( dvec *d , void *data , size_t dtype , int elem_size ,
     d->dim[0].stride_mult = 1;
     d->dim[0].lower_bound = 1;
     d->dim[0].upper_bound = dim;
-    d->base = (void *)( -1 );
+    d->base = (void *)( (size_t)-1 );
     }
 inline void dvec_fill_2d ( dvec *d , void *data , size_t dtype , int elem_size , int dim0 , int dim1 ) {
     d->base_addr = data;
@@ -185,7 +185,7 @@ inline void dvec_fill_2d ( dvec *d , void *data , size_t dtype , int elem_size ,
     d->dim[1].stride_mult = dim0;
     d->dim[1].lower_bound = 1;
     d->dim[1].upper_bound = dim1;
-    d->base = (void *)( -1 - dim0 );
+    d->base = (void *)( (size_t)-1 - dim0 );
     }
 inline void dvec_fill_3d ( dvec *d , void *data , size_t dtype , int elem_size , int dim0 , int dim1 , int dim2 ) {
     d->base_addr = data;
@@ -201,7 +201,7 @@ inline void dvec_fill_3d ( dvec *d , void *data , size_t dtype , int elem_size ,
     d->dim[2].stride_mult = dim0*dim1;
     d->dim[2].lower_bound = 1;
     d->dim[2].upper_bound = dim2;
-    d->base = (void *)( -1 - dim0 - dim0*dim1 );
+    d->base = (void *)( (size_t)-1 - dim0 - dim0*dim1 );
     }
 inline void dvec_dump ( dvec *d , FILE *out ) {
     int k, rank = GFC_DESCRIPTOR_RANK(d);
