@@ -829,8 +829,7 @@ int engine_step ( struct engine *e ) {
         #pragma omp parallel for schedule(static), private(c)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
-            if ( !(c->flags & cell_flag_ghost) )
-                cell_welcome( c , s->partlist );
+            cell_welcome( c , s->partlist );
             }
         }
             
