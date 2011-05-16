@@ -4472,7 +4472,7 @@ int runner_run_cell_tuples ( struct runner *r ) {
 
 int runner_run_verlet ( struct runner *r ) {
 
-    int res, i, ci, j, cj, k, eff_size = 0;
+    int res, i, ci, j, cj, k, eff_size = 0, acc = 0;
     struct engine *e;
     struct space *s;
     struct celltuple *t;
@@ -4520,7 +4520,7 @@ int runner_run_verlet ( struct runner *r ) {
                     for ( i = 0 ; i < t->n ; i++ ) {
                         c = &( s->cells[t->cellid[i]] );
                         for ( k = 0 ; k < c->count ; k++ )
-                            __builtin_prefetch( &(c->parts[k]) );
+                            acc += c->parts[k].id;
                         }
 
                 /* Loop over all pairs in this tuple. */
@@ -4612,8 +4612,9 @@ int runner_run_verlet ( struct runner *r ) {
             
             }
 
-            /* Print the rcount. */
-            // printf("runner_run_verlet: runner_rcount=%i.\n", runner_rcount);
+        /* Print the rcount. */
+        // printf("runner_run_verlet: runner_rcount=%i.\n", runner_rcount);
+        r->err = acc;
             
         }
 
@@ -4638,7 +4639,7 @@ int runner_run_verlet ( struct runner *r ) {
 
 int runner_run_pairs ( struct runner *r ) {
 
-    int k, err = 0;
+    int k, err = 0, acc = 0;
     struct cellpair *p = NULL;
     struct cellpair *finger;
     struct engine *e;
@@ -4673,11 +4674,11 @@ int runner_run_pairs ( struct runner *r ) {
                 if ( e->flags & engine_flag_prefetch ) {
                     c = &( e->s.cells[finger->i] );
                     for ( k = 0 ; k < c->count ; k++ )
-                        __builtin_prefetch( &(c->parts[k]) );
+                        acc += c->parts[k].id;
                     if ( finger->i != finger->j ) {
                         c = &( e->s.cells[finger->j] );
                         for ( k = 0 ; k < c->count ; k++ )
-                            __builtin_prefetch( &(c->parts[k]) );
+                            acc += c->parts[k].id;
                         }
                     }
 
@@ -4701,6 +4702,7 @@ int runner_run_pairs ( struct runner *r ) {
 
         /* give the reaction count */
         /* printf("runner_run: last count was %u.\n",runner_rcount); */
+        r->err = acc;
             
         /* did things go wrong? */
         /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
@@ -4730,7 +4732,7 @@ int runner_run_pairs ( struct runner *r ) {
 
 int runner_run_tuples ( struct runner *r ) {
 
-    int res, i, j, k, ci, cj;
+    int res, i, j, k, ci, cj, acc = 0;
     struct celltuple *t;
     FPTYPE shift[3];
     struct space *s;
@@ -4774,7 +4776,7 @@ int runner_run_tuples ( struct runner *r ) {
                 for ( i = 0 ; i < t->n ; i++ ) {
                     c = &( s->cells[t->cellid[i]] );
                     for ( k = 0 ; k < c->count ; k++ )
-                        __builtin_prefetch( &(c->parts[k]) );
+                        acc += c->parts[k].id;
                     }
 
             /* Loop over all pairs in this tuple. */
@@ -4823,6 +4825,7 @@ int runner_run_tuples ( struct runner *r ) {
 
         /* give the reaction count */
         // printf("runner_run_tuples: runner_rcount=%u.\n",runner_rcount);
+        r->err = acc;
             
         }
 
@@ -4847,7 +4850,7 @@ int runner_run_tuples ( struct runner *r ) {
 
 int runner_run_verlet_pairwise ( struct runner *r ) {
 
-    int res, i, j, k, ci, cj;
+    int res, i, j, k, ci, cj, acc = 0;
     struct celltuple *t;
     FPTYPE shift[3];
     struct space *s;
@@ -4892,7 +4895,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
                 for ( i = 0 ; i < t->n ; i++ ) {
                     c = &( s->cells[t->cellid[i]] );
                     for ( k = 0 ; k < c->count ; k++ )
-                        __builtin_prefetch( &(c->parts[k]) );
+                        acc += c->parts[k].id;
                     }
 
             /* Loop over all pairs in this tuple. */
@@ -4927,9 +4930,9 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
                     if ( i != j && e->flags & engine_flag_prefetch ) {
                         p = &( s->pairs[ t->pairid[ space_pairind(i,j) ] ] );
                         for ( k = 0 ; k < s->cells[ci].count * s->cells[cj].count ; k += 32 )
-                            __builtin_prefetch( &( p->pairs[k] ) );
+                            acc += p->pairs[k];
                         for ( k = 0 ; k < s->cells[ci].count + s->cells[cj].count ; k += 64 )
-                            __builtin_prefetch( &( p->nr_pairs[k] ) );
+                            acc += p->nr_pairs[k];
                         }
                     
                     /* Compute the interactions of this pair. */
@@ -4954,6 +4957,7 @@ int runner_run_verlet_pairwise ( struct runner *r ) {
 
         /* give the reaction count */
         // printf("runner_run_verlet_pairwise: runner_rcount=%u.\n",runner_rcount);
+        r->err = acc;
             
         }
 
