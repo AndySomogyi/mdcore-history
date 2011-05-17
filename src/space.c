@@ -924,22 +924,13 @@ int space_getpos ( struct space *s , int id , double *x ) {
 
 int space_releasepair ( struct space *s , int ci , int cj ) {
 
-    int count = 0;
-
     /* release the cells in the given pair */
-    count += ( --(s->cells_taboo[ ci ]) == 0 );
-    count += ( --(s->cells_taboo[ cj ]) == 0 );
-    
-    /* send a strong signal to anybody waiting on pairs... */
-    if ( count ) {
-	    /* if (pthread_mutex_lock(&s->cellpairs_mutex) != 0) 
-            return error(space_err_pthread); */
-        while ( count-- )
-            if (pthread_cond_signal(&s->cellpairs_avail) != 0)
-                return error(space_err_pthread);
-	    /* if (pthread_mutex_unlock(&s->cellpairs_mutex) != 0)
-            return error(space_err_pthread); */
-        }
+    if ( --(s->cells_taboo[ ci ]) == 0 )
+        if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+            return error(space_err_pthread);
+    if ( --(s->cells_taboo[ cj ]) == 0 )
+        if (pthread_cond_signal(&s->cellpairs_avail) != 0)
+            return error(space_err_pthread);
     
     /* all is well... */
     return space_err_ok;
