@@ -4803,14 +4803,26 @@ int runner_run_tuples ( struct runner *r ) {
                             shift[k] += s->dim[k];
                         }
                     
-                    /* Explicit electrostatics? */
-                    if ( e->flags & engine_flag_explepot ) {
-                        if ( runner_dopair_ee( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return error(runner_err);
+                    /* Sorted interactions? */
+                    if ( e->flags & engine_flag_unsorted ) {
+                        if ( e->flags & engine_flag_explepot ) {
+                            if ( runner_dopair_unsorted_ee( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                                return error(runner_err);
+                            }
+                        else {
+                            if ( runner_dopair_unsorted( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                                return error(runner_err);
+                            }
                         }
                     else {
-                        if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return error(runner_err);
+                        if ( e->flags & engine_flag_explepot ) {
+                            if ( runner_dopair_ee( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                                return error(runner_err);
+                            }
+                        else {
+                            if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                                return error(runner_err);
+                            }
                         }
 
                     /* release this pair */
