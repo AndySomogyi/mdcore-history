@@ -26,8 +26,12 @@
 #include <alloca.h>
 #include <pthread.h>
 #include <math.h>
+#ifdef HAVE_OPENMP
+    #include <omp.h>
+#endif
 
 /* include local headers */
+#include "../config.h"
 #include "errs.h"
 #include "part.h"
 #include "cell.h"
@@ -180,6 +184,10 @@ int space_verlet_init ( struct space *s , int list_global ) {
     double dx, w, maxdx = 0.0, skin;
     struct cell *c;
     struct part *p;
+    #ifdef HAVE_OPENMP
+        int step;
+        double lmaxdx;
+    #endif
 
     /* Check input for nonsense. */
     if ( s == NULL )
@@ -220,18 +228,40 @@ int space_verlet_init ( struct space *s , int list_global ) {
     else {
         
         /* Check if we need to re-shuffle the particles. */
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            for ( pid = 0 ; pid < c->count ; pid++ ) {
-                p = &(c->parts[pid]);
-                ind = 4 * p->id;
-                for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    w = p->x[k] - s->verlet_oldx[ ind + k ];
-                    dx += w*w;
+        #ifdef HAVE_OPENMP
+            step = omp_get_num_threads();
+            #pragma omp parallel private(cid,pid,p,ind,dx,k,w,lmaxdx)
+            {
+                lmaxdx = 0.0;
+                for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
+                    c = &(s->cells[cid]);
+                    for ( pid = 0 ; pid < c->count ; pid++ ) {
+                        p = &(c->parts[pid]);
+                        ind = 4 * p->id;
+                        for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                            w = p->x[k] - s->verlet_oldx[ ind + k ];
+                            dx += w*w;
+                            }
+                        lmaxdx = fmax( dx , maxdx );
+                        }
                     }
-                maxdx = fmax( dx , maxdx );
+                #pragma omp critical
+                maxdx = fmax( lmaxdx , maxdx );
                 }
-            }
+        #else
+            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                c = &(s->cells[cid]);
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &(c->parts[pid]);
+                    ind = 4 * p->id;
+                    for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                        w = p->x[k] - s->verlet_oldx[ ind + k ];
+                        dx += w*w;
+                        }
+                    maxdx = fmax( dx , maxdx );
+                    }
+                }
+        #endif
             
         /* Are we still in the green? */
         s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
@@ -249,6 +279,7 @@ int space_verlet_init ( struct space *s , int list_global ) {
             return error(space_err);
             
         /* Store the current positions as a reference. */
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,ind,k)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
             for ( pid = 0 ; pid < c->count ; pid++ ) {
