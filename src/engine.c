@@ -944,9 +944,9 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         
     /* init the barrier variables */
     e->barrier_count = 0;
-	if (pthread_mutex_init(&e->barrier_mutex,NULL) != 0 ||
-		pthread_cond_init(&e->barrier_cond,NULL) != 0 ||
-		pthread_cond_init(&e->done_cond,NULL) != 0)
+	if ( pthread_mutex_init( &e->barrier_mutex , NULL ) != 0 ||
+		 pthread_cond_init( &e->barrier_cond , NULL ) != 0 ||
+		 pthread_cond_init( &e->done_cond , NULL ) != 0)
 		return error(engine_err_pthread);
         
     /* init the barrier */

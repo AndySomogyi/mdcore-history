@@ -204,6 +204,8 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
         return error(cell_err_malloc);
     c->size = cell_default_size;
     c->count = 0;
+    c->oldx_size = 0;
+    c->oldx = NULL;
     
     /* allocate the incomming part buffer. */
     if ( posix_memalign( (void **)&(c->incomming) , cell_partalign , align_ceil( sizeof(struct part) * cell_incr ) ) != 0 )

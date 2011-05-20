@@ -180,7 +180,7 @@ int space_verlet_get ( struct space *s , int maxcount , int *from ) {
  
 int space_verlet_init ( struct space *s , int list_global ) {
 
-    int cid, pid, ind, k;
+    int cid, pid, k;
     double dx, w, maxdx = 0.0, skin;
     struct cell *c;
     struct part *p;
@@ -197,15 +197,13 @@ int space_verlet_init ( struct space *s , int list_global ) {
     skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) ) - s->cutoff;
     
     /* Allocate the parts and nrpairs lists if necessary. */
-    if ( s->verlet_oldx == NULL || s->verlet_size < s->nr_parts ) {
+    if ( s->verlet_size < s->nr_parts ) {
     
         printf("space_verlet_init: (re)allocating verlet lists...\n");
     
         /* Free old lists if necessary. */
         if ( s->verlet_list != NULL )
             free( s->verlet_list );
-        if ( s->verlet_oldx != NULL )
-            free( s->verlet_oldx );
         if ( s->verlet_nrpairs != NULL )
             free( s->verlet_nrpairs );
             
@@ -217,8 +215,6 @@ int space_verlet_init ( struct space *s , int list_global ) {
             if ( ( s->verlet_nrpairs = (int *)malloc( sizeof(int) * s->verlet_size ) ) == NULL )
                 return error(space_err_malloc);
             }
-        if ( ( s->verlet_oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * s->verlet_size * 4 ) ) == NULL )
-            return error(space_err_malloc);
             
         /* We have to re-build the list now. */
         s->verlet_rebuild = 1;
@@ -230,16 +226,15 @@ int space_verlet_init ( struct space *s , int list_global ) {
         /* Check if we need to re-shuffle the particles. */
         #ifdef HAVE_OPENMP
             step = omp_get_num_threads();
-            #pragma omp parallel private(cid,pid,p,ind,dx,k,w,lmaxdx)
+            #pragma omp parallel private(cid,pid,p,dx,k,w,lmaxdx)
             {
                 lmaxdx = 0.0;
                 for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
                     c = &(s->cells[cid]);
                     for ( pid = 0 ; pid < c->count ; pid++ ) {
                         p = &(c->parts[pid]);
-                        ind = 4 * p->id;
                         for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                            w = p->x[k] - s->verlet_oldx[ ind + k ];
+                            w = p->x[k] - c->oldx[ 4*pid + k ];
                             dx += w*w;
                             }
                         lmaxdx = fmax( dx , maxdx );
@@ -253,9 +248,8 @@ int space_verlet_init ( struct space *s , int list_global ) {
                 c = &(s->cells[cid]);
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &(c->parts[pid]);
-                    ind = 4 * p->id;
                     for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                        w = p->x[k] - s->verlet_oldx[ ind + k ];
+                        w = p->x[k] - c->oldx[ 4*pid + k ];
                         dx += w*w;
                         }
                     maxdx = fmax( dx , maxdx );
@@ -279,14 +273,18 @@ int space_verlet_init ( struct space *s , int list_global ) {
             return error(space_err);
             
         /* Store the current positions as a reference. */
-        #pragma omp parallel for schedule(static), private(cid,c,pid,p,ind,k)
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
+            if ( c->oldx == NULL || c->oldx_size < c->count ) {
+                free(c->oldx);
+                c->oldx_size = c->size;
+                c->oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * c->size );
+                }
             for ( pid = 0 ; pid < c->count ; pid++ ) {
                 p = &(c->parts[pid]);
-                ind = 4 * p->id;
                 for ( k = 0 ; k < 3 ; k++ )
-                    s->verlet_oldx[ ind + k ] = p->x[k];
+                    c->oldx[ 4*pid + k ] = p->x[k];
                 }
             }
             

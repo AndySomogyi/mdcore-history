@@ -80,6 +80,10 @@ struct cell {
     pthread_mutex_t cell_mutex;
 	pthread_cond_t cell_cond;
     
+    /* Old particle positions for the verlet lists. */
+    FPTYPE *oldx;
+    int oldx_size;
+    
     };
     
 
