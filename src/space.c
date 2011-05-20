@@ -225,10 +225,9 @@ int space_verlet_init ( struct space *s , int list_global ) {
         
         /* Check if we need to re-shuffle the particles. */
         #ifdef HAVE_OPENMP
-            step = omp_get_num_threads();
-            #pragma omp parallel private(cid,pid,p,dx,k,w,lmaxdx)
+            #pragma omp parallel private(cid,pid,p,dx,k,w,step,lmaxdx)
             {
-                lmaxdx = 0.0;
+                lmaxdx = 0.0; step = omp_get_num_threads();
                 for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
                     c = &(s->cells[cid]);
                     for ( pid = 0 ; pid < c->count ; pid++ ) {
@@ -237,7 +236,7 @@ int space_verlet_init ( struct space *s , int list_global ) {
                             w = p->x[k] - c->oldx[ 4*pid + k ];
                             dx += w*w;
                             }
-                        lmaxdx = fmax( dx , maxdx );
+                        lmaxdx = fmax( dx , lmaxdx );
                         }
                     }
                 #pragma omp critical
@@ -265,8 +264,8 @@ int space_verlet_init ( struct space *s , int list_global ) {
     /* Do we have to rebuild the Verlet list? */
     if ( s->verlet_rebuild ) {
     
-        /* printf("space_verlet_init: (re)building verlet lists...\n"); */
-        // printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin);
+        printf("space_verlet_init: (re)building verlet lists...\n");
+        /* printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
         
         /* Shuffle the domain. */
         if ( space_shuffle( s ) < 0 )
@@ -279,7 +278,7 @@ int space_verlet_init ( struct space *s , int list_global ) {
             if ( c->oldx == NULL || c->oldx_size < c->count ) {
                 free(c->oldx);
                 c->oldx_size = c->size;
-                c->oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * c->size );
+                c->oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * c->oldx_size );
                 }
             for ( pid = 0 ; pid < c->count ; pid++ ) {
                 p = &(c->parts[pid]);
