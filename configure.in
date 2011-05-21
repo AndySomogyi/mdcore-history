@@ -17,7 +17,7 @@
 
 # init the project
 AC_INIT(src/engine.c)
-VERSION="0.0.1"
+VERSION="0.1.1"
 AC_SUBST(VERSION)
 AM_INIT_AUTOMAKE(mdcore,VERSION)
 AC_PROG_LIBTOOL
