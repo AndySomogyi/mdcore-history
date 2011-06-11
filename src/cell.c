@@ -56,6 +56,102 @@ int cell_err = cell_err_ok;
 
 
 /**
+ * @brief Flush all the parts from a #cell.
+ *
+ * @param c The #cell to flush.
+ * @param partlist A pointer to the partlist to set the part indices.
+ * @param celllist A pointer to the celllist to set the part indices.
+ *
+ * @return #cell_err_ok or < 0 on error (see #cell_err).
+ */
+ 
+int cell_flush ( struct cell *c , struct part **partlist , struct cell **celllist ) {
+
+    int k;
+
+    /* Check the inputs. */
+    if ( c == NULL )
+        return error(cell_err_null);
+        
+    /* Unhook the cells from the partlist. */
+    if ( partlist != NULL )
+        for ( k = 0 ; k < c->count ; k++ )
+            partlist[ c->parts[k].id ] = NULL;
+        
+    /* Unhook the cells from the celllist. */
+    if ( celllist != NULL )
+        for ( k = 0 ; k < c->count ; k++ )
+            celllist[ c->parts[k].id ] = NULL;
+            
+    /* Set the count to zero. */
+    c->count = 0;
+    
+    /* All done! */
+    return cell_err_ok;
+        
+    }
+    
+
+/**
+ * @brief Load a block of particles to the cell.
+ *
+ * @param c The #cell.
+ * @param parts Pointer to a block of #part.
+ * @param nr_parts The number of parts to load.
+ * @param partlist A pointer to the partlist to set the part indices.
+ * @param celllist A pointer to the celllist to set the part indices.
+ *
+ * @return #cell_err_ok or < 0 on error (see #cell_err).
+ */
+ 
+int cell_load ( struct cell *c , struct part *parts , int nr_parts , struct part **partlist , struct cell **celllist ) {
+
+    int k, size_new;
+    struct part *temp;
+
+    /* check inputs */
+    if ( c == NULL || parts == NULL )
+        return error(cell_err_null);
+        
+    /* Is there sufficient room for these particles? */
+    if ( c->count + nr_parts > c->size ) {
+        size_new = c->count + nr_parts;
+        if ( size_new < c->size + cell_incr )
+            size_new = c->size + cell_incr;
+        if ( posix_memalign( (void **)&temp , cell_partalign , align_ceil( sizeof(struct part) * size_new ) ) != 0 )
+            return error(cell_err_malloc);
+        memcpy( temp , c->parts , sizeof(struct part) * c->count );
+        free( c->parts );
+        c->parts = temp;
+        c->size = size_new;
+        if ( partlist != NULL )
+            for ( k = 0 ; k < c->count ; k++ )
+                partlist[ c->parts[k].id ] = &( c->parts[k] );
+        }
+        
+    /* Copy the new particles in. */
+    memcpy( &( c->parts[c->count] ) , parts , sizeof(struct part) * nr_parts );
+    
+    /* Link them in the partlist. */
+    if ( partlist != NULL )
+        for ( k = c->count ; k < c->count + nr_parts ; k++ )
+            partlist[ c->parts[k].id ] = &( c->parts[k] );
+        
+    /* Link them in the celllist. */
+    if ( celllist != NULL )
+        for ( k = c->count ; k < c->count + nr_parts ; k++ )
+            celllist[ c->parts[k].id ] = c;
+        
+    /* Adjust the count. */
+    c->count += nr_parts;
+    
+    /* We're out of here! */
+    return cell_err_ok;
+        
+    }
+
+
+/**
  * @brief Move particles from the incomming buffer to the cell.
  *
  * @param c The #cell.
@@ -185,6 +281,7 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
         
     /* default flags. */
     c->flags = cell_flag_none;
+    c->nodeID = 0;
         
     /* Init this cell's mutex. */
     if ( pthread_mutex_init( &c->cell_mutex , NULL ) != 0 )

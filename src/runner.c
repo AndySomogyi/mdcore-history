@@ -30,6 +30,7 @@
 #include <limits.h>
 
 /* Include some conditional headers. */
+#include "../config.h"
 #ifdef CELL
     #include <libspe2.h>
     #include <libmisc.h>
@@ -41,6 +42,9 @@
 #ifdef HAVE_SETAFFINITY
     #include <sched.h>
 #endif
+#ifdef HAVE_MPI
+    #include <mpi.h>
+#endif
 
 /* Include local headers */
 #include "errs.h"
@@ -51,6 +55,7 @@
 #include "potential.h"
 #include "engine.h"
 #include "runner.h"
+
 
 
 #ifdef CELL

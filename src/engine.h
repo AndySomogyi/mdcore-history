@@ -31,6 +31,9 @@
 #define engine_err_runner                -5
 #define engine_err_range                 -6
 #define engine_err_cell                  -7
+#define engine_err_domain                -8
+#define engine_err_nompi                 -9
+#define engine_err_mpi                   -10
 
 
 /* some constants */
@@ -47,6 +50,7 @@
 #define engine_flag_verlet_pairwise2     512
 #define engine_flag_partlist             1024
 #define engine_flag_unsorted             2048
+#define engine_flag_mpi                  4096
 
 
 /** ID of the last error. */
@@ -92,6 +96,26 @@ struct engine {
     /** The runners */
     struct runner *runners;
     
+    /** The ID of the computational node we are on. */
+    int nodeID;
+    int nr_nodes;
+    
+    /** Lists of cells to exchange with other nodes. */
+    struct engine_comm *send, *recv;
+    
+    };
+    
+    
+/**
+ * Structure storing which cells to send/receive to/from another node.
+ */
+struct engine_comm {
+
+    /* Size and count of the cellids. */
+    int count, size;
+    
+    int *cellid;
+    
     };
     
 
@@ -111,3 +135,8 @@ int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , 
 int engine_unload_marked ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N );
 int engine_flush_ghosts ( struct engine *e );
 int engine_unload_strays ( struct engine *e , double *x , double *v , int *type , int *vid , double *q , unsigned int *flags , double *epot , int N );
+int engine_split_bisect ( struct engine *e , int N );
+int engine_split ( struct engine *e );
+#ifdef HAVE_MPI
+    int engine_exchange ( struct engine *e , MPI_Comm comm );
+#endif

@@ -177,6 +177,7 @@ struct celltuple {
     /** Ids of the underlying pairs. */
     int pairid[ space_maxtuples * (space_maxtuples + 1) / 2 ];
     
+    /* Buffer value to keep the size at 64 bytes for space_maxtuples==4. */
     int buff;
     
     };

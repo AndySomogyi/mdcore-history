@@ -84,6 +84,9 @@ struct cell {
     FPTYPE *oldx;
     int oldx_size;
     
+    /* ID of the node this cell belongs to. */
+    int nodeID;
+    
     };
     
 
@@ -92,3 +95,5 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim );
 struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist );
 struct part *cell_add_incomming ( struct cell *c , struct part *p );
 int cell_welcome ( struct cell *c , struct part **partlist );
+int cell_load ( struct cell *c , struct part *parts , int nr_parts , struct part **partlist , struct cell **celllist );
+int cell_flush ( struct cell *c , struct part **partlist , struct cell **celllist );

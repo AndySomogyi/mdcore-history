@@ -1335,7 +1335,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     
     /* Make the list of celltuples. */
     if ( space_maketuples( s ) < 0 )
-        return space_err;
+        return error(space_err);
     
     /* allocate the initial partlist */
     if ( ( s->partlist = (struct part **)malloc( sizeof(struct part *) * space_partlist_incr ) ) == NULL )
