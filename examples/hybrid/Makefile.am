@@ -22,13 +22,18 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = -L. $(METIS_LDFLAGS)
+AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = ppm_test 
+bin_PROGRAMS = ppm_test hybrid
 
 # Sources for ppm_test
 ppm_test_SOURCES = ppm_test.c
-ppm_test_LDADD = ../../src/.libs/libmdcore.a -lppm -lmetis -lmpi -lmpif77 -lmpif90 -lgfortran
-ppm_test_CFLAGS = -I/usr/lib/openmpi/include $(AM_CFLAGS)
+ppm_test_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
+ppm_test_LDADD = ../../src/.libs/libmdcore_single.a -lppm -lmetis -lmpif77 -lmpif90 -lgfortran
+
+# Sources for hybrid
+hybrid_SOURCES = hybrid.c
+hybrid_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
+hybrid_LDADD = ../../src/.libs/libmdcore_single.a
 
