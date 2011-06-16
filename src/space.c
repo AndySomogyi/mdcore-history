@@ -358,6 +358,45 @@ int space_flush ( struct space *s ) {
     return space_err_ok;
 
     }
+    
+    
+/**
+ * @brief Get the next unprocessed cell from the spaece.
+ *
+ * @param s The #space.
+ * @param out Pointer to a pointer to #cell in which to store the results.
+ *
+ * @return @c 1 if a cell was found, #space_err_ok if the list is empty
+ *      or < 0 on error (see #space_err).
+ */
+ 
+int space_getcell ( struct space *s , struct cell **out ) {
+
+    int res = 0;
+    
+    /* Are there any cells left? */
+    if ( s->next_cell == s->nr_cells )
+        return 0;
+    
+    /* Try to get a hold of the cells mutex */
+	if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+		return error(space_err_pthread);
+        
+    /* Try to get a cell. */
+    if ( s->next_cell < s->nr_cells ) {
+        *out = &( s->cells[ s->next_cell ] );
+        s->next_cell += 1;
+        res = 1;
+        }
+
+    /* Release the cells mutex */
+	if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+		return error(space_err_pthread);
+        
+    /* We've got it! */
+    return res;
+        
+    }
 
 
 /**
@@ -716,6 +755,7 @@ int space_prepare ( struct space *s ) {
     /* re-set next_pair */
     s->next_pair = 0;
     s->next_tuple = 0;
+    s->next_cell = 0;
     s->nr_swaps = 0;
     s->nr_stalls = 0;
     s->epot = 0.0;
@@ -771,19 +811,19 @@ int space_shuffle ( struct space *s ) {
             continue;
     
         /* loop over all particles in this cell */
-        __builtin_prefetch( &c->parts[0] );
+        /* __builtin_prefetch( &c->parts[0] );
         __builtin_prefetch( &c->parts[1] );
         __builtin_prefetch( &c->parts[2] );
         __builtin_prefetch( &c->parts[3] );
         __builtin_prefetch( &c->parts[4] );
         __builtin_prefetch( &c->parts[5] );
         __builtin_prefetch( &c->parts[6] );
-        __builtin_prefetch( &c->parts[7] );
+        __builtin_prefetch( &c->parts[7] ); */
         pid = 0;
         while ( pid < c->count ) {
         
             /* get a handle on the particle */
-            __builtin_prefetch( &c->parts[pid+8] );
+            /* __builtin_prefetch( &c->parts[pid+8] ); */
             p = &(c->parts[pid]);
             
             /* check if this particle is out of bounds */

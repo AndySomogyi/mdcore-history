@@ -1215,7 +1215,7 @@ int engine_step ( struct engine *e ) {
     if ( e->flags & engine_flag_verlet )
         if ( space_verlet_init( s , !(e->flags & engine_flag_verlet_pairwise) ) != space_err_ok )
             return error(engine_err_space);
-        
+    
     /* open the door for the runners */
     e->barrier_count *= -1;
     if (pthread_cond_broadcast(&e->barrier_cond) != 0)

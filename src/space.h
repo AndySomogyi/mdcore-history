@@ -104,8 +104,8 @@ struct space {
     /** The number of tuples. */
     int nr_tuples;
     
-    /** The ID of the next free tuple. */
-    int next_tuple;
+    /** The ID of the next free tuple or cell. */
+    int next_tuple, next_cell;
     
     /** Mutex for accessing the cell pairs. */
     pthread_mutex_t cellpairs_mutex;
@@ -214,3 +214,4 @@ int space_verlet_init ( struct space *s , int list_global );
 int space_verlet_get ( struct space *s , int maxcount , int *from );
 int space_verlet_force ( struct space *s , FPTYPE *f , double epot );
 int space_flush_ghosts ( struct space *s );
+int space_getcell ( struct space *s , struct cell **out );

@@ -88,24 +88,23 @@ char *runner_err_msg[9] = {
 
 /**
  * @brief Compute the interactions between the particles in the given
- *        segment of the verlet list.
+ *        cell using the verlet list.
  *
  * @param r The #runner.
- * @param ind The index of the first entry in the Verlet list to compute.
- * @param count The number of entries to compute
+ * @param c The #cell containing the particles to traverse.
  * @param f A pointer to an array of #FPTYPE in which to aggregate the
  *        interaction forces.
  * 
  * @return #runner_err_ok or <0 on error (see #runner_err)
  */
  
-int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out ) {
+int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out ) {
 
     struct space *s;
     struct part *part_i, *part_j, **partlist;
     struct verlet_entry *verlet_list;
     struct potential *pot;
-    int i, j, k, nrpairs;
+    int pid, i, j, k, nrpairs;
     FPTYPE pix[3];
     FPTYPE cutoff, cutoff2, r2, dx[3], w, h[3];
     double epot = 0.0;
@@ -114,11 +113,11 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
     int icount = 0, l;
     FPTYPE *effi[4], *effj[4], *pif;
     FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE e[4] __attribute__ ((aligned (16)));
-    FPTYPE f[4] __attribute__ ((aligned (16)));
+    FPTYPE ee[4] __attribute__ ((aligned (16)));
+    FPTYPE eff[4] __attribute__ ((aligned (16)));
     FPTYPE dxq[12];
 #else
-    FPTYPE e, f;
+    FPTYPE ee, eff;
 #endif
 
     /* Get a direct pointer on the space and some other useful things. */
@@ -129,17 +128,18 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
     h[0] = s->h[0]; h[1] = s->h[1]; h[2] = s->h[2];
     
     /* Loop over all entries. */
-    for ( i = ind ; i < ind+count ; i++ ) {
+    for ( i = 0 ; i < c->count ; i++ ) {
     
         /* Get a hold of the ith particle. */
-        part_i = partlist[i];
-        verlet_list = &( s->verlet_list[ i * space_verlet_maxpairs ] );
+        part_i = &( c->parts[i] );
+        pid = part_i->id;
+        verlet_list = &( s->verlet_list[ pid * space_verlet_maxpairs ] );
         pix[0] = part_i->x[0];
         pix[1] = part_i->x[1];
         pix[2] = part_i->x[2];
-        nrpairs = s->verlet_nrpairs[i];
+        nrpairs = s->verlet_nrpairs[ pid ];
         #if defined(VECTORIZE)
-            pif = &( f_out[i*4] );
+            pif = &( f_out[ pid*4 ] );
         #endif
         
         /* loop over all other particles */
@@ -177,13 +177,13 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
                     /* evaluate the interactions if the queue is full. */
                     if ( icount == 4 ) {
 
-                        potential_eval_vec_4single( potq , r2q , e , f );
+                        potential_eval_vec_4single( potq , r2q , ee , eff );
 
                         /* update the forces and the energy */
                         for ( l = 0 ; l < 4 ; l++ ) {
-                            epot += e[l];
+                            epot += ee[l];
                             for ( k = 0 ; k < 3 ; k++ ) {
-                                w = f[l] * dxq[l*3+k];
+                                w = eff[l] * dxq[l*3+k];
                                 effi[l][k] -= w;
                                 effj[l][k] += w;
                                 }
@@ -197,13 +197,13 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
                     /* evaluate the interactions if the queue is full. */
                     if ( icount == 4 ) {
 
-                        potential_eval_vec_4double( potq , r2q , e , f );
+                        potential_eval_vec_4double( potq , r2q , ee , eff );
 
                         /* update the forces and the energy */
                         for ( l = 0 ; l < 4 ; l++ ) {
-                            epot += e[l];
+                            epot += ee[l];
                             for ( k = 0 ; k < 3 ; k++ ) {
-                                w = f[l] * dxq[l*3+k];
+                                w = eff[l] * dxq[l*3+k];
                                 effi[l][k] -= w;
                                 effj[l][k] += w;
                                 }
@@ -217,20 +217,20 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
             #else
                 /* evaluate the interaction */
                 #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
+                    potential_eval_expl( pot , r2 , &ee , &eff );
                 #else
-                    potential_eval( pot , r2 , &e , &f );
+                    potential_eval( pot , r2 , &ee , &eff );
                 #endif
 
                 /* update the forces */
                 for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f * dx[k];
+                    w = eff * dx[k];
                     f_out[i*4+k] -= w;
                     f_out[part_j->id*4+k] += w;
                     }
 
                 /* tabulate the energy */
-                epot += e;
+                epot += ee;
             #endif
 
             } /* loop over all other particles */
@@ -248,13 +248,13 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single( potq , r2q , e , f );
+            potential_eval_vec_4single( potq , r2q , ee , eff );
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot += e[l];
+                epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f[l] * dxq[l*3+k];
+                    w = eff[l] * dxq[l*3+k];
                     effi[l][k] -= w;
                     effj[l][k] += w;
                     }
@@ -272,13 +272,13 @@ int runner_verlet_eval ( struct runner *r , int ind , int count , FPTYPE *f_out 
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4double( potq , r2q , e , f );
+            potential_eval_vec_4double( potq , r2q , ee , eff );
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot += e[l];
+                epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f[l] * dxq[l*3+k];
+                    w = eff[l] * dxq[l*3+k];
                     effi[l][k] -= w;
                     effj[l][k] += w;
                     }
@@ -4470,9 +4470,9 @@ int runner_run_cell_tuples ( struct runner *r ) {
  *
  * This is the main routine for the #runner. When called, it enters
  * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having paSSEd, checks first if the Verlet list should
- * be re-built and then proceeds to acquire chunks of the Verlet
- * list and computes its interactions.
+ * and, once having passed, checks first if the Verlet list should
+ * be re-built and then proceeds to traverse the Verlet list cell-wise
+ * and computes its interactions.
  */
 
 int runner_run_verlet ( struct runner *r ) {
@@ -4483,7 +4483,7 @@ int runner_run_verlet ( struct runner *r ) {
     struct celltuple *t;
     struct cell *c;
     FPTYPE shift[3], *eff = NULL;
-    int count, from;
+    int count;
 
     /* check the inputs */
     if ( r == NULL )
@@ -4596,14 +4596,10 @@ int runner_run_verlet ( struct runner *r ) {
             r->epot = 0.0;
 
             /* While there are still chunks of the Verlet list out there... */
-            while ( ( count = space_verlet_get( s , runner_verlet_bitesize , &from ) ) > 0 ) {
-
-                /* Did anything go wrong? */
-                if ( count < 0 )
-                    return error(runner_err_space);
+            while ( ( count = space_getcell( s , &c ) ) > 0 ) {
 
                 /* Dispatch the interactions to runner_verlet_eval. */
-                runner_verlet_eval ( r , from , count , eff );
+                runner_verlet_eval( r , c , eff );
 
                 }
 
@@ -5183,25 +5179,25 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     
     /* init the thread using a pairwise Verlet list. */
     if ( e->flags & engine_flag_verlet_pairwise ) {
-	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet_pairwise,r) != 0 )
+	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_verlet_pairwise , r ) != 0 )
 		    return error(runner_err_pthread);
         }
         
     /* init the thread using a global Verlet list. */
     else if ( e->flags & engine_flag_verlet ) {
-	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_verlet,r) != 0 )
+	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_verlet , r ) != 0 )
 		    return error(runner_err_pthread);
         }
         
     /* init the thread using tuples. */
     else if ( e->flags & engine_flag_tuples ) {
-	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_tuples,r) != 0 )
+	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_tuples , r ) != 0 )
 		    return error(runner_err_pthread);
         }
         
     /* default: use the normal pair-list instead. */
     else {
-	    if ( pthread_create(&r->thread,NULL,(void *(*)(void *))runner_run_pairs,r) != 0 )
+	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_pairs , r ) != 0 )
 		    return error(runner_err_pthread);
         }
     

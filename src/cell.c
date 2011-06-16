@@ -142,6 +142,10 @@ int cell_load ( struct cell *c , struct part *parts , int nr_parts , struct part
         for ( k = c->count ; k < c->count + nr_parts ; k++ )
             celllist[ c->parts[k].id ] = c;
         
+    /* Mark them as ghosts? */
+    for ( k = c->count ; k < c->count + nr_parts ; k++ )
+        c->parts[k].flags &= ~part_flag_ghost | ( (c->flags & cell_flag_ghost) == 1 ) * part_flag_ghost;
+        
     /* Adjust the count. */
     c->count += nr_parts;
     
@@ -258,6 +262,9 @@ struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist
     c->parts[c->count] = *p;
     if ( partlist != NULL )
         partlist[ p->id ] = &c->parts[ c->count ];
+        
+    /* Mark it as a ghost? */
+    p->flags &= ~part_flag_ghost | ( (c->flags & cell_flag_ghost) == 1 ) * part_flag_ghost;
         
     /* all is well */
     return &( c->parts[ c->count++ ] );
