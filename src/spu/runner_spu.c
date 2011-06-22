@@ -139,7 +139,7 @@ inline void potential_eval_vec ( struct potential *p[4] , vector float r2 , vect
         }
 
     /* store the result */
-    *e = ee; *f = eff * hi;    
+    *e = ee; *f = eff * ( hi / r );    
     
     }
 
@@ -209,8 +209,8 @@ inline void potential_eval_vec2 ( struct potential *p[8] , vector float *r2 , ve
         }
 
     /* store the result */
-    e[0] = ee_1; f[0] = eff_1 * hi_1;    
-    e[1] = ee_2; f[1] = eff_2 * hi_2;    
+    e[0] = ee_1; f[0] = eff_1 * ( hi_1 / r_1 );    
+    e[1] = ee_2; f[1] = eff_2 * ( hi_2 / r_2 );    
     
     }
 
@@ -357,7 +357,7 @@ inline void potential_eval ( struct potential *p , double r2 , double *e , doubl
         }
 
     /* store the result */
-    *e = ee; *f = eff * data[1];
+    *e = ee; *f = eff * data[1] / r;
     
     }
 #else
@@ -384,7 +384,7 @@ inline void potential_eval ( struct potential *p , float r2 , float *e , float *
         }
 
     /* store the result */
-    *e = ee; *f = eff * data[1];
+    *e = ee; *f = eff * data[1] / r;
     
     }
 #endif
