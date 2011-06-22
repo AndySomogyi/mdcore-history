@@ -33,9 +33,11 @@
 #ifdef HAVE_MPI
     #include <mpi.h>
 #endif
+#ifdef HAVE_OPENMP
+    #include <omp.h>
+#endif
 
 /* include local headers */
-#include "../config.h"
 #include "errs.h"
 #include "fptype.h"
 #include "part.h"
@@ -43,6 +45,8 @@
 #include "space.h"
 #include "potential.h"
 #include "runner.h"
+#include "bond.h"
+#include "angle.h"
 #include "engine.h"
 
 
@@ -54,7 +58,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[11] = {
+char *engine_err_msg[13] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -65,9 +69,343 @@ char *engine_err_msg[11] = {
     "An error occured while calling a cell function.",
     "The computational domain is too small for the requested operation.",
     "mdcore was not compiled with MPI.",
-    "An error occured while calling an MPI function."
+    "An error occured while calling an MPI function.",
+    "An error occured when calling a bond function.", 
+    "An error occured when calling a, angle function."
 	};
+
+
+/**
+ * @brief Add a angle interaction to the engine.
+ *
+ * @param e The #engine.
+ * @param i The ID of the first #part.
+ * @param i The ID of the second #part.
+ * @param k The ID of the third #part.
+ * @param pid Index of the #potential for this bond.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_angle_add ( struct engine *e , int i , int j , int k , int pid ) {
+
+    struct angle *dummy;
+
+    /* Check inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    if ( i > e->s.nr_parts || j > e->s.nr_parts )
+        return error(engine_err_range);
+    if ( pid > e->nr_anglepots )
+        return error(engine_err_range);
+        
+    /* Do we need to grow the angles array? */
+    if ( e->nr_angles == e->angles_size ) {
+        e->angles_size += 100;
+        if ( ( dummy = (struct angle *)malloc( sizeof(struct angle) * e->angles_size ) ) == NULL )
+            return error(engine_err_malloc);
+        memcpy( dummy , e->angles , sizeof(struct angle) * e->nr_angles );
+        free( e->angles );
+        e->angles = dummy;
+        }
+        
+    /* Store this angle. */
+    e->angles[ e->nr_angles ].i = i;
+    e->angles[ e->nr_angles ].j = j;
+    e->angles[ e->nr_angles ].k = k;
+    e->angles[ e->nr_angles ].pid = pid;
+    e->nr_angles += 1;
     
+    /* It's the end of the world as we know it. */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Add a bonded interaction to the engine.
+ *
+ * @param e The #engine.
+ * @param i The ID of the first #part.
+ * @param i The ID of the second #part.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_bond_add ( struct engine *e , int i , int j ) {
+
+    struct bond *dummy;
+
+    /* Check inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    if ( i > e->s.nr_parts || j > e->s.nr_parts )
+        return error(engine_err_range);
+        
+    /* Do we need to grow the bonds array? */
+    if ( e->nr_bonds == e->bonds_size ) {
+        e->bonds_size += 100;
+        if ( ( dummy = (struct bond *)malloc( sizeof(struct bond) * e->bonds_size ) ) == NULL )
+            return error(engine_err_malloc);
+        memcpy( dummy , e->bonds , sizeof(struct bond) * e->nr_bonds );
+        free( e->bonds );
+        e->bonds = dummy;
+        }
+        
+    /* Store this bond. */
+    e->bonds[ e->nr_bonds ].i = i;
+    e->bonds[ e->nr_bonds ].j = j;
+    e->nr_bonds += 1;
+    
+    /* It's the end of the world as we know it. */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Compute the angleed interactions stored in this engine.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_angle_eval ( struct engine *e ) {
+
+    double epot = 0.0;
+    struct space *s;
+    #ifdef HAVE_OPENMP
+        FPTYPE *eff;
+        int finger_global = 0, finger, count, cid, pid, gpid, k;
+        struct part *p;
+        struct cell *c;
+    #endif
+    
+    /* Get a handle on the space. */
+    s = &e->s;
+
+    #ifdef HAVE_OPENMP
+    
+        /* Is it worth parallelizing? */
+        #pragma omp parallel private(eff,finger,count), reduction(+:epot)
+        if ( omp_get_num_threads() > 1 && e->nr_angles > engine_angles_chunk ) {
+    
+            /* Allocate a buffer for the forces. */
+            eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
+            bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
+
+            /* Main loop. */
+            while ( finger_global < e->nr_angles ) {
+
+                /* Get a finger on the angles list. */
+                #pragma omp critical
+                {
+                    if ( finger_global < e->nr_angles ) {
+                        finger = finger_global;
+                        count = engine_angles_chunk;
+                        if ( finger + count > e->nr_angles )
+                            count = e->nr_angles - finger;
+                        finger_global += count;
+                        }
+                    else
+                        count = 0;
+                    }
+
+                /* Compute the angleed interactions. */
+                if ( count > 0 )
+                    angle_evalf( &e->angles[finger] , count , e , eff , &epot );
+
+                } /* main loop. */
+
+            /* Write-back the forces. */
+            #pragma omp critical
+            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                c = &s->cells[ cid ];
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &c->parts[ pid ];
+                    gpid = p->id;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->f[k] += eff[ gpid*4 + k ];
+                    }
+                }
+            free( eff );
+                
+            }
+            
+        /* Otherwise, evaluate directly. */
+        else if ( omp_get_thread_num() == 0 )
+            angle_eval( e->angles , e->nr_angles , e , &epot );
+    #else
+        if ( angle_eval( e->angles , e->nr_angles , e , &epot ) < 0 )
+            return error(engine_err_angle);
+    #endif
+        
+    /* Store the potential energy. */
+    s->epot += epot;
+    
+    /* I'll be back... */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Compute the bonded interactions stored in this engine.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_bond_eval ( struct engine *e ) {
+
+    double epot = 0.0;
+    struct space *s;
+    #ifdef HAVE_OPENMP
+        FPTYPE *eff;
+        int finger_global = 0, finger, count, cid, pid, gpid, k;
+        struct part *p;
+        struct cell *c;
+    #endif
+    
+    /* Get a handle on the space. */
+    s = &e->s;
+
+    #ifdef HAVE_OPENMP
+    
+        /* Is it worth parallelizing? */
+        #pragma omp parallel private(eff,finger,count), reduction(+:epot)
+        if ( omp_get_num_threads() > 1 && e->nr_bonds > engine_bonds_chunk ) {
+    
+            /* Allocate a buffer for the forces. */
+            eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
+            bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
+
+            /* Main loop. */
+            while ( finger_global < e->nr_bonds ) {
+
+                /* Get a finger on the bonds list. */
+                #pragma omp critical
+                {
+                    if ( finger_global < e->nr_bonds ) {
+                        finger = finger_global;
+                        count = engine_bonds_chunk;
+                        if ( finger + count > e->nr_bonds )
+                            count = e->nr_bonds - finger;
+                        finger_global += count;
+                        }
+                    else
+                        count = 0;
+                    }
+
+                /* Compute the bonded interactions. */
+                if ( count > 0 )
+                    bond_evalf( &e->bonds[finger] , count , e , eff , &epot );
+
+                } /* main loop. */
+
+            /* Write-back the forces. */
+            #pragma omp critical
+            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                c = &s->cells[ cid ];
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &c->parts[ pid ];
+                    gpid = p->id;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->f[k] += eff[ gpid*4 + k ];
+                    }
+                }
+            free( eff );
+                
+            }
+            
+        /* Otherwise, evaluate directly. */
+        else if ( omp_get_thread_num() == 0 )
+            bond_eval( e->bonds , e->nr_bonds , e , &epot );
+    #else
+        if ( bond_eval( e->bonds , e->nr_bonds , e , &epot ) < 0 )
+            return error(engine_err_bond);
+    #endif
+        
+    /* Store the potential energy. */
+    s->epot += epot;
+    
+    /* I'll be back... */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Add a bond potential.
+ *
+ * @param e The #engine.
+ * @param p The #potential to add to the #engine.
+ * @param i ID of particle type for this interaction.
+ * @param j ID of second particle type for this interaction.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Adds the given bonded potential for pairs of particles of type @c i and @c j,
+ * where @c i and @c j may be the same type ID.
+ */
+ 
+int engine_bond_addpot ( struct engine *e , struct potential *p , int i , int j ) {
+
+    /* check for nonsense. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    if ( i < 0 || i >= e->max_type || j < 0 || j >= e->max_type )
+        return error(engine_err_range);
+        
+    /* store the potential. */
+    e->p_bond[ i * e->max_type + j ] = p;
+    if ( i != j )
+        e->p_bond[ j * e->max_type + i ] = p;
+        
+    /* end on a good note. */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Add a angle potential.
+ *
+ * @param e The #engine.
+ * @param p The #potential to add to the #engine.
+ *
+ * @return The ID of the added angle potential or < 0 on error (see #engine_err).
+ */
+ 
+int engine_angle_addpot ( struct engine *e , struct potential *p ) {
+
+    struct potential **dummy;
+
+    /* check for nonsense. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Is there enough room in p_angle? */
+    if ( e->nr_anglepots == e->anglepots_size ) {
+        e->anglepots_size += 100;
+        if ( ( dummy = (struct potential **)malloc( sizeof(struct potential *) * e->anglepots_size ) ) == NULL )
+            return engine_err_malloc;
+        memcpy( dummy , e->p_angle , sizeof(struct potential *) * e->nr_anglepots );
+        free( e->p_angle );
+        e->p_angle = dummy;
+        }
+        
+    /* store the potential. */
+    e->p_angle[ e->nr_anglepots ] = p;
+    e->nr_anglepots += 1;
+        
+    /* end on a good note. */
+    return e->nr_anglepots - 1;
+
+    }
+
 
 /**
  * @brief Exchange data with other nodes.
@@ -1225,6 +1563,16 @@ int engine_step ( struct engine *e ) {
     while (e->barrier_count < e->nr_runners)
         if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
             return error(engine_err_pthread);
+            
+    /* Do bonds? */
+    if ( e->nr_bonds > 0 )
+        if ( engine_bond_eval( e ) < 0 )
+            return error(engine_err);
+
+    /* Do angles? */
+    if ( e->nr_bonds > 0 )
+        if ( engine_angle_eval( e ) < 0 )
+            return error(engine_err);
 
     /* update the particle velocities and positions */
     dt = e->dt;
@@ -1395,14 +1743,35 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     e->runners = NULL;
     e->nr_runners = 0;
     
+    /* Init the bonds array. */
+    e->bonds_size = 100;
+    if ( ( e->bonds = (struct bond *)malloc( sizeof( struct bond ) * e->bonds_size ) ) == NULL )
+        return error(engine_err_malloc);
+    e->nr_bonds = 0;
+    
+    /* Init the angles array. */
+    e->angles_size = 100;
+    if ( ( e->angles = (struct angle *)malloc( sizeof( struct angle ) * e->angles_size ) ) == NULL )
+        return error(engine_err_malloc);
+    e->nr_angles = 0;
+    
     /* set the maximum nr of types */
     e->max_type = max_type;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )
         return error(engine_err_malloc);
     
-    /* allocate the interaction matrix */
+    /* allocate the interaction matrices */
     if ( (e->p = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type )) == NULL)
         return error(engine_err_malloc);
+    bzero( e->p , sizeof(struct potential *) * max_type * max_type );
+    if ( (e->p_bond = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type )) == NULL)
+        return error(engine_err_malloc);
+    bzero( e->p_bond , sizeof(struct potential *) * max_type * max_type );
+    e->anglepots_size = 100;
+    if ( (e->p_angle = (struct potential **)malloc( sizeof(struct potential *) * e->anglepots_size )) == NULL)
+        return error(engine_err_malloc);
+    bzero( e->p_angle , sizeof(struct potential *) * e->anglepots_size );
+    e->nr_anglepots = 0;
         
     /* init the barrier variables */
     e->barrier_count = 0;

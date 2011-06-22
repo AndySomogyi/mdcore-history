@@ -345,6 +345,12 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get the space and cutoff */
     eng = r->e;
     emt = eng->max_type;
@@ -355,12 +361,6 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     cutoff = s->cutoff;
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
-    count_i = cell_i->count;
-    count_j = cell_j->count;
-    
-    /* break early if one of the cells is empty */
-    if ( count_i == 0 || count_j == 0 )
-        return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -853,6 +853,12 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get the space and cutoff */
     eng = r->e;
     emt = eng->max_type;
@@ -863,12 +869,6 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     cutoff = s->cutoff;
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
-    count_i = cell_i->count;
-    count_j = cell_j->count;
-    
-    /* break early if one of the cells is empty */
-    if ( count_i == 0 || count_j == 0 )
-        return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -1478,6 +1478,12 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get the space and cutoff */
     eng = r->e;
     emt = eng->max_type;
@@ -1488,12 +1494,6 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     cutoff = s->cutoff;
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
-    count_i = cell_i->count;
-    count_j = cell_j->count;
-    
-    /* break early if one of the cells is empty */
-    if ( count_i == 0 || count_j == 0 )
-        return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -1987,6 +1987,12 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get some useful data */
     eng = r->e;
     emt = eng->max_type;
@@ -1995,12 +2001,6 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
-    count_i = cell_i->count;
-    count_j = cell_j->count;
-    
-    /* break early if one of the cells is empty */
-    if ( count_i == 0 || count_j == 0 )
-        return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -2461,6 +2461,12 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get the space and cutoff */
     eng = r->e;
     emt = eng->max_type;
@@ -2469,12 +2475,6 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     cutoff = s->cutoff;
     cutoff2 = s->cutoff2;
     dscale = (FPTYPE)SHRT_MAX / sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
-    count_i = cell_i->count;
-    count_j = cell_j->count;
-    
-    /* break early if one of the cells is empty */
-    if ( count_i == 0 || count_j == 0 )
-        return runner_err_ok;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -3135,13 +3135,17 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get the space and cutoff */
     eng = r->e;
     emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
-    count_i = cell_i->count;
-    count_j = cell_j->count;
         
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -3510,14 +3514,18 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
     FPTYPE e, f;
 #endif
     
+    /* break early if one of the cells is empty */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+        return runner_err_ok;
+    
     /* get the space and cutoff */
     eng = r->e;
     ep = eng->ep;
     emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
-    count_i = cell_i->count;
-    count_j = cell_j->count;
         
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {

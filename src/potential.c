@@ -135,7 +135,7 @@ void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e 
 
     /* store the result */
     _mm_store_ps( e , ee.v );
-    _mm_store_ps( f , _mm_mul_ps( eff.v , hi.v ) );
+    _mm_store_ps( f , _mm_mul_ps( eff.v , _mm_div_ps( hi.v , r.v ) ) );
     
 #elif defined(__ALTIVEC__) && defined(FPTYPE_SINGLE)
     int j, k;
@@ -179,13 +179,136 @@ void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e 
 
     /* store the result */
     *((vector float *)e) = ee.v;
-    *((vector float *)f) = vec_mul( eff.v , hi.v );
+    *((vector float *)f) = vec_mul( eff.v , vec_div( hi.v , r.v ) );
         
 #else
     int k;
     FPTYPE ee, eff;
     for ( k = 0 ; k < 4 ; k++ ) {
-        potential_eval( p[k] , r2[k] , &ee , &eff );
+        potential_eval_r( p[k] , r2[k] , &ee , &eff );
+        e[k] = ee; f[k] = eff;
+        }
+#endif
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at a set of points (interpolated).
+ *
+ * @param p Pointer to an array of pointers to the #potentials to be evaluated.
+ * @param r_in Pointer to an array of the radii at which the potentials
+ *      are to be evaluated.
+ * @param e Pointer to an array of floating-point values in which to store the
+ *      interaction energies.
+ * @param f Pointer to an array of floating-point values in which to store the
+ *      magnitude of the interaction forces.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ *
+ * Computes four single-precision interactions simultaneously using vectorized
+ * instructions.
+ * 
+ * This function is only available if mdcore was compiled with SSE or AltiVec
+ * and single precision! If @c mdcore was not compiled with SSE or AltiVec,
+ * this function simply calls #potential_eval on each entry.
+ */
+
+void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f ) {
+
+#if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    int j, k;
+    union {
+        __v4sf v;
+        __m128i m;
+        float f[4];
+        int i[4];
+        } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r, ind;
+    float *data[4];
+    
+    /* Get r . */
+    r.v = _mm_load_ps( r_in );
+    
+    /* compute the index */
+    alpha0.v = _mm_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1.v = _mm_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
+    
+    /* get the table offset */
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi.v = _mm_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi.v = _mm_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    x.v = _mm_mul_ps( _mm_sub_ps( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = _mm_setr_ps( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    c.v = _mm_setr_ps( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    ee.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , c.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c.v = _mm_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
+        ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c.v );
+        }
+
+    /* store the result */
+    _mm_store_ps( e , ee.v );
+    _mm_store_ps( f , _mm_mul_ps( eff.v , _mm_div_ps( hi.v , r.v ) ) );
+    
+#elif defined(__ALTIVEC__) && defined(FPTYPE_SINGLE)
+    int j, k;
+    union {
+        vector float v;
+        float f[4];
+        } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r;
+    union {
+        vector unsigned int v;
+        unsigned int i[4];
+        } ind;
+    float *data[4];
+    
+    /* Get r . */
+    r.v = *((vector float *)r_in);
+    
+    /* compute the index (vec_ctu maps negative floats to 0) */
+    alpha0.v = vec_load4( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1.v = vec_load4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2.v = vec_load4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    ind.v = vec_ctu( vec_madd( r.v , vec_madd( r.v , alpha2.v , alpha1.v ) , alpha0.v ) , 0 );
+    
+    /* get the table offset */
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi.v = vec_load4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi.v = vec_load4( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    x.v = vec_mul( vec_sub( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = vec_load4( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    c.v = vec_load4( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    ee.v = vec_madd( eff.v , x.v , c.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c.v = vec_load4( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        eff.v = vec_madd( eff.v , x.v , ee.v );
+        ee.v = vec_madd( ee.v , x.v , c.v );
+        }
+
+    /* store the result */
+    *((vector float *)e) = ee.v;
+    *((vector float *)f) = vec_mul( eff.v , vec_div( hi.v , r.v ) );
+        
+#else
+    int k;
+    FPTYPE ee, eff;
+    for ( k = 0 ; k < 4 ; k++ ) {
+        potential_eval( p[k] , r_in[k] , &ee , &eff );
         e[k] = ee; f[k] = eff;
         }
 #endif
@@ -280,8 +403,8 @@ void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e 
     /* store the result */
     _mm_store_ps( &e[0] , ee_1.v );
     _mm_store_ps( &e[4] , ee_2.v );
-    _mm_store_ps( &f[0] , _mm_mul_ps( eff_1.v , hi_1.v ) );
-    _mm_store_ps( &f[4] , _mm_mul_ps( eff_2.v , hi_2.v ) );
+    _mm_store_ps( &f[0] , _mm_mul_ps( eff_1.v , _mm_div_ps( hi_1.v , r_1.v ) ) );
+    _mm_store_ps( &f[4] , _mm_mul_ps( eff_2.v , _mm_div_ps( hi_2.v , r_2.v ) ) );
     
 #elif defined(__ALTIVEC__) && defined(FPTYPE_SINGLE)
     int j;
@@ -343,8 +466,8 @@ void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e 
         }
 
     /* store the result */
-    eff_1.v = vec_mul( eff_1.v , hi_1.v );
-    eff_2.v = vec_mul( eff_2.v , hi_2.v );
+    eff_1.v = vec_mul( eff_1.v , vec_div( hi_1.v , r_1.v ) );
+    eff_2.v = vec_mul( eff_2.v , vec_div( hi_2.v , r_2.v ) );
     memcpy( &e[0] , &ee_1 , sizeof(vector float) );
     memcpy( &f[0] , &eff_1 , sizeof(vector float) );
     memcpy( &e[4] , &ee_2 , sizeof(vector float) );
@@ -451,7 +574,7 @@ void potential_eval_vec_4single_ee ( struct potential *p[4] , struct potential *
     /* store the result */
     qv.v = _mm_load_ps( q );
     _mm_store_ps( e , _mm_add_ps( ee.v , _mm_mul_ps( ee_e.v , qv.v ) ) );
-    _mm_store_ps( f , _mm_add_ps( _mm_mul_ps( eff.v , hi.v ) , _mm_mul_ps( _mm_mul_ps( eff_e.v , hi_e.v ) , qv.v ) ) );
+    _mm_store_ps( f , _mm_add_ps( _mm_mul_ps( eff.v , _mm_div_ps( hi.v , r.v ) ) , _mm_mul_ps( _mm_mul_ps( eff_e.v , _mm_div_ps( hi_e.v , r.v ) ) , qv.v ) ) );
         
 #else
     int k;
@@ -527,7 +650,7 @@ void potential_eval_vec_2double ( struct potential *p[2] , FPTYPE *r2 , FPTYPE *
 
     /* store the result */
     _mm_store_pd( e , ee.v );
-    _mm_store_pd( f , _mm_mul_pd( eff.v , hi.v ) );
+    _mm_store_pd( f , _mm_mul_pd( eff.v , _mm_div_pd( hi.v , r.v ) ) );
         
 #else
     int k;
@@ -628,14 +751,117 @@ void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
 
     /* store the result */
     _mm_store_pd( &e[0] , ee_1.v );
-    _mm_store_pd( &f[0] , _mm_mul_pd( eff_1.v , hi_1.v ) );
+    _mm_store_pd( &f[0] , _mm_mul_pd( eff_1.v , _mm_div_pd( hi_1.v , r_1.v ) ) );
     _mm_store_pd( &e[2] , ee_2.v );
-    _mm_store_pd( &f[2] , _mm_mul_pd( eff_2.v , hi_2.v ) );
+    _mm_store_pd( &f[2] , _mm_mul_pd( eff_2.v , _mm_div_pd( hi_2.v , r_2.v ) ) );
         
 #else
     int k;
     for ( k = 0 ; k < 4 ; k++ )
         potential_eval( p[k] , r2[k] , &e[k] , &f[k] );
+#endif
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at a set of points (interpolated).
+ *
+ * @param p Pointer to an array of pointers to the #potentials to be evaluated.
+ * @param r Pointer to an array of the radii at which the potentials
+ *      are to be evaluated.
+ * @param e Pointer to an array of floating-point values in which to store the
+ *      interaction energies.
+ * @param f Pointer to an array of floating-point values in which to store the
+ *      magnitude of the interaction forces.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ *
+ * Computes four double-precision interactions simultaneously using vectorized
+ * instructions.
+ * 
+ * This function is only available if mdcore was compiled with SSE2 and
+ * double precision! If @c mdcore was not compiled with SSE2 enabled, this
+ * function simply calls #potential_eval on each entry.
+ */
+
+void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f ) {
+
+#if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+    int ind[4], j;
+    union {
+        __v2df v;
+        double f[2];
+        } alpha0_1, alpha1_1, alpha2_1, rind_1, mi_1, hi_1, x_1, ee_1, eff_1, c_1, r_1,
+        alpha0_2, alpha1_2, alpha2_2, rind_2, mi_2, hi_2, x_2, ee_2, eff_2, c_2, r_2;
+    double *data[4];
+    
+    /* Get r . */
+    r_1.v = _mm_load_pd( &r[0] );
+    r_2.v = _mm_load_pd( &r[2] );
+    
+    /* compute the index */
+    alpha0_1.v = _mm_setr_pd( p[0]->alpha[0] , p[1]->alpha[0] );
+    alpha1_1.v = _mm_setr_pd( p[0]->alpha[1] , p[1]->alpha[1] );
+    alpha2_1.v = _mm_setr_pd( p[0]->alpha[2] , p[1]->alpha[2] );
+    alpha0_2.v = _mm_setr_pd( p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1_2.v = _mm_setr_pd( p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2_2.v = _mm_setr_pd( p[2]->alpha[2] , p[3]->alpha[2] );
+    rind_1.v = _mm_max_pd( _mm_setzero_pd() , _mm_add_pd( alpha0_1.v , _mm_mul_pd( r_1.v , _mm_add_pd( alpha1_1.v , _mm_mul_pd( r_1.v , alpha2_1.v ) ) ) ) );
+    rind_2.v = _mm_max_pd( _mm_setzero_pd() , _mm_add_pd( alpha0_2.v , _mm_mul_pd( r_2.v , _mm_add_pd( alpha1_2.v , _mm_mul_pd( r_2.v , alpha2_2.v ) ) ) ) );
+    ind[0] = rind_1.f[0];
+    ind[1] = rind_1.f[1];
+    ind[2] = rind_2.f[0];
+    ind[3] = rind_2.f[1];
+    
+    /* for ( j = 0 ; j < 4 ; j++ )
+        if ( ind[j] > p[j]->n ) {
+            printf("potential_eval_vec_4double: dookie.\n");
+            fflush(stdout);
+            } */
+    
+    /* get the table offset */
+    data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind[3] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi_1.v = _mm_setr_pd( data[0][0] , data[1][0] );
+    hi_1.v = _mm_setr_pd( data[0][1] , data[1][1] );
+    mi_2.v = _mm_setr_pd( data[2][0] , data[3][0] );
+    hi_2.v = _mm_setr_pd( data[2][1] , data[3][1] );
+    x_1.v = _mm_mul_pd( _mm_sub_pd( r_1.v , mi_1.v ) , hi_1.v );
+    x_2.v = _mm_mul_pd( _mm_sub_pd( r_2.v , mi_2.v ) , hi_2.v );
+    
+    /* compute the potential and its derivative */
+    eff_1.v = _mm_setr_pd( data[0][2] , data[1][2] );
+    eff_2.v = _mm_setr_pd( data[2][2] , data[3][2] );
+    c_1.v = _mm_setr_pd( data[0][3] , data[1][3] );
+    c_2.v = _mm_setr_pd( data[2][3] , data[3][3] );
+    ee_1.v = _mm_add_pd( _mm_mul_pd( eff_1.v , x_1.v ) , c_1.v );
+    ee_2.v = _mm_add_pd( _mm_mul_pd( eff_2.v , x_2.v ) , c_2.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c_1.v = _mm_setr_pd( data[0][j] , data[1][j] );
+        c_2.v = _mm_setr_pd( data[2][j] , data[3][j] );
+        eff_1.v = _mm_add_pd( _mm_mul_pd( eff_1.v , x_1.v ) , ee_1.v );
+        eff_2.v = _mm_add_pd( _mm_mul_pd( eff_2.v , x_2.v ) , ee_2.v );
+        ee_1.v = _mm_add_pd( _mm_mul_pd( ee_1.v , x_1.v ) , c_1.v );
+        ee_2.v = _mm_add_pd( _mm_mul_pd( ee_2.v , x_2.v ) , c_2.v );
+        }
+
+    /* store the result */
+    _mm_store_pd( &e[0] , ee_1.v );
+    _mm_store_pd( &f[0] , _mm_mul_pd( eff_1.v , _mm_div_pd( hi_1.v , r_1.v ) ) );
+    _mm_store_pd( &e[2] , ee_2.v );
+    _mm_store_pd( &f[2] , _mm_mul_pd( eff_2.v , _mm_div_pd( hi_2.v , r_2.v ) ) );
+        
+#else
+    int k;
+    for ( k = 0 ; k < 4 ; k++ )
+        potential_eval_r( p[k] , r[k] , &e[k] , &f[k] );
 #endif
         
     }
@@ -726,11 +952,11 @@ void potential_eval_vec_2double_ee ( struct potential *p[4] , struct potential *
     /* store the result */
     qv.v = _mm_load_pd( q );
     _mm_store_pd( e , _mm_add_pd( ee.v , _mm_mul_pd( ee_e.v , qv.v ) ) );
-    _mm_store_pd( f , _mm_add_pd( _mm_mul_pd( eff.v , hi.v ) , _mm_mul_pd( eff_e.v , _mm_mul_pd( hi_e.v , qv.v ) ) ) );
+    _mm_store_pd( f , _mm_add_pd( _mm_mul_pd( eff.v , _mm_div_pd( hi.v , r.v ) ) , _mm_mul_pd( eff_e.v , _mm_mul_pd( _mm_div_pd( hi_e.v , r.v ) , qv.v ) ) ) );
                 
 #else
     int k;
-    for ( k = 0 ; k < 4 ; k++ )
+    for ( k = 0 ; k < 2 ; k++ )
         potential_eval_ee( p[k] , ep , r2[k] , q[k] , &e[k] , &f[k] );
 #endif
 
@@ -745,7 +971,7 @@ void potential_eval_vec_2double_ee ( struct potential *p[4] , struct potential *
  * @param e Pointer to a floating-point value in which to store the
  *      interaction energy.
  * @param f Pointer to a floating-point value in which to store the
- *      magnitude of the interaction force.
+ *      magnitude of the interaction force divided by r.
  *
  * Note that for efficiency reasons, this function does not check if any
  * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
@@ -765,8 +991,8 @@ void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) 
     #endif
     
     /* is r in the house? */
-    /* if ( r < p->a || r > p->b ) */
-    /*     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
+    /* if ( r < p->a || r > p->b )
+        printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
     
     /* compute the index */
     #ifdef FPTYPE_SINGLE
@@ -795,7 +1021,63 @@ void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) 
         }
 
     /* store the result */
-    *e = ee; *f = eff * c[1];
+    *e = ee; *f = eff * c[1] / r;
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at the given point (interpolated).
+ *
+ * @param p The #potential to be evaluated.
+ * @param r The radius at which it is to be evaluated.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ */
+
+void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f ) {
+
+    int ind, k;
+    FPTYPE x, ee, eff, *c;
+    
+    /* is r in the house? */
+    /* if ( r < p->a || r > p->b )
+        printf("potential_eval_r: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
+    
+    /* compute the index */
+    #ifdef FPTYPE_SINGLE
+        ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    #else
+        ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    #endif
+    
+    /* if ( ind > p->n ) {
+        printf("potential_eval: r=%.18e.\n",r);
+        fflush(stdout);
+        } */
+            
+    /* get the table offset */
+    c = &(p->c[ind * potential_chunk]);
+    
+    /* adjust x to the interval */
+    x = (r - c[0]) * c[1];
+    
+    /* compute the potential and its derivative */
+    ee = c[2] * x + c[3];
+    eff = c[2];
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
+        eff = eff * x + ee;
+        ee = ee * x + c[k];
+        }
+
+    /* store the result */
+    *e = ee; *f = eff * c[1] / r;
         
     }
 
@@ -866,7 +1148,7 @@ void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 
         }
 
     /* store the result */
-    *e = ee + q*ee_e; *f = eff * c[1] + q*eff_e*c_e[1];
+    *e = ee + q*ee_e; *f = eff * c[1] / r + q*eff_e*c_e[1] / r;
         
     }
 
@@ -1062,6 +1344,114 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
     
     }
         
+
+/**
+ * @brief Creates a harmonic bond #potential
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param K The energy of the bond.
+ * @param r0 The minimum energy distance.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ K(r-r_0)^2 @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
+struct potential *potential_create_harmonic ( double a , double b , double K , double r0 , double tol ) {
+
+    struct potential *p;
+    
+    /* the potential functions */
+    double f ( double r ) {
+        return K * ( r - r0 ) * ( r - r0 );
+        }
+        
+    double dfdr ( double r ) {
+        return 2.0 * K * ( r - r0 );
+        }
+        
+    double d6fdr6 ( double r ) {
+        return 0;
+        }
+        
+    /* allocate the potential */
+    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
+
+/**
+ * @brief Creates a harmonic angle #potential
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param K The energy of the angle.
+ * @param theta0 The minimum energy angle.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ K(\arccos(r)-r_0)^2 @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
+struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol ) {
+
+    struct potential *p;
+    
+    /* the potential functions */
+    double f ( double r ) {
+        double theta = acos( r );
+        return K * ( theta - theta0 ) * ( theta - theta0 );
+        }
+        
+    double dfdr ( double r ) {
+        return -2.0 * K * ( acos(r) - theta0 ) / sqrt( 1.0 - r*r );
+        }
+        
+    double d6fdr6 ( double r ) {
+        double r2 = r*r, r4 = r2*r2;
+        double t1 = 1.0 - r2, t2 = t1*t1, t4 = t2*t2, t8 = t4*t4;
+        double dummy = sqrt( t1*t2*t8 );
+        double acosr = acos( r );
+        return -2.0*K*( 64*dummy + ( 225*theta0 - 225*acosr + ( 607*dummy +
+            ( -525*theta0 + 525*acosr + ( 274*dummy + ( -630*theta0 + 630*acosr +
+            ( 3150*theta0 -3150*acosr + ( -3675*theta0 + 3675*acosr + ( 1575*theta0 - 
+            1575*acosr + ( 120*acosr - 120*theta0 )*r4 )*r2 )*r2 )*r2 )*r )*r )*r )*r )*r ) / (-t1*t4) / dummy;
+        }
+        
+    /* allocate the potential */
+    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
 
 /**
  * @brief Creates a #potential representing the real-space part of an Ewald 
@@ -1559,8 +1949,8 @@ double potential_getalpha ( double (*f6p)( double ) , double a , double b ) {
     
     /* start by evaluating f6p at the N nodes between 'a' and 'b' */
     for ( i = 0 ; i < potential_N ; i++ ) {
-        xi[i] = a + (b-a) * i / (potential_N - 1);
-        fx[i] = f6p( xi[i] );
+        xi[i] = ((double)i + 1) / (potential_N + 1);
+        fx[i] = f6p( a + (b-a) * xi[i] );
         }
         
     /* set the initial values for alpha */

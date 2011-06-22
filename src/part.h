@@ -82,6 +82,9 @@ struct part_type {
     /** Constant physical characteristics */
     double mass, imass, charge;
     
+    /** Name of this paritcle type. */
+    char name[64];
+    
     };
 
 
