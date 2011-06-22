@@ -35,7 +35,7 @@ AX_CC_MAXOPT
 AX_FUNC_POSIX_MEMALIGN
 AX_GCC_ARCHFLAG([no])
 AX_EXT
-AX_CFLAGS_GCC_OPTION(-flto)
+# AX_CFLAGS_GCC_OPTION(-flto)
 
 # autoconf stuff
 AC_PROG_INSTALL
@@ -64,6 +64,10 @@ AC_CHECK_FUNC( pthread_setaffinity_np , AC_DEFINE([HAVE_SETAFFINITY],[true],
 # Check for OpenMP
 AX_OPENMP
 AC_SUBST(OPENMP_CFLAGS)
+
+
+# Check for MPI
+ACX_MPI([ CC="$MPICC" AC_DEFINE(HAVE_MPI,1,[Define if you have the MPI library.]) ])
 
     
 # Check for metis
@@ -142,5 +146,5 @@ AM_CONDITIONAL([HAVECELL],[test -n "$CELLTOP"])
 DX_INIT_DOXYGEN(mdcore,doc/Doxyfile,doc/)
 
 # generate the Makefiles
-AC_OUTPUT(Makefile src/Makefile src/Makefile_cell src/spu/Makefile examples/Makefile examples/argon/Makefile examples/bulk/Makefile examples/bulk/Makefile_cell examples/btree/Makefile examples/hybrid/Makefile doc/Makefile)
+AC_OUTPUT(Makefile src/Makefile src/Makefile_cell src/spu/Makefile examples/Makefile examples/argon/Makefile examples/bulk/Makefile examples/bulk/Makefile_cell examples/btree/Makefile examples/hybrid/Makefile examples/flexible/Makefile doc/Makefile)
 
