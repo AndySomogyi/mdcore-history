@@ -74,6 +74,7 @@ AC_ARG_ENABLE([mpi],
         ACX_MPI([ CC="$MPICC" AC_DEFINE(HAVE_MPI,1,[Define if you have the MPI library.]) ])
      fi],
     [ACX_MPI([ CC="$MPICC" AC_DEFINE(HAVE_MPI,1,[Define if you have the MPI library.]) ])])
+AM_CONDITIONAL([HAVEMPI],[test -n "$MPICC"])
 
     
 # Check for metis
