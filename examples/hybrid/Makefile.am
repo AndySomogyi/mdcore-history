@@ -25,7 +25,7 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = ppm_test hybrid
+bin_PROGRAMS = hybrid #ppm_test
 
 # Sources for ppm_test
 ppm_test_SOURCES = ppm_test.c

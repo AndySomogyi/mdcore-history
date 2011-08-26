@@ -55,9 +55,11 @@ int main ( int argc , char *argv[] ) {
     // double dim[3] = { 20.0 , 20.0 , 20.0 };
     // int nr_parts = 121600;
     double dim[3] = { 10.0 , 10.0 , 10.0 };
-    int nr_parts = 32680;
+    int nr_parts = 20712;
+    // int nr_parts = 32680;
     // int nr_parts = 15200;
     double Temp = 100.0;
+    // double Temp = 94.4;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;
@@ -127,7 +129,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the Ar-Ar potential
-    if ( ( pot_ArAr = potential_create_LJ126( 0.3 , 1.0 , 9.5075e-06 , 6.1545e-03 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_ArAr = potential_create_LJ126( 0.275 , 1.0 , 9.5075e-06 , 6.1545e-03 , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_LJ126 failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -136,7 +138,7 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 0 , 39.948 , 0.0 ) < 0 ) {
+    if ( engine_addtype( &e , 0 , 39.948 , 0.0 , "Ar" , "Ar" ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
@@ -176,7 +178,7 @@ int main ( int argc , char *argv[] ) {
                 pAr.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pAr.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pAr.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.37 / sqrt( pAr.v[0]*pAr.v[0] + pAr.v[1]*pAr.v[1] + pAr.v[2]*pAr.v[2] );
+                temp = 0.4 / sqrt( pAr.v[0]*pAr.v[0] + pAr.v[1]*pAr.v[1] + pAr.v[2]*pAr.v[2] );
                 pAr.v[0] *= temp; pAr.v[1] *= temp; pAr.v[2] *= temp;
                 vtot[0] += pAr.v[0]; vtot[1] += pAr.v[1]; vtot[2] += pAr.v[2];
                 if ( space_addpart( &(e.s) , &pAr , x ) != 0 ) {
@@ -289,11 +291,13 @@ int main ( int argc , char *argv[] ) {
         w = sqrt( 1.0 + 0.1 * ( Temp / temp - 1.0 ) );
             
         // scale the velocities
-        #pragma omp parallel for schedule(static,100), private(cid,pid,k), reduction(+:epot,ekin)
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
-                for ( k = 0 ; k < 3 ; k++ )
-                    e.s.cells[cid].parts[pid].v[k] *= w;
+        if ( i < 10000 ) {
+            #pragma omp parallel for schedule(static,100), private(cid,pid,k), reduction(+:epot,ekin)
+            for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
+                for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
+                    for ( k = 0 ; k < 3 ; k++ )
+                        e.s.cells[cid].parts[pid].v[k] *= w;
+                    }
                 }
             }
             

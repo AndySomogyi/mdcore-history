@@ -201,8 +201,8 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 ) < 0 ) {
+    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
+         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
@@ -305,16 +305,16 @@ int main ( int argc , char *argv[] ) {
         
     // start the engine
     #ifdef CELL
-        if ( engine_start( &e , nr_runners ) != 0 ) {
+        /* if ( engine_start( &e , nr_runners ) != 0 ) {
             printf("main: engine_start failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
-            }
-        /* if ( engine_start_SPU( &e , spe_cpu_info_get( SPE_COUNT_USABLE_SPES , -1 ) ) != 0 ) {
+            } */
+        if ( engine_start_SPU( &e , spe_cpu_info_get( SPE_COUNT_USABLE_SPES , -1 ) ) != 0 ) {
             printf("main: engine_start_SPU failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
-            } */
+            }
     #else
         if ( engine_start( &e , nr_runners ) != 0 ) {
             printf("main: engine_start failed with engine_err=%i.\n",engine_err);

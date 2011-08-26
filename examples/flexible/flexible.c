@@ -88,7 +88,7 @@ int main ( int argc , char *argv[] ) {
     double hx, hy, hz;
     double vtot[3] = { 0.0 , 0.0 , 0.0 }, w, x_O[3], x_H1[3], x_H2[3];
     // struct cellpair cp;
-    FILE *out;
+    FILE *psf, *pdb;
     ticks tic, toc, toc_step, toc_bonded, toc_temp;
     
     
@@ -112,7 +112,7 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cellwidth , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cellwidth , space_periodic_full , 3 , ENGINE_FLAGS ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -191,8 +191,9 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 ) < 0 ) {
+    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "OT" , "OH2" ) < 0 ||
+         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "HT" , "H1" ) < 0 ||
+         engine_addtype( &e , 2 , 1.00794 , 0.4238 , "HT" , "H2" ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
@@ -201,7 +202,10 @@ int main ( int argc , char *argv[] ) {
     // register these potentials.
     if ( engine_addpot( &e , pot_OO , 0 , 0 ) < 0 ||
          engine_addpot( &e , pot_HH , 1 , 1 ) < 0 ||
-         engine_addpot( &e , pot_OH , 0 , 1 ) < 0 ) {
+         engine_addpot( &e , pot_HH , 1 , 2 ) < 0 ||
+         engine_addpot( &e , pot_HH , 2 , 2 ) < 0 ||
+         engine_addpot( &e , pot_OH , 0 , 1 ) < 0 ||
+         engine_addpot( &e , pot_OH , 0 , 2 ) < 0 ) {
         printf("main: call to engine_addpot failed.\n");
         errs_dump(stdout);
         return 1;
@@ -238,12 +242,12 @@ int main ( int argc , char *argv[] ) {
     ny = ceil( sqrt( ((double)nr_mols) / nx ) ); hy = dim[1] / ny;
     nz = ceil( ((double)nr_mols) / nx / ny ); hz = dim[2] / nz;
     for ( i = 0 ; i < nx ; i++ ) {
-        x[0] = 0.05 + i * hx;
+        x[0] = 0.07 + i * hx;
         for ( j = 0 ; j < ny ; j++ ) {
-            x[1] = 0.05 + j * hy;
+            x[1] = 0.07 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_mols ; k++ ) {
-                pO.vid = 3 * (k + nz * ( j + ny * i ));
-                x[2] = 0.05 + k * hz;
+                pO.vid = (k + nz * ( j + ny * i ));
+                x[2] = 0.07 + k * hz;
                 pO.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[2] = ((double)rand()) / RAND_MAX - 0.5;
@@ -256,7 +260,7 @@ int main ( int argc , char *argv[] ) {
                     return 1;
                     }
                 x[0] += 0.1;
-                pH.vid = pO.vid + 1;
+                pH.vid = pO.vid; pH.type = 1;
                 pH.v[0] = pO.v[0]; pH.v[1] = pO.v[1]; pH.v[2] = pO.v[2];
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
@@ -265,7 +269,7 @@ int main ( int argc , char *argv[] ) {
                     }
                 x[0] -= 0.13333;
                 x[1] += 0.09428;
-                pH.vid = pO.vid + 2;
+                pH.vid = pO.vid; pH.type = 2;
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
@@ -410,33 +414,14 @@ int main ( int argc , char *argv[] ) {
     //             x[k] = e.s.cells[cid].origin[k] + e.s.cells[cid].parts[pid].x[k];
     //         printf("%i %e %e %e\n",e.s.cells[cid].parts[pid].id,x[0],x[1],x[2]);
     //         }
-    out = fopen( "flexible.pdb" , "w" );
-    for ( i = 0 ; i < nr_mols ; i++ ) {
-        for ( k = 0 ; k < 3 ; k++ ) {
-            x_O[k] = e.s.celllist[3*i]->origin[k] + e.s.partlist[3*i]->x[k];
-            x_H1[k] = e.s.celllist[3*i+1]->origin[k] + e.s.partlist[3*i+1]->x[k];
-            if ( x_H1[k] - x_O[k] > dim[k]/2 )
-                x_H1[k] -= dim[k];
-            else if ( x_H1[k] - x_O[k] < -dim[k]/2 )
-                x_H1[k] += dim[k];
-            x_H2[k] = e.s.celllist[3*i+2]->origin[k] + e.s.partlist[3*i+2]->x[k]; 
-            if ( x_H2[k] - x_O[k] > dim[k]/2 )
-                x_H2[k] -= dim[k];
-            else if ( x_H2[k] - x_O[k] < -dim[k]/2 )
-                x_H2[k] += dim[k];
-            }
-        fprintf( out , "ATOM  %5d %4s %-3s  %4d%1s   %8.3f%8.3f%8.3f\n",
-            3*i, "O", "", i, "", 10*x_O[0] , 10*x_O[1] , 10*x_O[2] );
-        fprintf( out , "ATOM  %5d %4s %-3s  %4d%1s   %8.3f%8.3f%8.3f\n",
-            3*i+1, "H", "", i, "", 10*x_H1[0] , 10*x_H1[1] , 10*x_H1[2] );
-        fprintf( out , "ATOM  %5d %4s %-3s  %4d%1s   %8.3f%8.3f%8.3f\n",
-            3*i+2, "H", "", i, "", 10*x_H2[0] , 10*x_H2[1] , 10*x_H2[2] );
-        /* printf( " %3i: %e %e %e\n" , i , 
-            sqrt( (x_O[0]-x_H1[0])*(x_O[0]-x_H1[0]) + (x_O[1]-x_H1[1])*(x_O[1]-x_H1[1]) + (x_O[2]-x_H1[2])*(x_O[2]-x_H1[2]) ) ,
-            sqrt( (x_O[0]-x_H2[0])*(x_O[0]-x_H2[0]) + (x_O[1]-x_H2[1])*(x_O[1]-x_H2[1]) + (x_O[2]-x_H2[2])*(x_O[2]-x_H2[2]) ) ,
-            sqrt( (x_H1[0]-x_H2[0])*(x_H1[0]-x_H2[0]) + (x_H1[1]-x_H2[1])*(x_H1[1]-x_H2[1]) + (x_H1[2]-x_H2[2])*(x_H1[2]-x_H2[2]) ) ); */
+    
+    psf = fopen( "flexible.psf" , "w" ); pdb = fopen( "flexible.pdb" , "w" );
+    if ( engine_dump_PSF( &e , psf , pdb ) < 0 ) {
+        printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        return 1;
         }
-    fclose(out);
+    fclose(pdb); fclose(psf);
         
         
     // clean break
