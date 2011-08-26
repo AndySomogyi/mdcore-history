@@ -332,8 +332,8 @@ int main ( int argc , char *argv[] ) {
     
     
     /* Register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 ) < 0 ) {
+    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
+         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
         printf("main[%i]: call to engine_addtype failed.\n",myrank);
         errs_dump(stdout);
         return -1;
