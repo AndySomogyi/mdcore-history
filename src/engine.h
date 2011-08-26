@@ -138,7 +138,7 @@ struct engine_comm {
 
 /* associated functions */
 int engine_addpot ( struct engine *e , struct potential *p , int i , int j );
-int engine_addtype ( struct engine *e , int id , double mass , double charge );
+int engine_addtype ( struct engine *e , int id , double mass , double charge , char *name , char *name2 );
 int engine_angle_addpot ( struct engine *e , struct potential *p );
 int engine_angle_add ( struct engine *e , int i , int j , int k , int pid );
 int engine_angle_eval ( struct engine *e );
@@ -146,6 +146,7 @@ int engine_barrier ( struct engine *e );
 int engine_bond_addpot ( struct engine *e , struct potential *p , int i , int j );
 int engine_bond_add ( struct engine *e , int i , int j );
 int engine_bond_eval ( struct engine *e );
+int engine_dump_PSF ( struct engine *e , FILE *psf , FILE *pdb );
 int engine_flush_ghosts ( struct engine *e );
 int engine_flush ( struct engine *e );
 int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags );

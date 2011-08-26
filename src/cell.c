@@ -187,12 +187,18 @@ int cell_welcome ( struct cell *c , struct part **partlist ) {
     }
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int cell_add */
-//
-/* add the given particle to the given space and return a pointer to its */
-/* location. assume the position has already been adjusted. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Add a particle to the incomming array of a cell.
+ *
+ * @param c The #cell to which the particle should be added.
+ * @param p The #particle to add to the cell
+ *
+ * @return A pointer to the particle data in the incomming array of
+ *      the cell.
+ *
+ * This routine assumes the particle position has already been adjusted
+ * to the cell @c c.
+ */
 
 struct part *cell_add_incomming ( struct cell *c , struct part *p ) {
 
@@ -225,12 +231,17 @@ struct part *cell_add_incomming ( struct cell *c , struct part *p ) {
     }
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int cell_add */
-//
-/* add the given particle to the given space and return a pointer to its */
-/* location. assume the position has already been adjusted. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Add a particle to a cell.
+ *
+ * @param c The #cell to which the particle should be added.
+ * @param p The #particle to add to the cell
+ *
+ * @return A pointer to the particle data in the cell.
+ *
+ * This routine assumes the particle position has already been adjusted
+ * to the cell @c c.
+ */
 
 struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist ) {
 
@@ -272,11 +283,16 @@ struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist
     }
 
 
-/*////////////////////////////////////////////////////////////////////////////// */
-/* int cell_init */
-//
-/* initialize the cell with the given dimensions. */
-/*////////////////////////////////////////////////////////////////////////////// */
+/**
+ * @brief Initialize the given cell.
+ *
+ * @param c The #cell to initialize.
+ * @param loc Array containing the location of this cell in the space.
+ * @param origin The origin of the cell in global coordinates
+ * @param dim The cell dimensions.
+ *
+ * @return #cell_err_ok or < 0 on error (see #cell_err).
+ */
 
 int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
 

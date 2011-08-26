@@ -76,6 +76,89 @@ char *engine_err_msg[13] = {
 
 
 /**
+ * @brief Dump the contents of the enginge to a PSF and PDB file.
+ *
+ * @param e The #engine.
+ * @param psf A pointer to @c FILE to which to write the PSF file.
+ * @param pdb A pointer to @c FILE to which to write the PDB file.
+ *
+ * If any of @c psf or @c pdb are @c NULL, the respective output will
+ * not be generated.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_dump_PSF ( struct engine *e , FILE *psf , FILE *pdb ) {
+
+    struct space *s;
+    struct cell *c;
+    struct part *p;
+    int pid, bid, aid;
+
+    /* Check inputs. */
+    if ( e == NULL || ( psf == NULL && pdb == NULL ) )
+        return error(engine_err_null);
+        
+    /* Get a hold of the space. */
+    s = &e->s;
+        
+    /* Write the header for the psf file if needed. */
+    if ( psf != NULL )
+        fprintf( psf , "PSF\n0 !NTITLE\n%i !NATOM\n" , s->nr_parts );
+        
+    /* Loop over the cells and parts. */
+    for ( pid = 0 ; pid < s->nr_parts ; pid++ ) {
+        if ( ( p = s->partlist[pid] ) == NULL || ( c = s->celllist[pid] ) == NULL )
+            continue;
+        if ( pdb != NULL )
+            fprintf( pdb , "ATOM  %5d %4s %-3s %5d%1s   %8.3f%8.3f%8.3f\n",
+                p->id+1 , e->types[p->type].name2 , "TIP3" , p->vid+1 , "" ,
+                10 * ( p->x[0] + c->origin[0] ) , 10 * ( p->x[1] + c->origin[1] ) , 10 * ( p->x[2] + c->origin[2] ) );
+        if ( psf != NULL )
+            fprintf( psf , "%8i %4s %4i %4s %4s %4s %15.6f %15.6f    0\n" ,
+                p->id+1 , "WAT" , p->vid+1 , "TIP3" , e->types[p->type].name2 , e->types[p->type].name , e->types[p->type].charge , e->types[p->type].mass );
+        }
+        
+    /* Dump bonds and angles to PSF? */
+    if ( psf != NULL ) {
+    
+        /* Dump bonds. */
+        fprintf( psf , "%i !NBOND\n" , e->nr_bonds + e->nr_angles );
+        for ( bid = 0 ; bid < e->nr_bonds ; bid++ )
+            if ( bid % 4 == 3 )
+                fprintf( psf , " %i %i\n" , e->bonds[bid].i+1 , e->bonds[bid].j+1 );
+            else
+                fprintf( psf , " %i %i" , e->bonds[bid].i+1 , e->bonds[bid].j+1 );
+        for ( aid = 0 ; aid < e->nr_angles ; aid++ )
+            if ( aid % 4 == 3 )
+                fprintf( psf , " %i %i\n" , e->angles[aid].i+1 , e->angles[aid].k+1 );
+            else
+                fprintf( psf , " %i %i" , e->angles[aid].i+1 , e->angles[aid].k+1 );
+                
+        /* Dump angles. */
+        fprintf( psf , "%i !NTHETA\n" , e->nr_angles );
+        for ( aid = 0 ; aid < e->nr_angles ; aid++ )
+            if ( aid % 3 == 2 )
+                fprintf( psf , " %i %i %i\n" , e->angles[aid].i+1 , e->angles[aid].j+1 , e->angles[aid].k+1 );
+            else
+                fprintf( psf , " %i %i %i" , e->angles[aid].i+1 , e->angles[aid].j+1 , e->angles[aid].k+1 );
+                
+        /* Dump remaining bogus headers. */
+        fprintf( psf , "0 !NPHI\n" );
+        fprintf( psf , "0 !NIMPHI\n" );
+        fprintf( psf , "0 !NDON\n" );
+        fprintf( psf , "0 !NACC\n" );
+        fprintf( psf , "0 !NNB\n" );
+        
+        }
+        
+    /* We're on a road to nowhere... */
+    return engine_err_ok;
+
+    }
+
+
+/**
  * @brief Add a angle interaction to the engine.
  *
  * @param e The #engine.
@@ -1361,6 +1444,8 @@ int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , 
  * @param id The particle type ID.
  * @param mass The particle type mass.
  * @param charge The particle type charge.
+ * @param name Particle name, can be @c NULL.
+ * @param name2 Particle second name, can be @c NULL.
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  *
@@ -1368,7 +1453,7 @@ int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , 
  * and less than the value @c max_type specified in #engine_init.
  */
  
-int engine_addtype ( struct engine *e , int id , double mass , double charge ) {
+int engine_addtype ( struct engine *e , int id , double mass , double charge , char *name , char *name2 ) {
 
     /* check for nonsense. */
     if ( e == NULL )
@@ -1380,6 +1465,14 @@ int engine_addtype ( struct engine *e , int id , double mass , double charge ) {
     e->types[id].mass = mass;
     e->types[id].imass = 1.0 / mass;
     e->types[id].charge = charge;
+    if ( name != NULL )
+        strcpy( e->types[id].name , name );
+    else
+        strcpy( e->types[id].name , "X" );
+    if ( name2 != NULL )
+        strcpy( e->types[id].name2 , name2 );
+    else
+        strcpy( e->types[id].name2 , "X" );
     
     /* bring good tidings. */
     return engine_err_ok;

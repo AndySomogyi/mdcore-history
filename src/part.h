@@ -83,7 +83,7 @@ struct part_type {
     double mass, imass, charge;
     
     /** Name of this paritcle type. */
-    char name[64];
+    char name[64], name2[64];
     
     };
 
