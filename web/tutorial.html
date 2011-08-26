@@ -51,6 +51,17 @@
             <blockquote style="background-color:lightgrey;padding:4px">
                 ./configure --help
             </blockquote>
+            <p>The most interesting options are</p>
+            <ul>
+                <li/><b>--enable-mpi</b>: Compile with MPI to enable basic
+                    distributed-memory parallelism.
+                <li/><b>--with-gcc-arch=<i>arch</i></b>: Optimize for the
+                    given architecture. If compiling on the same architecture on which
+                    the simulations will be run, use "--with-gcc-arch=native".
+                <li/><b>--with-cell=<i>path</i></b>: Specifies the prefix where the IBM
+                    Cell-SDK and toolchain are installed and enables parallelism
+                    on the Cell's SPUs.
+            </ul>
             
             <p>Once the configuration process has completed successfully,
             compile the library by typing</p>
@@ -68,68 +79,109 @@
                     for the Cell/BE (if configured with "--with-cell").
             </ul>
             
-            <p style="padding-top:10px"><b>Using mdcore</b></p>
-            <p>In the directory "mdcore/examples", you will find an example
-            program, "test.c", which creates and executes a simple bulk water
-            simulation. The following tutorial will be based on this example
-            program.</p>
-            
-            <p>Before including the mdocre header files, we have to decide
-            if we want to use single or double precision computations. The
-            precision type is defined by the type "FPTYPE" in the header file
-            "fptype.h" and is set to "double" by default.
-            To use single precision, you can define "FPTYPE_SINGLE" before including
-            the header files, e.g.
+            <p style="padding-top:10px"><b>Some notes on OpenMP on Linux</b></p>
+            <p>mdcore relies on both pthreads and OpenMP for parallelization,
+            using the former to parallelize the force computation and the latter
+            for more simple tasks such as updating the particle positions or
+            computing the system temperature. Depending on your OpenMP-implementation,
+            the following environment variables may be useful:</p>
+            <ul>
+                <li/><b>OMP_NUM_THREADS=<i>n</i></b>: Use only <i>n</i> parallel
+                    threads for the OpenMP-parallel regions. This has no effect
+                    on the number of threads specified when initializing
+                    mdcore with "engine_start( &amp;e , nr_runners )".
+                    If you are running on a CPU or CPUs with Hyper-Threading,
+                    it can be useful to specify the number of physical cores
+                    as opposed to the number of virtual threads.
+                <li><b>OMP_WAIT_POLICY=PASSIVE</b>: On some Linux systems,
+                    the default behaviour for inactive OpenMP threads is to
+                    cycle idly without relinquishing the CPU. This can obstruct
+                    other threads created with pthreads, which is why this
+                    variable should be set to PASSIVE.
+            </ul>
+            <p>For convenience, these variables can be set on the command
+            line:</p>
             <blockquote style="background-color:lightgrey;padding:4px">
-                #define FPTYPE_SINGLE<br/>
-                #include &lt;errs.h&gt;<br/>
-                #include &lt;fptype.h&gt;<br/>
-                #include &lt;part.h&gt;<br/>
-                #include &lt;potential.h&gt;<br/>
-                #include &lt;cell.h&gt;<br/>
-                #include &lt;space.h&gt;<br/>
-                #include &lt;engine.h&gt;
+                OMP_WAIT_POLICY=PASSIVE OMP_NUM_THREADS=8 ./simulation ...
             </blockquote>
             
-            <p>Note that depending on the precision you choose, you will have
-            to link to either "libmdcore.a" or "libmdcore_single.a" accordingly.</p>
+            <p style="padding-top:10px"><b>Example programs</b></p>
+            <p>The directory "mdcore/examples" contains a number of small
+            simulations which offer a useful starting point for experimenting
+            with mdcore and implementing your own simulation.</p>
             
-            <p>The main data structure in mdcore, through which most of the
-            library's functionality is accessed, is the "engine":
-            <blockquote style="background-color:lightgrey;padding:4px">
-                struct engine e;
-            </blockquote>
-            which is initialized with the function "engine_init".
-            
-            <p>Note that all "engine" functions and most other mdcore
-            functions will return an integer < 0 or a NULL pointer on error.
-            In all cases, a description of the error and a trace of where
-            it occurred can be displayed using "errs_dump(FILE *)", e.g.:
-            <blockquote style="background-color:lightgrey;padding:4px">
-                errs_dump(stdout);
-            </blockquote>
-            
-            <p>Once an "engine" has been initialized, interaction potentials
-            and particle types can be added using the functions "engine_addtype"
-            and "engine_addpot".
-            The interaction potentials themselves can be created with the functions
-            described in "potentials.h".
-            
-            <p>Finally, particles are added to the "engine" either individually
-            using the function "engine_addpart" or all at once using the
-            function "engine_load".
-            
-            <p>Before computing the first step, the "engine" is started with
-            the function "engine_start" where the number of "runners", i.e.
-            computational threads, is specified.
-            
-            <p>Once the "engine" has been started, the computation of each time
-            step, i.e. the evaluation of the non-bonded interactions, is
-            evaluated using the function "engine_step".
+            <ul>
+                <li/><b>argon</b>: A simple simulation consisting
+                    of 10x10x10 cells of bulk argon at 100 K (the number of
+                    particles is adjusted depending on the cell edge length).
+                    The simulation is executed with the following parameters
+                    <blockquote style="background-color:lightgrey;padding:4px">
+                        ./argon <i>n</i> <i>steps</i> <i>dt</i> <i>L</i>
+                    </blockquote>
+                    where <i>n</i> is the number of processors to use, <i>steps</i>
+                    are the number of time steps of letnght <i>dt</i> picoseconds
+                    to take and <i>L</i> is the cell edge length to use.
+                    
+                    <p>Two other executables, "argon_verlet" and "argon_pwverlet" are
+                    provided, which use Verlet and pairwise Verlet lists
+                    respectively. The "skin" width used in the lists is the 
+                    supplied edge length <i>L</i> minus a fixed cutoff of
+                    1.0 nm.
+                    
+                    <p>Velocity scaling with a coupling constant of 0.1 is used
+                    during the first 10000 steps to maintain a temperature
+                    of 100 K.
+                    
+                <li/><b>bulk</b>: A bulk water simulation consisting of
+                    8x8x8 cells of rigid SPC/E water molecules at 300 K
+                    (the number of molecules is adjusted depending on the cell
+                    edge length). The water molecules are kept rigid using
+                    the SHAKE algorithm to half the digits of machine precision.
+                    The simulation is executed with the same
+                    set of parameters as "argon" above.
+                    
+                    <p>The executable "test" is linked with the double-precision
+                    version of mdcore whereas "test_single" is linked with 
+                    the single-precision version.
+                    
+                    <p>If mdcore was configures with the "--with-cell" option,
+                    then "test_cell" executes the simulation using as many SPUs
+                    as are available.
+                    
+                <li/><b>hybrid</b>: Similar to the "bulk" simulation above,
+                    yet with 16x16x16 cells of edge length 1.0 nm.
+                    The "hybrid" simulation requires
+                    mdocre to have been compiled with the "--enable-mpi"
+                    option and is executed as follows:
+                    <blockquote style="background-color:lightgrey;padding:4px">
+                        mpirun -x OMP_WAIT_POLICY -x OMP_NUM_THREADS -np <i>m</i> ./hybrid <i>n</i> <i>steps</i>
+                    </blockquote>
+                    where <i>m</i> is the number of MPI nodes to use and
+                    <i>n</i> is the number of threads to use on each node.
+                    
+                    Since bisection is used to split the domain, it is
+                    recommended, for propper load balancing,
+                    that <i>m</i> be a power of 2.
+                    
+            </ul>
             
 		</td>
 	</tr>
 </table>
 </center>
+
+<!-- Piwik -->
+<script type="text/javascript">
+var pkBaseURL = (("https:" == document.location.protocol) ? "https://sourceforge.net/apps/piwik/mdcore/" : "http://sourceforge.net/apps/piwik/mdcore/");
+document.write(unescape("%3Cscript src='" + pkBaseURL + "piwik.js' type='text/javascript'%3E%3C/script%3E"));
+</script><script type="text/javascript">
+try {
+var piwikTracker = Piwik.getTracker(pkBaseURL + "piwik.php", 1);
+piwikTracker.trackPageView();
+piwikTracker.enableLinkTracking();
+} catch( err ) {}
+</script><noscript><p><img src="http://sourceforge.net/apps/piwik/mdcore/piwik.php?idsite=1" style="border:0" alt=""/></p></noscript>
+<!-- End Piwik Tag -->
+
 </body>
 </html>
