@@ -17,6 +17,19 @@
 <style type="text/css">
 	body {font-family: courier, monospace;}
 </style>
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-25391540-1']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
 </head>
 
 <body>
@@ -69,7 +82,7 @@
                 make
             </blockquote>
             
-            <p>This will generate the following libraries in the subfolder
+            <p>This will generate the following libraries in the sub-folder
             "src/.libs":
             <ul>
                 <li/><b>libmdcore.a</b>: The mdcore library in double precision,
@@ -94,7 +107,7 @@
                     it can be useful to specify the number of physical cores
                     as opposed to the number of virtual threads.
                 <li><b>OMP_WAIT_POLICY=PASSIVE</b>: On some Linux systems,
-                    the default behaviour for inactive OpenMP threads is to
+                    the default behavior for inactive OpenMP threads is to
                     cycle idly without relinquishing the CPU. This can obstruct
                     other threads created with pthreads, which is why this
                     variable should be set to PASSIVE.
@@ -119,7 +132,7 @@
                         ./argon <i>n</i> <i>steps</i> <i>dt</i> <i>L</i>
                     </blockquote>
                     where <i>n</i> is the number of processors to use, <i>steps</i>
-                    are the number of time steps of letnght <i>dt</i> picoseconds
+                    are the number of time steps of length <i>dt</i> picoseconds
                     to take and <i>L</i> is the cell edge length to use.
                     
                     <p>Two other executables, "argon_verlet" and "argon_pwverlet" are
@@ -151,7 +164,7 @@
                 <li/><b>hybrid</b>: Similar to the "bulk" simulation above,
                     yet with 16x16x16 cells of edge length 1.0 nm.
                     The "hybrid" simulation requires
-                    mdocre to have been compiled with the "--enable-mpi"
+                    mdcore to have been compiled with the "--enable-mpi"
                     option and is executed as follows:
                     <blockquote style="background-color:lightgrey;padding:4px">
                         mpirun -x OMP_WAIT_POLICY -x OMP_NUM_THREADS -np <i>m</i> ./hybrid <i>n</i> <i>steps</i>
@@ -160,7 +173,7 @@
                     <i>n</i> is the number of threads to use on each node.
                     
                     Since bisection is used to split the domain, it is
-                    recommended, for propper load balancing,
+                    recommended, for proper load balancing,
                     that <i>m</i> be a power of 2.
                     
             </ul>
