@@ -406,104 +406,112 @@ int main ( int argc , char *argv[] ) {
         
         /* Shake the particle positions. */
         tic = getticks();
-        #pragma omp parallel for schedule(dynamic,100), private(p_O,p_H1,p_H2,c_O,c_H1,c_H2,vp_O,vp_H1,vp_H2,k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-        
-            /* Do we even have the jth molecule? */
-            p_O = e.s.partlist[j*3]; c_O = e.s.celllist[j*3]; 
-            p_H1 = e.s.partlist[j*3+1]; c_H1 = e.s.celllist[j*3+1]; 
-            p_H2 = e.s.partlist[j*3+2]; c_H2 = e.s.celllist[j*3+2];
-            if ( p_O == NULL || p_H1 == NULL || p_H2 == NULL ||
-                ( c_O->flags & cell_flag_ghost && c_H1->flags & cell_flag_ghost && c_H2->flags & cell_flag_ghost ) )
-                continue;
-        
-            // unwrap the data
-            for ( k = 0 ; k < 3 ; k++ ) {
-                new_O[k] = p_O->x[k] + c_O->origin[k];
-                vp_O[k] = p_O->v[k];
-                new_H1[k] = p_H1->x[k] + c_H1->origin[k];
-                vp_H1[k] = p_H1->v[k];
-                new_H2[k] = p_H2->x[k] + c_H2->origin[k];
-                vp_H2[k] = p_H2->v[k];
-                }
-            for ( k = 0 ; k < 3 ; k++ ) {
-                old_O[k] = new_O[k] - e.dt * vp_O[k];
-                if ( new_H1[k] - new_O[k] > dim[k] * 0.5 )
-                    new_H1[k] -= dim[k];
-                else if ( new_H1[k] - new_O[k] < -dim[k] * 0.5 )
-                    new_H1[k] += dim[k];
-                old_H1[k] = new_H1[k] - e.dt * vp_H1[k];
-                if ( new_H2[k] - new_O[k] > dim[k] * 0.5 )
-                    new_H2[k] -= dim[k];
-                else if ( new_H2[k] - new_O[k] < -dim[k] * 0.5 )
-                    new_H2[k] += dim[k];
-                old_H2[k] = new_H2[k] - e.dt * vp_H2[k];
-                v_OH1[k] = old_O[k] - old_H1[k];
-                v_OH2[k] = old_O[k] - old_H2[k];
-                v_HH[k] = old_H1[k] - old_H2[k];
-                }
-                
-            // main loop
-            while ( 1 ) {
+        #pragma omp parallel for schedule(dynamic,100), private(cid,j,p_O,p_H1,p_H2,c_O,c_H1,c_H2,vp_O,vp_H1,vp_H2,k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
+        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
+            for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
             
-                // correct for the OH1 constraint
-                for ( d_OH1 = 0.0 , k = 0 ; k < 3 ; k++ )
-                    d_OH1 += (new_O[k] - new_H1[k]) * (new_O[k] - new_H1[k]);
-                lambda = 0.5 * ( 0.1*0.1 - d_OH1 ) /
-                    ( (new_O[0] - new_H1[0]) * v_OH1[0] + (new_O[1] - new_H1[1]) * v_OH1[1] + (new_O[2] - new_H1[2]) * v_OH1[2] );
+                /* Grab a part and check if it's an oxygen. */
+                p_O = &e.s.cells[cid].parts[j];
+                if ( p_O->type != 0 )
+                    continue;
+                
+                /* Do we even own part of this molecule? */
+                c_O = &e.s.cells[cid]; 
+                p_H1 = e.s.partlist[p_O->id+1]; c_H1 = e.s.celllist[p_O->id+1]; 
+                p_H2 = e.s.partlist[p_O->id+2]; c_H2 = e.s.celllist[p_O->id+2];
+                if ( p_O == NULL || p_H1 == NULL || p_H2 == NULL ||
+                    ( c_O->flags & cell_flag_ghost && c_H1->flags & cell_flag_ghost && c_H2->flags & cell_flag_ghost ) )
+                    continue;
+
+                // unwrap the data
                 for ( k = 0 ; k < 3 ; k++ ) {
-                    new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH1[k];
-                    new_H1[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH1[k];
+                    new_O[k] = p_O->x[k] + c_O->origin[k];
+                    vp_O[k] = p_O->v[k];
+                    new_H1[k] = p_H1->x[k] + c_H1->origin[k];
+                    vp_H1[k] = p_H1->v[k];
+                    new_H2[k] = p_H2->x[k] + c_H2->origin[k];
+                    vp_H2[k] = p_H2->v[k];
+                    }
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    old_O[k] = new_O[k] - e.dt * vp_O[k];
+                    if ( new_H1[k] - new_O[k] > dim[k] * 0.5 )
+                        new_H1[k] -= dim[k];
+                    else if ( new_H1[k] - new_O[k] < -dim[k] * 0.5 )
+                        new_H1[k] += dim[k];
+                    old_H1[k] = new_H1[k] - e.dt * vp_H1[k];
+                    if ( new_H2[k] - new_O[k] > dim[k] * 0.5 )
+                        new_H2[k] -= dim[k];
+                    else if ( new_H2[k] - new_O[k] < -dim[k] * 0.5 )
+                        new_H2[k] += dim[k];
+                    old_H2[k] = new_H2[k] - e.dt * vp_H2[k];
+                    v_OH1[k] = old_O[k] - old_H1[k];
+                    v_OH2[k] = old_O[k] - old_H2[k];
+                    v_HH[k] = old_H1[k] - old_H2[k];
+                    }
+
+                // main loop
+                while ( 1 ) {
+
+                    // correct for the OH1 constraint
+                    for ( d_OH1 = 0.0 , k = 0 ; k < 3 ; k++ )
+                        d_OH1 += (new_O[k] - new_H1[k]) * (new_O[k] - new_H1[k]);
+                    lambda = 0.5 * ( 0.1*0.1 - d_OH1 ) /
+                        ( (new_O[0] - new_H1[0]) * v_OH1[0] + (new_O[1] - new_H1[1]) * v_OH1[1] + (new_O[2] - new_H1[2]) * v_OH1[2] );
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH1[k];
+                        new_H1[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH1[k];
+                        }
+
+                    // correct for the OH2 constraint
+                    for ( d_OH2 = 0.0 , k = 0 ; k < 3 ; k++ )
+                        d_OH2 += (new_O[k] - new_H2[k]) * (new_O[k] - new_H2[k]);
+                    lambda = 0.5 * ( 0.1*0.1 - d_OH2 ) /
+                        ( (new_O[0] - new_H2[0]) * v_OH2[0] + (new_O[1] - new_H2[1]) * v_OH2[1] + (new_O[2] - new_H2[2]) * v_OH2[2] );
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH2[k];
+                        new_H2[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH2[k];
+                        }
+
+                    // correct for the HH constraint
+                    for ( d_HH = 0.0 , k = 0 ; k < 3 ; k++ )
+                        d_HH += (new_H1[k] - new_H2[k]) * (new_H1[k] - new_H2[k]);
+                    lambda = 0.5 * ( 0.1633*0.1633 - d_HH ) /
+                        ( (new_H1[0] - new_H2[0]) * v_HH[0] + (new_H1[1] - new_H2[1]) * v_HH[1] + (new_H1[2] - new_H2[2]) * v_HH[2] );
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        new_H1[k] += lambda * 0.5 * v_HH[k];
+                        new_H2[k] -= lambda * 0.5 * v_HH[k];
+                        }
+
+                    // check the tolerances
+                    if ( fabs( d_OH1 - 0.1*0.1 ) < 1e-6 &&
+                        fabs( d_OH2 - 0.1*0.1 ) < 1e-6 &&  
+                        fabs( d_HH - 0.1633*0.1633 ) < 1e-6 )
+                        break;
+
+                    // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));
+                    // getchar();
+
+                    }
+
+                // wrap the positions back
+                for ( k = 0 ; k < 3 ; k++ ) {
+
+                    // write O
+                    p_O->x[k] = new_O[k] - c_O->origin[k];
+                    p_O->v[k] = (new_O[k] - old_O[k]) / e.dt;
+
+                    // write H1
+                    p_H1->x[k] -= e.dt * p_H1->v[k];
+                    p_H1->v[k] = (new_H1[k] - old_H1[k]) / e.dt;
+                    p_H1->x[k] += e.dt * p_H1->v[k];
+
+                    // write H2
+                    p_H2->x[k] -= e.dt * p_H2->v[k];
+                    p_H2->v[k] = (new_H2[k] - old_H2[k]) / e.dt;
+                    p_H2->x[k] += e.dt * p_H2->v[k];
+
                     }
                     
-                // correct for the OH2 constraint
-                for ( d_OH2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                    d_OH2 += (new_O[k] - new_H2[k]) * (new_O[k] - new_H2[k]);
-                lambda = 0.5 * ( 0.1*0.1 - d_OH2 ) /
-                    ( (new_O[0] - new_H2[0]) * v_OH2[0] + (new_O[1] - new_H2[1]) * v_OH2[1] + (new_O[2] - new_H2[2]) * v_OH2[2] );
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH2[k];
-                    new_H2[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH2[k];
-                    }
-                    
-                // correct for the HH constraint
-                for ( d_HH = 0.0 , k = 0 ; k < 3 ; k++ )
-                    d_HH += (new_H1[k] - new_H2[k]) * (new_H1[k] - new_H2[k]);
-                lambda = 0.5 * ( 0.1633*0.1633 - d_HH ) /
-                    ( (new_H1[0] - new_H2[0]) * v_HH[0] + (new_H1[1] - new_H2[1]) * v_HH[1] + (new_H1[2] - new_H2[2]) * v_HH[2] );
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    new_H1[k] += lambda * 0.5 * v_HH[k];
-                    new_H2[k] -= lambda * 0.5 * v_HH[k];
-                    }
-                    
-                // check the tolerances
-                if ( fabs( d_OH1 - 0.1*0.1 ) < 1e-6 &&
-                    fabs( d_OH2 - 0.1*0.1 ) < 1e-6 &&  
-                    fabs( d_HH - 0.1633*0.1633 ) < 1e-6 )
-                    break;
-                    
-                // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));
-                // getchar();
-                    
-                }
-                
-            // wrap the positions back
-            for ( k = 0 ; k < 3 ; k++ ) {
-            
-                // write O
-                p_O->x[k] = new_O[k] - c_O->origin[k];
-                p_O->v[k] = (new_O[k] - old_O[k]) / e.dt;
-                
-                // write H1
-                p_H1->x[k] -= e.dt * p_H1->v[k];
-                p_H1->v[k] = (new_H1[k] - old_H1[k]) / e.dt;
-                p_H1->x[k] += e.dt * p_H1->v[k];
-                
-                // write H2
-                p_H2->x[k] -= e.dt * p_H2->v[k];
-                p_H2->v[k] = (new_H2[k] - old_H2[k]) / e.dt;
-                p_H2->x[k] += e.dt * p_H2->v[k];
-                
                 }
                 
             } // shake molecules
@@ -552,39 +560,33 @@ int main ( int argc , char *argv[] ) {
         /* Compute the system temperature. */
         tic = getticks();
         
-        /* Tabulate the total atomic kinetic energy. */
+        /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
         ekin = 0.0; epot = 0.0;
-        #pragma omp parallel for schedule(static,100), private(cid,k,p,v2), reduction(+:ekin,epot)
+        vcom_tot_x = 0.0; vcom_tot_y = 0.0; vcom_tot_z = 0.0;
+        temp = 0.0;
+        #pragma omp parallel for schedule(static,100), private(cid,p,p_O,p_H1,p_H2,j,k,vcom), reduction(+:vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
             epot += e.s.cells[cid].epot;
             if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
-                for ( k = 0 ; k < e.s.cells[cid].count ; k++ ) {
-                    p = &( e.s.cells[cid].parts[k] );
+                for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                    p = &( e.s.cells[cid].parts[j] );
                     v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
                     if ( p->vid % 3 == 0 )
                         ekin += v2 * 15.9994 * 0.5;
                     else
                         ekin += v2 * 1.00794 * 0.5;
+                    if ( p->type != 0 )
+                        continue;
+                    p_O = p; p_H1 = e.s.partlist[ p_O->id + 1 ]; p_H2 = e.s.partlist[ p_O->id + 2 ];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        vcom[k] = ( p_O->v[k] * 15.9994 +
+                            p_H1->v[k] * 1.00794 +
+                            p_H2->v[k] * 1.00794 ) / 1.801528e+1;
+                        vcom_tot[k] += vcom[k];
+                        }
+                    vcom_tot_x += vcom[0]; vcom_tot_y += vcom[1]; vcom_tot_z += vcom[2];
+                    temp += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
                     }
-            }
-            
-        /* Get the v_com and kinetic energy. */
-        vcom_tot_x = 0.0; vcom_tot_y = 0.0; vcom_tot_z = 0.0;
-        temp = 0.0;
-        #pragma omp parallel for schedule(static,100), private(p_O,p_H1,p_H2,k,vcom), reduction(+:vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-            p_O = e.s.partlist[ j*3 ];
-            if ( p_O == NULL || e.s.celllist[j*3]->flags & cell_flag_ghost )
-                continue;
-            p_H1 = e.s.partlist[ j*3+1 ]; p_H2 = e.s.partlist[ j*3+2 ];
-            for ( k = 0 ; k < 3 ; k++ ) {
-                vcom[k] = ( p_O->v[k] * 15.9994 +
-                    p_H1->v[k] * 1.00794 +
-                    p_H2->v[k] * 1.00794 ) / 1.801528e+1;
-                vcom_tot[k] += vcom[k];
-                }
-            vcom_tot_x += vcom[0]; vcom_tot_y += vcom[1]; vcom_tot_z += vcom[2];
-            temp += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
             }
         vcom_tot[0] = vcom_tot_x; vcom_tot[1] = vcom_tot_y; vcom_tot[2] = vcom_tot_z;
         vcom_tot[3] = temp;
@@ -603,22 +605,25 @@ int main ( int argc , char *argv[] ) {
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
             
         /* Subtract the vcom from the molecules on this proc. */
-        #pragma omp parallel for schedule(static,100), private(p_O,p_H1,p_H2,k,vcom)
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-            p_O = e.s.partlist[ j*3 ]; p_H1 = e.s.partlist[ j*3+1 ]; p_H2 = e.s.partlist[ j*3+2 ];
-            if ( p_O == NULL || p_H1 == NULL || p_H2 == NULL )
-                continue;
-            for ( k = 0 ; k < 3 ; k++ ) {
-                vcom[k] = ( p_O->v[k] * 15.9994 +
-                    p_H1->v[k] * 1.00794 +
-                    p_H2->v[k] * 1.00794 ) / 1.801528e+1;
-                vcom[k] -= vcom_tot[k];
-                vcom[k] *= ( w - 1.0 );
-                p_O->v[k] += vcom[k];
-                p_H1->v[k] += vcom[k];
-                p_H2->v[k] += vcom[k];
+        #pragma omp parallel for schedule(static,100), private(cid,j,p_O,p_H1,p_H2,k,vcom)
+        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
+            for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                p_O = &( e.s.cells[cid].parts[j] );
+                if ( ( p_O->type != 0 ) ||
+                     ( p_H1 = e.s.partlist[ p_O->id + 1 ] ) == NULL ||
+                     ( p_H2 = e.s.partlist[ p_O->id + 2 ] ) == NULL )
+                    continue;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    vcom[k] = ( p_O->v[k] * 15.9994 +
+                        p_H1->v[k] * 1.00794 +
+                        p_H2->v[k] * 1.00794 ) / 1.801528e+1;
+                    vcom[k] -= vcom_tot[k];
+                    vcom[k] *= ( w - 1.0 );
+                    p_O->v[k] += vcom[k];
+                    p_H1->v[k] += vcom[k];
+                    p_H2->v[k] += vcom[k];
+                    }
                 }
-            }
         timers[tid_temp] = getticks() - tic;
         if ( verbose && myrank == 0 ) {
             printf("main[%i]: thermostat took %.3f ms.\n",myrank,(double)timers[tid_temp] * itpms); fflush(stdout);
