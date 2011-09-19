@@ -138,7 +138,7 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 0 , 39.948 , 0.0 , "Ar" , "Ar" ) < 0 ) {
+    if ( engine_addtype( &e , 39.948 , 0.0 , "Ar" , "Ar" ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
@@ -173,7 +173,7 @@ int main ( int argc , char *argv[] ) {
         for ( j = 0 ; j < ny ; j++ ) {
             x[1] = 0.05 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_parts ; k++ ) {
-                pAr.vid = 3 * (k + nz * ( j + ny * i ));
+                pAr.vid = k + nz * ( j + ny * i );
                 x[2] = 0.05 + k * hz;
                 pAr.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pAr.v[1] = ((double)rand()) / RAND_MAX - 0.5;

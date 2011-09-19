@@ -914,8 +914,8 @@ int space_addpart ( struct space *s , struct part *p , double *x ) {
         s->celllist = tempc;
         }
         
-    /* Create the local id of this part. */
-    p->id = s->nr_parts++;
+    /* Increase the number of parts. */
+    s->nr_parts++;
         
     /* get the hypothetical cell coordinate */
     for ( k = 0 ; k < 3 ; k++ )

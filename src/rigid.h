@@ -21,28 +21,41 @@
 #include "fptype.h"
 
 
-/* angle error codes */
-#define angle_err_ok                    0
-#define angle_err_null                  -1
-#define angle_err_malloc                -2
+/* rigid error codes */
+#define rigid_err_ok                    0
+#define rigid_err_null                  -1
+#define rigid_err_malloc                -2
+
+
+/* Some constants. */
+#define rigid_maxparts                  10
+#define rigid_maxconstr                 (3*rigid_maxparts)
 
 
 /** ID of the last error */
-extern int angle_err;
+extern int rigid_err;
 
 
-/** The angle structure */
-struct angle {
+/** The rigid structure */
+struct rigid {
 
-    /* ids of particles involved */
-    int i, j, k;
+    /** Nr of parts involved. */
+    int nr_parts;
+
+    /** ids of particles involved */
+    int parts[ rigid_maxparts ];
     
-    /* id of the potential. */
-    int pid;
+    /** Nr of constraints involved. */
+    int nr_constr;
+    
+    /** The constraints themselves. */
+    struct {
+        int i, j;
+        double d2;
+        } constr[ rigid_maxconstr ];
     
     };
     
 
 /* associated functions */
-int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out );
-int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , double *epot_out );
+int rigid_eval_shake ( struct rigid *r , int N , struct engine *e );

@@ -46,20 +46,6 @@
 #include "engine.h"
 
 
-/* Interactions for the OH harmonic bond minus the electrostatic interaction. */
-double f_OHb ( double r ) {
-    return 463700/2 * ( r - 0.1 ) * ( r - 0.1 ) + 0.35921288 * potential_Ewald( r , 3.0 );
-    }
-
-double dfdr_OHb ( double r ) {
-    return 463700 * ( r - 0.1 ) + 0.35921288 * potential_Ewald_p( r , 3.0 );
-    }
-
-double d6fdr6_OHb ( double r ) {
-    return 0.0 + 0.35921288 * potential_Ewald_6p( r , 3.0 );
-    }
-
-
 int main ( int argc , char *argv[] ) {
 
     const double origin[3] = { 0.0 , 0.0 , 0.0 };
@@ -80,15 +66,16 @@ int main ( int argc , char *argv[] ) {
     double epot, ekin, temp, cutoff = 1.0, cellwidth;
     FPTYPE ee, eff;
     struct engine e;
-    struct part pO, pH;
-    struct potential *pot_OO, *pot_OH, *pot_HH, pot_OHb, *pot_HOH;
+    struct part *p, pO, pH;
+    struct potential *pot_OO, *pot_OH, *pot_HH, *pot_OHb, *pot_HOH;
     // struct potential *pot_ee;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     int nx, ny, nz;
     double hx, hy, hz;
-    double vtot[3] = { 0.0 , 0.0 , 0.0 }, w, x_O[3], x_H1[3], x_H2[3];
+    double vtot[3] = { 0.0 , 0.0 , 0.0 }, w, mass_tot, x_O[3], x_H1[3], x_H2[3];
     // struct cellpair cp;
     FILE *psf, *pdb;
+    char fname[100];
     ticks tic, toc, toc_step, toc_bonded, toc_temp;
     
     
@@ -166,15 +153,15 @@ int main ( int argc , char *argv[] ) {
     printf("main: constructed OO-potential with %i intervals.\n",pot_OO->n); fflush(stdout);
     
     // initialize the O-H bond potential
-    if ( potential_init( &pot_OHb , f_OHb , dfdr_OHb , d6fdr6_OHb , 0.05 , 0.15 , 1.0e-4 ) < 0 ) {
-        printf("main: potential_create_harmonic failed with potential_err=%i.\n",potential_err);
+    if ( ( pot_OHb = potential_create_harmonic( 0.05 , 0.15 , 463700/2 , 0.1 , 1.0e-3 ) ) == NULL ) {
+        printf("main: potential_create_harmonic_bond failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
         }
-    printf("main: constructed OH bonded potential with %i intervals.\n",pot_OHb.n); fflush(stdout);
+    printf("main: constructed OH bonded potential with %i intervals.\n",pot_OHb->n); fflush(stdout);
     
     // initialize the H-O-H angle potential
-    if ( ( pot_HOH = potential_create_harmonic_angle( -0.6 , 0.6 , 383.0/2 , 109.47/180*M_PI , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_HOH = potential_create_harmonic_angle( (109.47-60)/180*M_PI , (109.47+60)/180*M_PI , 383.0/2 , 109.47/180*M_PI , 1.0e-4 ) ) == NULL ) {
         printf("main: potential_create_harmonic_angle failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -191,9 +178,9 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "OT" , "OH2" ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "HT" , "H1" ) < 0 ||
-         engine_addtype( &e , 2 , 1.00794 , 0.4238 , "HT" , "H2" ) < 0 ) {
+    if ( engine_addtype( &e , 15.9994 , -0.8476 , "OT" , "OH2" ) < 0 ||
+         engine_addtype( &e , 1.00794 , 0.4238 , "HT" , "H1" ) < 0 ||
+         engine_addtype( &e , 1.00794 , 0.4238 , "HT" , "H2" ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
@@ -210,7 +197,7 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         return 1;
         }
-    if ( engine_bond_addpot( &e , &pot_OHb , 0 , 1 ) < 0 ) {
+    if ( engine_bond_addpot( &e , pot_OHb , 0 , 1 ) < 0 ) {
         printf("main: call to engine_addbondpot failed.\n");
         errs_dump(stdout);
         return 1;
@@ -247,21 +234,27 @@ int main ( int argc , char *argv[] ) {
             x[1] = 0.07 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_mols ; k++ ) {
                 pO.vid = (k + nz * ( j + ny * i ));
+                pO.id = 3*pO.vid;
                 x[2] = 0.07 + k * hz;
                 pO.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 1.2 / sqrt( pO.v[0]*pO.v[0] + pO.v[1]*pO.v[1] + pO.v[2]*pO.v[2] );
+                temp = 0.1 / sqrt( pO.v[0]*pO.v[0] + pO.v[1]*pO.v[1] + pO.v[2]*pO.v[2] );
                 pO.v[0] *= temp; pO.v[1] *= temp; pO.v[2] *= temp;
-                vtot[0] += pO.v[0]; vtot[1] += pO.v[1]; vtot[2] += pO.v[2];
+                vtot[0] += pO.v[0]*16; vtot[1] += pO.v[1]*16; vtot[2] += pO.v[2]*16;
                 if ( space_addpart( &(e.s) , &pO , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
                     return 1;
                     }
                 x[0] += 0.1;
-                pH.vid = pO.vid; pH.type = 1;
-                pH.v[0] = pO.v[0]; pH.v[1] = pO.v[1]; pH.v[2] = pO.v[2];
+                pH.v[0] = ((double)rand()) / RAND_MAX - 0.5;
+                pH.v[1] = ((double)rand()) / RAND_MAX - 0.5;
+                pH.v[2] = ((double)rand()) / RAND_MAX - 0.5;
+                temp = 0.1 / sqrt( pH.v[0]*pH.v[0] + pH.v[1]*pH.v[1] + pH.v[2]*pH.v[2] );
+                pH.v[0] *= temp; pH.v[1] *= temp; pH.v[2] *= temp;
+                vtot[0] += pH.v[0]; vtot[1] += pH.v[1]; vtot[2] += pH.v[2];
+                pH.vid = pO.vid; pH.id = pO.id+1; pH.type = 1;
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
@@ -269,7 +262,13 @@ int main ( int argc , char *argv[] ) {
                     }
                 x[0] -= 0.13333;
                 x[1] += 0.09428;
-                pH.vid = pO.vid; pH.type = 2;
+                pH.v[0] = ((double)rand()) / RAND_MAX - 0.5;
+                pH.v[1] = ((double)rand()) / RAND_MAX - 0.5;
+                pH.v[2] = ((double)rand()) / RAND_MAX - 0.5;
+                temp = 0.1 / sqrt( pH.v[0]*pH.v[0] + pH.v[1]*pH.v[1] + pH.v[2]*pH.v[2] );
+                pH.v[0] *= temp; pH.v[1] *= temp; pH.v[2] *= temp;
+                vtot[0] += pH.v[0]; vtot[1] += pH.v[1]; vtot[2] += pH.v[2];
+                pH.vid = pO.vid; pH.id = pO.id+2; pH.type = 2;
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
@@ -281,28 +280,42 @@ int main ( int argc , char *argv[] ) {
             }
         }
     // e.s.partlist[1]->v[2] += 2.0;
+    for ( k = 0 ; k < 3 ; k++ )
+        vtot[k] /= nr_mols * 18;
     for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
         for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ )
             for ( k = 0 ; k < 3 ; k++ )
-                e.s.cells[cid].parts[pid].v[k] -= vtot[k] / nr_mols;
+                e.s.cells[cid].parts[pid].v[k] -= vtot[k] * e.types[e.s.cells[cid].parts[pid].type].mass;
     printf("done.\n"); fflush(stdout);
     printf("main: inserted %i particles.\n", e.s.nr_parts);
     
     
     /* Add the bonds and angles. */
     for ( i = 0 ; i < nr_mols ; i++ ) {
-        if ( engine_bond_add( &e , 3*i , 3*i+1 ) < 0 ||
+        /* if ( engine_bond_add( &e , 3*i , 3*i+1 ) < 0 ||
              engine_bond_add( &e , 3*i , 3*i+2 ) < 0 ) {
             printf("main: space_addbond failed with space_err=%i.\n",space_err);
             errs_dump(stdout);
             return 1;
-            }
-        if ( engine_angle_add( &e , 3*i+1 , 3*i , 3*i+2 , 0 ) < 0 ) {
-            printf("main: space_addangle failed with space_err=%i.\n",space_err);
+            } */
+        if ( engine_rigid_add( &e , 3*i , 3*i+1 , 0.1 ) < 0 ||
+             engine_rigid_add( &e , 3*i , 3*i+2 , 0.1 ) < 0 ) {
+            printf("main: engine_rigid_add failed with space_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
             }
+        if ( engine_angle_add( &e , 3*i+1 , 3*i , 3*i+2 , 0 ) < 0 ) {
+            printf("main: engine_addangle failed with space_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return 1;
+            }
+        /* if ( engine_rigid_add( &e , 3*i , 3*i+2 , 0.1633 ) < 0 ) {
+            printf("main: engine_rigid_add failed with space_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return 1;
+            } */
         }
+    printf( "main: have %i angles.\n" , e.nr_angles );
                     
 
     // set the time and time-step by hand
@@ -310,9 +323,33 @@ int main ( int argc , char *argv[] ) {
     if ( argc > 3 )
         e.dt = atof( argv[3] );
     else
-        e.dt = 0.00025;
+        e.dt = 0.001;
     printf("main: dt set to %f fs.\n", e.dt*1000 );
     
+    
+    /* Shake the particle positions. */
+    if ( engine_rigid_eval( &e ) != 0 ) {
+        printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        return -1;
+        }
+    mass_tot = 0.0; vtot[0] = 0.0; vtot[1] = 0.0; vtot[2] = 0.0;
+    for ( k = 0 ; k < e.s.nr_parts ; k++ ) {
+        p = e.s.partlist[k];
+        mass_tot += e.types[p->type].mass;
+        vtot[0] += p->v[0] * e.types[p->type].mass;
+        vtot[1] += p->v[1] * e.types[p->type].mass;
+        vtot[2] += p->v[2] * e.types[p->type].mass;
+        }
+    vtot[0] /= mass_tot; vtot[1] /= mass_tot; vtot[2] /= mass_tot;
+    for ( k = 0 ; k < e.s.nr_parts ; k++ ) {
+        p = e.s.partlist[k];
+        p->v[0] -= vtot[0];
+        p->v[1] -= vtot[1];
+        p->v[2] -= vtot[2];
+        }
+        
+        
     toc = getticks();
     printf("main: setup took %.3f ms.\n",(double)(toc-tic) * 1000 / CPU_TPS);
     
@@ -342,53 +379,61 @@ int main ( int argc , char *argv[] ) {
             return 1;
             }
         toc_step = getticks();
+        toc_bonded = getticks();
         
 
-        toc_bonded = getticks();
-            
+        /* Shake the particle positions. */
+        if ( engine_rigid_eval( &e ) != 0 ) {
+            printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return -1;
+            }
             
 
         // get the total COM-velocities and ekin
         epot = e.s.epot; ekin = 0.0;
-        #pragma omp parallel for schedule(static,100), private(cid,pid,k,v2), reduction(+:epot,ekin)
+        vtot[0] = 0.0; vtot[1] = 0.0; vtot[2] = 0.0;
+        // #pragma omp parallel for schedule(static,100), private(cid,pid,k,v2), reduction(+:epot,ekin)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ )
-                if ( e.s.cells[cid].parts[pid].type == 0 ) {
-                    for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                        v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];
-                    ekin += 0.5 * e.types[e.s.cells[cid].parts[pid].type].mass * v2;
+            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
+                for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                    v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];
+                    vtot[k] += e.s.cells[cid].parts[pid].v[k] * e.types[e.s.cells[cid].parts[pid].type].mass;
                     }
+                ekin += e.types[e.s.cells[cid].parts[pid].type].mass * v2;
+                }
             }
+        ekin *= 0.5;
+        vtot[0] /= nr_mols*18; vtot[1] /= nr_mols*18; vtot[2] /= nr_mols*18;
+        // printf( "main: vtot is [ %e , %e , %e ].\n" , vtot[0] , vtot[1] , vtot[2] );
 
         // compute the temperature and scaling
         temp = ekin / ( 1.5 * 6.022045E23 * 1.380662E-26 * nr_mols * 3 );
-        w = sqrt( 1.0 + 0.2 * ( Temp / temp - 1.0 ) );
+        w = sqrt( 1.0 + 0.1 * ( Temp / temp - 1.0 ) );
 
         // compute the atomic heat
         if ( i < 10000 ) {
         
             // scale the velocities
-            #pragma omp parallel for schedule(static,100), private(cid,pid,k), reduction(+:epot,ekin)
+            // #pragma omp parallel for schedule(static,100), private(cid,pid,k), reduction(+:epot,ekin)
             for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
                 for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ )
-                    if ( e.s.cells[cid].parts[pid].type == 0 ) {
-                        for ( k = 0 ; k < 3 ; k++ )
-                            e.s.cells[cid].parts[pid].v[k] *= w;
-                        }
+                    for ( k = 0 ; k < 3 ; k++ )
+                        e.s.cells[cid].parts[pid].v[k] = w * (e.s.cells[cid].parts[pid].v[k] - vtot[k]);
                 }
+            
+            // re-compute the kinetic energy.
+            ekin = 0.0;
+            for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
+                for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
+                    for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
+                        v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];
+                    ekin += e.types[ e.s.cells[cid].parts[pid].type ].mass * v2;
+                    }
+                }
+            ekin *= 0.5;
             
             } // apply atomic thermostat
-            
-        // re-compute the kinetic energy.
-        ekin = 0.0;
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
-                for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                    v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];
-                ekin += e.types[ e.s.cells[cid].parts[pid].type ].mass * v2;
-                }
-            }
-        ekin *= 0.5;
             
         toc_temp = getticks();
         printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f ms\n",
@@ -405,7 +450,17 @@ int main ( int argc , char *argv[] ) {
             e.s.partlist[1]->x[1] + e.s.celllist[1]->origin[1],
             e.s.partlist[1]->x[2] + e.s.celllist[1]->origin[2]); */
             
-        }
+        if ( e.time % 100 == 0 ) {
+            sprintf( fname , "flexible_%08i.pdb" , e.time ); pdb = fopen( fname , "w" );
+            if ( engine_dump_PSF( &e , NULL , pdb , NULL , 0 ) < 0 ) {
+                printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
+                errs_dump(stdout);
+                return 1;
+                }
+            fclose(pdb);
+            }
+    
+        } /* Main simulation loop. */
      
     // dump the particle positions, just for the heck of it
     // for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
@@ -416,7 +471,7 @@ int main ( int argc , char *argv[] ) {
     //         }
     
     psf = fopen( "flexible.psf" , "w" ); pdb = fopen( "flexible.pdb" , "w" );
-    if ( engine_dump_PSF( &e , psf , pdb ) < 0 ) {
+    if ( engine_dump_PSF( &e , psf , pdb , NULL , 0 ) < 0 ) {
         printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;

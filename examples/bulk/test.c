@@ -201,8 +201,8 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
+    if ( engine_addtype( &e , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
+         engine_addtype( &e , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
@@ -242,7 +242,7 @@ int main ( int argc , char *argv[] ) {
         for ( j = 0 ; j < ny ; j++ ) {
             x[1] = 0.05 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_mols ; k++ ) {
-                pO.vid = 3 * (k + nz * ( j + ny * i ));
+                pO.vid = k + nz * ( j + ny * i );
                 x[2] = 0.05 + k * hz;
                 pO.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[1] = ((double)rand()) / RAND_MAX - 0.5;
@@ -256,7 +256,7 @@ int main ( int argc , char *argv[] ) {
                     return 1;
                     }
                 x[0] += 0.1;
-                pH.vid = pO.vid + 1;
+                pH.vid = pO.vid;
                 pH.v[0] = pO.v[0]; pH.v[1] = pO.v[1]; pH.v[2] = pO.v[2];
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
@@ -265,7 +265,7 @@ int main ( int argc , char *argv[] ) {
                     }
                 x[0] -= 0.13333;
                 x[1] += 0.09428;
-                pH.vid = pO.vid + 2;
+                pH.vid = pO.vid;
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);

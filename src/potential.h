@@ -33,10 +33,12 @@
 /* some constants */
 #define potential_degree                    5
 #define potential_chunk                     (potential_degree+3)
-#define potential_ivalsmin                  1
-#define potential_ivalsmax                  10
+#define potential_ivalsa                    1
+#define potential_ivalsb                    10
 #define potential_N                         100
 #define potential_align                     64
+#define potential_align                     64
+#define potential_ivalsmax                  100
 
 
 /* potential flags */
@@ -81,6 +83,7 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol );
 struct potential *potential_create_harmonic ( double a , double b , double K , double r0 , double tol );
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol );
+struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol );
 void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 , FPTYPE q , FPTYPE *e , FPTYPE *f );
 void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );

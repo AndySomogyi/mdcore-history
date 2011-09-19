@@ -27,15 +27,6 @@
 #define bond_err_malloc                -2
 
 
-#define bond_partlist_incr             100
-
-/** Maximum number of cells per tuple. */
-#define bond_maxtuples                 4
-
-/** Maximum number of interactions per particle in the Verlet list. */
-#define bond_verlet_maxpairs           750
-
-
 /** ID of the last error */
 extern int bond_err;
 

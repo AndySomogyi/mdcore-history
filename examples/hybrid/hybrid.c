@@ -61,17 +61,17 @@ int main ( int argc , char *argv[] ) {
 
     /* Simulation constants. */
     double origin[3] = { 0.0 , 0.0 , 0.0 };
-    double dim[3] = { 16.0 , 16.0 , 16.0 };
-    int nr_mols = 129024, nr_parts = nr_mols*3;
-    // double dim[3] = { 8.0 , 8.0 , 8.0 };
-    // int nr_mols = 16128, nr_parts = nr_mols*3;
+    // double dim[3] = { 16.0 , 16.0 , 16.0 };
+    // int nr_mols = 129024, nr_parts = nr_mols*3;
+    double dim[3] = { 8.0 , 8.0 , 8.0 };
+    int nr_mols = 16128, nr_parts = nr_mols*3;
     double cutoff = 1.0;
 
 
     /* Local variables. */
     int res = 0, myrank;
     double *xp = NULL, *vp = NULL, x[3], v[3];
-    int *pid = NULL, *ptype = NULL;
+    int *pid = NULL, *vid = NULL, *ptype = NULL;
     int step, i, j, k, nx, ny, nz, id, cid;
     double hx, hy, hz, temp;
     double vtot[3] = { 0.0 , 0.0 , 0.0 };
@@ -127,7 +127,8 @@ int main ( int argc , char *argv[] ) {
     srand(6178);
     if ( ( xp = (double *)malloc( sizeof(double) * nr_parts * 3 ) ) == NULL ||
          ( vp = (double *)malloc( sizeof(double) * nr_parts * 3 ) ) == NULL ||
-         ( pid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ) {
+         ( pid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ||
+         ( vid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ) {
          printf( "main[%i]: allocation of particle data failed!\n" , myrank );
          return -1;
          }
@@ -153,21 +154,24 @@ int main ( int argc , char *argv[] ) {
                 xp[ 3*id + 1 ] = x[1]; vp[ 3*id + 1 ] = v[1];
                 xp[ 3*id + 2 ] = x[2]; vp[ 3*id + 2 ] = v[2];
                 pid[ id ] = id;
+                vid[ id ] = k + nz * ( j + ny * i );
                 x[0] += 0.1;
-                id += 1;
                 /* Add first hydrogen atom. */
+                id += 1;
                 xp[ 3*id + 0 ] = x[0]; vp[ 3*id + 0 ] = v[0];
                 xp[ 3*id + 1 ] = x[1]; vp[ 3*id + 1 ] = v[1];
                 xp[ 3*id + 2 ] = x[2]; vp[ 3*id + 2 ] = v[2];
                 pid[ id ] = id;
+                vid[ id ] = k + nz * ( j + ny * i );
                 x[0] -= 0.13333;
                 x[1] += 0.09428;
-                id += 1;
                 /* Add second hydrogen atom. */
+                id += 1;
                 xp[ 3*id + 0 ] = x[0]; vp[ 3*id + 0 ] = v[0];
                 xp[ 3*id + 1 ] = x[1]; vp[ 3*id + 1 ] = v[1];
                 xp[ 3*id + 2 ] = x[2]; vp[ 3*id + 2 ] = v[2];
                 pid[ id ] = id;
+                vid[ id ] = k + nz * ( j + ny * i );
                 x[0] += 0.03333;
                 x[1] -= 0.09428;
                 }
@@ -215,8 +219,8 @@ int main ( int argc , char *argv[] ) {
         
     
     /* Register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
+    if ( engine_addtype( &e , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
+         engine_addtype( &e , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
         printf("main[%i]: call to engine_addtype failed.\n",myrank);
         errs_dump(stdout);
         return -1;
@@ -268,8 +272,8 @@ int main ( int argc , char *argv[] ) {
         return -1;
         }
     for ( k = 0 ; k < nr_parts ; k++ )
-        ptype[k] = ( pid[k] % 3 != 0 );
-    if ( ( res = engine_load( &e , xp , vp , ptype , pid , NULL , NULL , nr_parts ) ) < 0 ) {
+        ptype[k] = ( k % 3 != 0 );
+    if ( ( res = engine_load( &e , xp , vp , ptype , pid , vid , NULL , NULL , nr_parts ) ) < 0 ) {
         printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         return -1;
@@ -406,7 +410,7 @@ int main ( int argc , char *argv[] ) {
         
         /* Shake the particle positions. */
         tic = getticks();
-        #pragma omp parallel for schedule(dynamic,100), private(cid,j,p_O,p_H1,p_H2,c_O,c_H1,c_H2,vp_O,vp_H1,vp_H2,k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
+        #pragma omp parallel for schedule(dynamic), private(cid,j,p_O,p_H1,p_H2,c_O,c_H1,c_H2,vp_O,vp_H1,vp_H2,k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
             for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
             
@@ -564,26 +568,24 @@ int main ( int argc , char *argv[] ) {
         ekin = 0.0; epot = 0.0;
         vcom_tot_x = 0.0; vcom_tot_y = 0.0; vcom_tot_z = 0.0;
         temp = 0.0;
-        #pragma omp parallel for schedule(static,100), private(cid,p,p_O,p_H1,p_H2,j,k,vcom), reduction(+:vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
+        #pragma omp parallel for schedule(static), private(p,p_O,p_H1,p_H2,j,k,vcom,v2), reduction(+:ekin,epot,vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
             epot += e.s.cells[cid].epot;
             if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
                 for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
                     p = &( e.s.cells[cid].parts[j] );
                     v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
-                    if ( p->vid % 3 == 0 )
+                    if ( p->type == 0 )
                         ekin += v2 * 15.9994 * 0.5;
                     else
                         ekin += v2 * 1.00794 * 0.5;
                     if ( p->type != 0 )
                         continue;
                     p_O = p; p_H1 = e.s.partlist[ p_O->id + 1 ]; p_H2 = e.s.partlist[ p_O->id + 2 ];
-                    for ( k = 0 ; k < 3 ; k++ ) {
+                    for ( k = 0 ; k < 3 ; k++ )
                         vcom[k] = ( p_O->v[k] * 15.9994 +
                             p_H1->v[k] * 1.00794 +
                             p_H2->v[k] * 1.00794 ) / 1.801528e+1;
-                        vcom_tot[k] += vcom[k];
-                        }
                     vcom_tot_x += vcom[0]; vcom_tot_y += vcom[1]; vcom_tot_z += vcom[2];
                     temp += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
                     }
@@ -593,10 +595,11 @@ int main ( int argc , char *argv[] ) {
             
         /* Collect vcom and ekin from all procs and compute the temp. */
         vcom_tot[4] = epot; vcom_tot[5] = ekin;
-        if ( ( res = MPI_Allreduce( MPI_IN_PLACE , vcom_tot , 6 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
-            printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
-            return -1;
-            }
+        if ( nr_nodes > 1 )
+            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , vcom_tot , 6 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
+                printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
+                return -1;
+                }
         ekin = vcom_tot[5]; epot = vcom_tot[4];
         for ( k = 0 ; k < 3 ; k++ )
             vcom_tot[k] /= nr_mols * 1.801528e+1;
@@ -605,7 +608,7 @@ int main ( int argc , char *argv[] ) {
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
             
         /* Subtract the vcom from the molecules on this proc. */
-        #pragma omp parallel for schedule(static,100), private(cid,j,p_O,p_H1,p_H2,k,vcom)
+        #pragma omp parallel for schedule(static), private(j,p_O,p_H1,p_H2,k,vcom)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
             for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
                 p_O = &( e.s.cells[cid].parts[j] );

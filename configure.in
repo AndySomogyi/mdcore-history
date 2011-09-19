@@ -17,7 +17,7 @@
 
 # init the project
 AC_INIT(src/engine.c)
-VERSION="0.1.1"
+VERSION="0.1.3"
 AC_SUBST(VERSION)
 AM_INIT_AUTOMAKE(mdcore,VERSION)
 AC_PROG_LIBTOOL
@@ -153,5 +153,5 @@ AM_CONDITIONAL([HAVECELL],[test -n "$CELLTOP"])
 DX_INIT_DOXYGEN(mdcore,doc/Doxyfile,doc/)
 
 # generate the Makefiles
-AC_OUTPUT(Makefile src/Makefile src/Makefile_cell src/spu/Makefile examples/Makefile examples/argon/Makefile examples/bulk/Makefile examples/bulk/Makefile_cell examples/btree/Makefile examples/hybrid/Makefile examples/flexible/Makefile doc/Makefile)
+AC_OUTPUT(Makefile src/Makefile src/Makefile_cell src/spu/Makefile examples/Makefile examples/argon/Makefile examples/bulk/Makefile examples/bulk/Makefile_cell examples/btree/Makefile examples/hybrid/Makefile examples/flexible/Makefile examples/jac/Makefile doc/Makefile)
 

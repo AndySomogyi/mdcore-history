@@ -23,11 +23,23 @@
         /** The basic type was set to float. */
         typedef float FPTYPE;
         #define FPTYPE_EPSILON FLT_EPSILON
+        #define FPTYPE_ONE 1.0f
+        #define FPTYPE_ZERO 0.0f
+        #define FPTYPE_TWO 2.0f
+        #define FPTYPE_SQRT sqrtf
+        #define FPTYPE_FMAX fmaxf
+        #define FPTYPE_FMIN fminf
     #else
         /** The default basic type is double. */
         typedef double FPTYPE;
         #define FPTYPE_EPSILON DBL_EPSILON
         #define FPTYPE_DOUBLE
+        #define FPTYPE_ONE 1.0
+        #define FPTYPE_TWO 2.0
+        #define FPTYPE_ZERO 0.0
+        #define FPTYPE_SQRT sqrt
+        #define FPTYPE_FMAX fmax
+        #define FPTYPE_FMIN fmin
     #endif
     #define FPTYPE_DEFINED
 #endif

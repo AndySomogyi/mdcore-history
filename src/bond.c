@@ -141,9 +141,11 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
             r2 += dx[k] * dx[k];
             }
 
-        /* printf( "bond_eval: bond %i is %e.\n" , bid , sqrt(r2) );
-        if ( sqrt(r2) < pot->a || sqrt(r2) > pot->b )
-            printf( "bond_eval: bond %i out of range, r=%e.\n" , bid , sqrt(r2) ); */
+        if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
+            printf( "bond_evalf: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
+                bid , e->types[pi->type].name , e->types[pj->type].name , pot->a , pot->b , sqrt(r2) );
+            r2 = fmax( pot->a*pot->a , fmin( pot->b*pot->b , r2 ) );
+            }
 
         #ifdef VECTORIZE
             /* add this bond to the interaction queue. */
@@ -288,6 +290,9 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
  * @param f An array of @c FPTYPE in which to aggregate the resulting forces.
  * @param epot_out Pointer to a double in which to aggregate the potential energy.
  * 
+ * This function differs from #bond_eval in that the forces are added to
+ * the array @c f instead of directly in the particle data.
+ * 
  * @return #bond_err_ok or <0 on error (see #bond_err)
  */
  
@@ -357,13 +362,11 @@ int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double 
             r2 += dx[k] * dx[k];
             }
 
-        /* if ( sqrt(r2) < pot->a || sqrt(r2) > pot->b ) {
-            printf( "bond_evalf: bond %i out of range, r=%e.\n" , bid , sqrt(r2) );
-            printf( "bond_evalf:    xi=[%e,%e,%e]\n" , pi->x[0] , pi->x[1] , pi->x[2] );
-            printf( "bond_evalf:    xj=[%e,%e,%e]\n" , pj->x[0]+shift[0]*h[0] , pj->x[1]+shift[1]*h[1] , pj->x[2]+shift[2]*h[2] );
-            printf( "bond_evalf:    fi=[%e,%e,%e]\n" , pi->f[0] , pi->f[1] , pi->f[2] );
-            printf( "bond_evalf:    fj=[%e,%e,%e]\n" , pj->f[0] , pj->f[1] , pj->f[2] );
-            } */
+        if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
+            printf( "bond_evalf: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
+                bid , e->types[pi->type].name , e->types[pj->type].name , pot->a , pot->b , sqrt(r2) );
+            r2 = fmax( pot->a*pot->a , fmin( pot->b*pot->b , r2 ) );
+            }
 
         #ifdef VECTORIZE
             /* add this bond to the interaction queue. */

@@ -114,6 +114,12 @@ void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e 
     alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
     ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
     
+    /* for ( j = 0 ; j < 4 ; j++ )
+        if ( ind.i[j] > p[j]->n ) {
+            printf("potential_eval_vec_4single: dookie.\n");
+            fflush(stdout);
+            } */
+    
     /* get the table offset */
     for ( k = 0 ; k < 4 ; k++ )
         data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
@@ -258,7 +264,7 @@ void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float
 
     /* store the result */
     _mm_store_ps( e , ee.v );
-    _mm_store_ps( f , _mm_mul_ps( eff.v , _mm_div_ps( hi.v , r.v ) ) );
+    _mm_store_ps( f , _mm_mul_ps( eff.v , hi.v ) );
     
 #elif defined(__ALTIVEC__) && defined(FPTYPE_SINGLE)
     int j, k;
@@ -302,7 +308,7 @@ void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float
 
     /* store the result */
     *((vector float *)e) = ee.v;
-    *((vector float *)f) = vec_mul( eff.v , vec_div( hi.v , r.v ) );
+    *((vector float *)f) = vec_mul( eff.v , hi.v );
         
 #else
     int k;
@@ -854,9 +860,9 @@ void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE 
 
     /* store the result */
     _mm_store_pd( &e[0] , ee_1.v );
-    _mm_store_pd( &f[0] , _mm_mul_pd( eff_1.v , _mm_div_pd( hi_1.v , r_1.v ) ) );
+    _mm_store_pd( &f[0] , _mm_mul_pd( eff_1.v , hi_1.v ) );
     _mm_store_pd( &e[2] , ee_2.v );
-    _mm_store_pd( &f[2] , _mm_mul_pd( eff_2.v , _mm_div_pd( hi_2.v , r_2.v ) ) );
+    _mm_store_pd( &f[2] , _mm_mul_pd( eff_2.v , hi_2.v ) );
         
 #else
     int k;
@@ -984,22 +990,14 @@ void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) 
     FPTYPE x, ee, eff, *c, r;
     
     /* Get r for the right type. */
-    #ifdef FPTYPE_SINGLE
-        r = sqrtf(r2);
-    #else
-        r = sqrt(r2);
-    #endif
+    r = FPTYPE_SQRT(r2);
     
     /* is r in the house? */
     /* if ( r < p->a || r > p->b )
         printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
     
     /* compute the index */
-    #ifdef FPTYPE_SINGLE
-        ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    #else
-        ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    #endif
+    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
     /* if ( ind > p->n ) {
         printf("potential_eval: r=%.18e.\n",r);
@@ -1051,11 +1049,7 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
         printf("potential_eval_r: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
     
     /* compute the index */
-    #ifdef FPTYPE_SINGLE
-        ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    #else
-        ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    #endif
+    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     
     /* if ( ind > p->n ) {
         printf("potential_eval: r=%.18e.\n",r);
@@ -1077,7 +1071,7 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
         }
 
     /* store the result */
-    *e = ee; *f = eff * c[1] / r;
+    *e = ee; *f = eff * c[1];
         
     }
 
@@ -1108,24 +1102,15 @@ void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 
     FPTYPE x_e, ee_e, eff_e, *c_e;
     
     /* Get r for the right type. */
-    #ifdef FPTYPE_SINGLE
-        r = sqrtf(r2);
-    #else
-        r = sqrt(r2);
-    #endif
+    r = FPTYPE_SQRT(r2);
     
     /* is r in the house? */
     /* if ( r < p->a || r > p->b ) */
     /*     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
     
     /* compute the index */
-    #ifdef FPTYPE_SINGLE
-        ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-        ind_e = fmaxf( 0.0f , ep->alpha[0] + r * (ep->alpha[1] + r * ep->alpha[2]) );
-    #else
-        ind = fmax( 0.0 , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-        ind_e = fmax( 0.0 , ep->alpha[0] + r * (ep->alpha[1] + r * ep->alpha[2]) );
-    #endif
+    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    ind_e = FPTYPE_FMAX( FPTYPE_ZERO , ep->alpha[0] + r * (ep->alpha[1] + r * ep->alpha[2]) );
     
     /* get the table offset */
     c = &(p->c[ind * potential_chunk]);
@@ -1208,10 +1193,6 @@ void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE 
     
     /* Do we have a Coulomb interaction? */
     if ( p->flags & potential_flag_Coulomb ) {
-    
-        /* get some values we will re-use */
-        t2 = r * kappa;
-        t1 = erfc( t2 );
     
         /* compute the energy and the force */
         ee += p->alpha[2] * ir;
@@ -1396,10 +1377,86 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
     
 
 /**
+ * @brief Creates a harmonic dihedral #potential
+ *
+ * @param K The energy of the dihedral.
+ * @param n The multiplicity of the dihedral.
+ * @param delta The minimum energy dihedral.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ K(1 + \cos(n\arccos(r)-delta) @f$ in @f$[-1,1]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
+struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol ) {
+
+    struct potential *p;
+    double cosd = cos(delta), sind = sin(delta);
+    
+    /* the potential functions */
+    double f ( double r ) {
+        double T[n+1], U[n+1];
+        int k;
+        T[0] = 1.0; T[1] = r;
+        U[0] = 1.0; U[1] = 2*r;
+        for ( k = 2 ; k <= n ; k++ ) {
+            T[k] = 2 * r * T[k-1] - T[k-2];
+            U[k] = 2 * r * U[k-1] - U[k-2];
+            }
+        if ( delta == 0.0 )
+            return K * ( 1.0 + T[n] );
+        else if ( delta == M_PI )
+            return K * ( 1.0 - T[n] );
+        else
+            return K * ( 1.0 + T[n]*cosd + U[n-1]*sqrt(1.0-r*r)*sind );
+        }
+        
+    double dfdr ( double r ) {
+        double T[n+1], U[n+1];
+        int k;
+        T[0] = 1.0; T[1] = r;
+        U[0] = 1.0; U[1] = 2*r;
+        for ( k = 2 ; k <= n ; k++ ) {
+            T[k] = 2 * r * T[k-1] - T[k-2];
+            U[k] = 2 * r * U[k-1] - U[k-2];
+            }
+        if ( delta == 0.0 )
+            return K * n*U[n-1];
+        else if ( delta == M_PI )
+            return -K * n*U[n-1];
+        else
+            return K * ( n*U[n-1]*cosd + ( 2*r*U[n-1] - n*T[n] ) * sind / sqrt(1.0 - r*r) );
+        }
+        
+    double d6fdr6 ( double r ) {
+        return 0.0;
+        }
+        
+    /* allocate the potential */
+    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , -1.0 , 1.0 , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
+
+/**
  * @brief Creates a harmonic angle #potential
  *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
+ * @param a The smallest angle for which the potential will be constructed.
+ * @param b The largest angle for which the potential will be constructed.
  * @param K The energy of the angle.
  * @param theta0 The minimum energy angle.
  * @param tol The tolerance to which the interpolation should match the exact
@@ -1413,26 +1470,26 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol ) {
 
     struct potential *p;
+    double left, right;
     
     /* the potential functions */
     double f ( double r ) {
-        double theta = acos( r );
+        double theta;
+        r = fmin( 1.0 , fmax( -1.0 , r ) );
+        theta = acos( r );
         return K * ( theta - theta0 ) * ( theta - theta0 );
         }
         
     double dfdr ( double r ) {
-        return -2.0 * K * ( acos(r) - theta0 ) / sqrt( 1.0 - r*r );
+        double r2 = r*r;
+        if ( r2 == 1.0 )
+            return -2.0 * K;
+        else
+            return -2.0 * K * ( acos(r) - theta0 ) / sqrt( 1.0 - r2 );
         }
         
     double d6fdr6 ( double r ) {
-        double r2 = r*r, r4 = r2*r2;
-        double t1 = 1.0 - r2, t2 = t1*t1, t4 = t2*t2, t8 = t4*t4;
-        double dummy = sqrt( t1*t2*t8 );
-        double acosr = acos( r );
-        return -2.0*K*( 64*dummy + ( 225*theta0 - 225*acosr + ( 607*dummy +
-            ( -525*theta0 + 525*acosr + ( 274*dummy + ( -630*theta0 + 630*acosr +
-            ( 3150*theta0 -3150*acosr + ( -3675*theta0 + 3675*acosr + ( 1575*theta0 - 
-            1575*acosr + ( 120*acosr - 120*theta0 )*r4 )*r2 )*r2 )*r2 )*r )*r )*r )*r )*r ) / (-t1*t4) / dummy;
+        return 0.0;
         }
         
     /* allocate the potential */
@@ -1441,8 +1498,20 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
         return NULL;
         }
         
+    /* Adjust a and b accordingly. */
+    if ( a < 0.0 )
+        a = 0.0;
+    if ( b > M_PI )
+        b = M_PI;
+    left = cos(b);
+    right = cos(a);
+    if ( left - fabs(left)*sqrt(FPTYPE_EPSILON) < -1.0 )
+        left = -1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
+    if ( right + fabs(right)*sqrt(FPTYPE_EPSILON) > 1.0 )
+        right = 1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
+        
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , left , right , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -1627,7 +1696,7 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
  * @return #potential_err_ok or <0 on error (see #potential_err).
  *
  * Computes an interpolated potential function from @c f in @c [a,b] to the
- * absolute tolerance @c tol.
+ * locally relative tolerance @c tol.
  *
  * The sixth derivative @c f6p is used to compute the optimal node
  * distribution. If @c f6p is @c NULL, the derivative is approximated
@@ -1639,7 +1708,7 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
 int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol ) {
 
     double alpha, w;
-    int l = potential_ivalsmin, r = potential_ivalsmax, m;
+    int l = potential_ivalsa, r = potential_ivalsb, m;
     FPTYPE err_l, err_r, err_m;
     FPTYPE *xi_l, *xi_r, *xi_m;
     FPTYPE *c_l, *c_r, *c_m;
@@ -1657,7 +1726,8 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         
     /* Stretch the domain ever so slightly to accommodate for rounding
        error when computing the index. */
-    b *= (1.0 + sqrt(FPTYPE_EPSILON));
+    b += fabs(b) * sqrt(FPTYPE_EPSILON);
+    a -= fabs(a) * sqrt(FPTYPE_EPSILON);
         
     /* set the boundaries */
     p->a = a; p->b = b;
@@ -1829,7 +1899,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
  *
  * Compute the coefficients of the function @c f with derivative @c fp
  * over the @c n intervals between the @c xi and store an estimate of the
- * maximum absolute interpolation error in @c err.
+ * maximum locally relative interpolation error in @c err.
  *
  * The array to which @c c points must be large enough to hold at least
  * #potential_degree x @c n values of type #FPTYPE.
@@ -1839,7 +1909,7 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
 
     int i, j, k, ind;
     FPTYPE phi[7], cee[6], fa, fb, dfa, dfb;
-    FPTYPE h, m, w, e, x;
+    FPTYPE h, m, w, e, err_loc, maxf, x;
     FPTYPE fx[potential_N];
 
     /* check input sanity */
@@ -1905,7 +1975,9 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         c[ind] = m;
 
         /* compute a local error estimate (klutzy) */
+        maxf = 0.0; err_loc = 0.0;
         for ( k = 0 ; k < potential_N ; k++ ) {
+            maxf = fmax( fabs( fx[k] ) , maxf );
             x = cos( k * M_PI / potential_N );
             e = fabs( fx[k] - c[ind+7]
                 -x * ( c[ind+6] + 
@@ -1913,9 +1985,10 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
                 x * ( c[ind+4] + 
                 x * ( c[ind+3] + 
                 x * c[ind+2] )))) );
-            if ( e > *err )
-                *err = e;
+            err_loc = fmax( e , err_loc );
             }
+        err_loc /= fmax( maxf , 1.0 );
+        *err = fmax( err_loc , *err );
         
         }
         
@@ -1944,14 +2017,19 @@ double potential_getalpha ( double (*f6p)( double ) , double a , double b ) {
     double xi[potential_N], fx[potential_N];
     int i, j;
     double temp;
-    double alpha[4], fa[4];
+    double alpha[4], fa[4], maxf = 0.0;
     const double golden = 2.0 / (1 + sqrt(5));
     
     /* start by evaluating f6p at the N nodes between 'a' and 'b' */
     for ( i = 0 ; i < potential_N ; i++ ) {
         xi[i] = ((double)i + 1) / (potential_N + 1);
         fx[i] = f6p( a + (b-a) * xi[i] );
+        maxf = fmax( maxf , fabs(fx[i]) );
         }
+        
+    /* Trivial? */
+    if ( maxf == 0.0 )
+        return 1.0;
         
     /* set the initial values for alpha */
     alpha[0] = 0; alpha[3] = 2;

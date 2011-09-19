@@ -256,7 +256,7 @@ extern void __ppm_module_map_part_ghost_MOD_ppm_map_part_ghost_pop_2dd (
 extern void __ppm_module_map_part_ghost_MOD_ppm_map_part_ghost_pop_2di (
     dvec *pdata , int *lda , int *npart , int *mpart , int *info );
 extern void __ppm_module_map_part_partial_MOD_ppm_map_part_partial_d (
-    int *topoid , dvec *xp , int *npart , int *info );
+    int *topoid , dvec *xp , int *npart , int *info , int *ignore );
 extern void __ppm_module_impose_part_bc_MOD_ppm_impose_part_bc_d (
     int *topoid , dvec *xp , int *npart , int *info );
 extern void __ppm_module_topo_check_MOD_ppm_topo_check_d (
@@ -388,7 +388,7 @@ inline void ppm_map_part_ghost_pop_2di ( int **pdata , int *len , int lda , int 
 inline void ppm_map_part_partial ( int topoid , double *xp , int len , int npart , int *info ) {
     dvec dxp;
     dvec_fill_2d( &dxp , xp , GFC_DTYPE_REAL , sizeof(double) , 3 , len );
-    __ppm_module_map_part_partial_MOD_ppm_map_part_partial_d( &topoid , &dxp , &npart , info );
+    __ppm_module_map_part_partial_MOD_ppm_map_part_partial_d( &topoid , &dxp , &npart , info , NULL );
     }
 inline void ppm_impose_part_bc ( int topoid , double *xp , int len , int npart , int *info ) {
     dvec dxp;

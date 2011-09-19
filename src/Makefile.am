@@ -23,18 +23,21 @@ AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS)
 AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers
-include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h errs.h bond.h angle.h
+include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
+    errs.h bond.h angle.h reader.h rigid.h dihedral.h
 
 # Build the libchebfun libraries
 lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
 
 # Set-up for general (double-precision) case
-libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c bond.c angle.c
+libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
+    btree.c bond.c angle.c reader.c rigid.c dihedral.c
 
 
 # Set-up for single-precision case
-libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c btree.c bond.c angle.c
+libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c \
+    errs.c btree.c bond.c angle.c reader.c rigid.c dihedral.c
 libmdcore_single_la_SHORTNAME = sp
 libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
 

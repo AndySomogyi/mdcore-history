@@ -25,19 +25,10 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
 
 # Set-up the library
-if HAVEMPI
-bin_PROGRAMS = hybrid ppm_test
-else
-bin_PROGRAMS =
-endif
+bin_PROGRAMS = jac
 
-# Sources for ppm_test
-ppm_test_SOURCES = ppm_test.c
-ppm_test_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
-ppm_test_LDADD = ../../src/.libs/libmdcore_single.a -lppm -lmetis -lmpif77 -lmpif90 -lgfortran
-
-# Sources for hybrid
-hybrid_SOURCES = hybrid.c
-hybrid_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
-hybrid_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for jac
+jac_SOURCES = jac.c
+jac_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
+jac_LDADD = ../../src/.libs/libmdcore_single.a
 

@@ -70,17 +70,17 @@ int main ( int argc , char *argv[] ) {
 
     /* Simulation constants. */
     double origin[3] = { 0.0 , 0.0 , 0.0 };
-    double dim[3] = { 16.0 , 16.0 , 16.0 };
-    int nr_mols = 129024, nr_parts = nr_mols*3;
-    // double dim[3] = { 8.0 , 8.0 , 8.0 };
-    // int nr_mols = 16128, nr_parts = nr_mols*3;
+    // double dim[3] = { 16.0 , 16.0 , 16.0 };
+    // int nr_mols = 129024, nr_parts = nr_mols*3;
+    double dim[3] = { 8.0 , 8.0 , 8.0 };
+    int nr_mols = 16128, nr_parts = nr_mols*3;
     double cutoff = 1.0;
 
 
     /* Local variables. */
     int res = 0, myrank;
     double *xp = NULL, *vp = NULL, x[3], v[3];
-    int *pid = NULL, *ptype = NULL;
+    int *pid = NULL, *vid = NULL, *ptype = NULL;
     int step, i, j, k, nx, ny, nz, id, cid;
     double hx, hy, hz, temp;
     double vtot[3] = { 0.0 , 0.0 , 0.0 };
@@ -108,13 +108,13 @@ int main ( int argc , char *argv[] ) {
     double *cost = NULL;
     int ncost, ppm_npart = 0, ppm_mpart = 0;
     double ppm_minphys[3], ppm_maxphys[3], ppm_dim[3];
-    int xp_len = 0, vp_len = 0, pid_len = 0;
+    int xp_len = 0, vp_len = 0, pid_len = 0, vid_len = 0;
 
     
     /* mdcore stuff. */
     struct engine e;
     struct potential *pot_OO, *pot_OH, *pot_HH;
-    int nr_runners = 1, nr_steps = 1000;
+    int nr_runners = 1, nr_steps = 1000, nr_nodes;
     
     
     /* Start the clock. */
@@ -133,6 +133,11 @@ int main ( int argc , char *argv[] ) {
     if ( myrank == 0 ) {
         printf( "main[%i]: MPI is up and running...\n" , myrank );
         fflush(stdout);
+        }
+    if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
+        printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
+        errs_dump(stdout);
+        return -1;
         }
     
     
@@ -171,11 +176,12 @@ int main ( int argc , char *argv[] ) {
         srand(6178);
         if ( ( xp = (double *)malloc( sizeof(double) * nr_parts * 3 ) ) == NULL ||
              ( vp = (double *)malloc( sizeof(double) * nr_parts * 3 ) ) == NULL ||
-             ( pid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ) {
+             ( pid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ||
+             ( vid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ) {
              printf( "main[%i]: allocation of particle data failed!\n" , myrank );
              return -1;
              }
-        xp_len = nr_parts; vp_len = nr_parts; pid_len = nr_parts;
+        xp_len = nr_parts; vp_len = nr_parts; pid_len = nr_parts; vid_len = nr_parts;
         printf("main[%i]: initializing particles... " , myrank); fflush(stdout);
         nx = ceil( pow( nr_mols , 1.0/3 ) ); hx = dim[0] / nx;
         ny = ceil( sqrt( ((double)nr_mols) / nx ) ); hy = dim[1] / ny;
@@ -198,6 +204,7 @@ int main ( int argc , char *argv[] ) {
                     xp[ 3*id + 1 ] = x[1]; vp[ 3*id + 1 ] = v[1];
                     xp[ 3*id + 2 ] = x[2]; vp[ 3*id + 2 ] = v[2];
                     pid[ id ] = id;
+                    vid[ id ] = k + nz * ( j + ny * i );
                     x[0] += 0.1;
                     id += 1;
                     /* Add first hydrogen atom. */
@@ -205,6 +212,7 @@ int main ( int argc , char *argv[] ) {
                     xp[ 3*id + 1 ] = x[1]; vp[ 3*id + 1 ] = v[1];
                     xp[ 3*id + 2 ] = x[2]; vp[ 3*id + 2 ] = v[2];
                     pid[ id ] = id;
+                    vid[ id ] = k + nz * ( j + ny * i );
                     x[0] -= 0.13333;
                     x[1] += 0.09428;
                     id += 1;
@@ -213,6 +221,7 @@ int main ( int argc , char *argv[] ) {
                     xp[ 3*id + 1 ] = x[1]; vp[ 3*id + 1 ] = v[1];
                     xp[ 3*id + 2 ] = x[2]; vp[ 3*id + 2 ] = v[2];
                     pid[ id ] = id;
+                    vid[ id ] = k + nz * ( j + ny * i );
                     x[0] += 0.03333;
                     x[1] -= 0.09428;
                     }
@@ -256,6 +265,11 @@ int main ( int argc , char *argv[] ) {
         printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
         return -1;
         }
+    ppm_map_part_push_1di( vid , vid_len , ppm_npart , &res , 0 );
+    if ( res != 0 ) {
+        printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
+        return -1;
+        }
     ppm_map_part_send( &ppm_npart , &ppm_mpart , &res );
     if ( res != 0 ) {
         printf( "main[%i]: call to ppm_map_part_send failed with error %i.\n" , myrank , res );
@@ -263,6 +277,11 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Get the particle data back. */
+    ppm_map_part_pop_1di( &vid , &vid_len , &ppm_npart , &ppm_mpart , &res );
+    if ( res != 0 ) {
+        printf( "main[%i]: call to ppm_map_part_pop_1di failed with error %i.\n" , myrank , res );
+        return -1;
+        }
     ppm_map_part_pop_1di( &pid , &pid_len , &ppm_npart , &ppm_mpart , &res );
     if ( res != 0 ) {
         printf( "main[%i]: call to ppm_map_part_pop_1di failed with error %i.\n" , myrank , res );
@@ -329,11 +348,16 @@ int main ( int argc , char *argv[] ) {
              e.s.cells[cid].loc[1] == 1 || e.s.cells[cid].loc[1] == e.s.cdim[1]-2 ||
              e.s.cells[cid].loc[2] == 1 || e.s.cells[cid].loc[2] == e.s.cdim[2]-2 )
             e.s.cells[cid].flags |= cell_flag_marked;
+    /* for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
+        if ( e.s.cells[cid].loc[0] > 0 && e.s.cells[cid].loc[0] < e.s.cdim[0]-1 &&
+             e.s.cells[cid].loc[1] > 0 && e.s.cells[cid].loc[1] < e.s.cdim[1]-1 &&
+             e.s.cells[cid].loc[2] > 0 && e.s.cells[cid].loc[2] < e.s.cdim[2]-1 )
+            e.s.cells[cid].flags |= cell_flag_marked; */
     
     
     /* Register the particle types. */
-    if ( engine_addtype( &e , 0 , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
-         engine_addtype( &e , 1 , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
+    if ( engine_addtype( &e , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
+         engine_addtype( &e , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
         printf("main[%i]: call to engine_addtype failed.\n",myrank);
         errs_dump(stdout);
         return -1;
@@ -386,7 +410,7 @@ int main ( int argc , char *argv[] ) {
         }
     for ( k = 0 ; k < ppm_npart ; k++ )
         ptype[k] = ( pid[k] % 3 != 0 );
-    if ( ( res = engine_load( &e , xp , vp , ptype , pid , NULL , NULL , ppm_npart ) ) < 0 ) {
+    if ( ( res = engine_load( &e , xp , vp , ptype , pid , vid , NULL , NULL , ppm_npart ) ) < 0 ) {
         printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         return -1;
@@ -405,7 +429,7 @@ int main ( int argc , char *argv[] ) {
     toc = getticks();
     if ( myrank == 0 ) {
         printf("main[%i]: setup took %.3f ms.\n",myrank,(double)(toc-tic) * itpms);
-        printf("# step e_pot e_kin swaps stalls ms_tot ms_step ms_shake ms_gexch0 ms_gexch1 ms_pexch0 ms_pexch1 ms_load ms_uload ms_resolv ms_temp\n");
+        printf("# step e_pot e_kin temp swaps stalls ms_tot ms_step ms_shake ms_gexch0 ms_gexch1 ms_pexch0 ms_pexch1 ms_load ms_uload ms_resolv ms_temp\n");
         fflush(stdout);
         }
         
@@ -424,7 +448,7 @@ int main ( int argc , char *argv[] ) {
             return -1;
             }
         /* Pack potential ghost particles into xp and pid. */
-        if ( ( ppm_npart = engine_unload_marked( &e , xp , NULL , NULL , pid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
+        if ( ( ppm_npart = engine_unload_marked( &e , xp , NULL , NULL , pid , vid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
             printf("main[%i]: engine_unload_marked failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -447,9 +471,19 @@ int main ( int argc , char *argv[] ) {
             printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
+        ppm_map_part_push_1di( vid , vid_len , ppm_npart , &res , 0 );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
+            return -1;
+            }
         ppm_map_part_send( &ppm_npart , &ppm_mpart , &res );
         if ( res != 0 ) {
             printf( "main[%i]: call to ppm_map_part_send failed with error %i.\n" , myrank , res );
+            return -1;
+            }
+        ppm_map_part_pop_1di( &vid , &vid_len , &ppm_npart , &ppm_mpart , &res );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_pop_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
         ppm_map_part_pop_1di( &pid , &pid_len , &ppm_npart , &ppm_mpart , &res );
@@ -489,7 +523,7 @@ int main ( int argc , char *argv[] ) {
             }
         for ( k = ppm_npart ; k < ppm_mpart ; k++ )
             ptype[k] = ( pid[k] % 3 != 0 );
-        if ( ( res = engine_load_ghosts( &e , &xp[3*ppm_npart] , NULL , &ptype[ppm_npart] , &pid[ppm_npart] , NULL , NULL , ppm_mpart-ppm_npart ) ) < 0 ) {
+        if ( ( res = engine_load_ghosts( &e , &xp[3*ppm_npart] , NULL , &ptype[ppm_npart] , &pid[ppm_npart] , &vid[ppm_npart] , NULL , NULL , ppm_mpart-ppm_npart ) ) < 0 ) {
             printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -515,7 +549,7 @@ int main ( int argc , char *argv[] ) {
             
         /* Unload any stray particles. */
         tic = getticks();
-        if ( ( ppm_npart = engine_unload_strays( &e , xp , vp , NULL , pid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
+        if ( ( ppm_npart = engine_unload_strays( &e , xp , vp , NULL , pid , vid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
             printf("main[%i]: engine_unload_strays failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -557,9 +591,19 @@ int main ( int argc , char *argv[] ) {
             printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
+        ppm_map_part_push_1di( vid , vid_len , ppm_npart , &res , 0 );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
+            return -1;
+            }
         ppm_map_part_send( &ppm_npart , &ppm_mpart , &res );
         if ( res != 0 ) {
             printf( "main[%i]: call to ppm_map_part_send failed with error %i.\n" , myrank , res );
+            return -1;
+            }
+        ppm_map_part_pop_1di( &vid , &vid_len , &ppm_npart , &ppm_mpart , &res );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_pop_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
         ppm_map_part_pop_1di( &pid , &pid_len , &ppm_npart , &ppm_mpart , &res );
@@ -596,7 +640,7 @@ int main ( int argc , char *argv[] ) {
             }
         for ( k = 0 ; k < ppm_npart ; k++ )
             ptype[k] = ( pid[k] % 3 != 0 );
-        if ( ( res = engine_load( &e , xp , vp , ptype , pid , NULL , NULL , ppm_npart ) ) < 0 ) {
+        if ( ( res = engine_load( &e , xp , vp , ptype , pid , vid , NULL , NULL , ppm_npart ) ) < 0 ) {
             printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -614,7 +658,7 @@ int main ( int argc , char *argv[] ) {
             errs_dump(stdout);
             return -1;
             }
-        if ( ( ppm_npart = engine_unload_marked( &e , xp , vp , NULL , pid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
+        if ( ( ppm_npart = engine_unload_marked( &e , xp , vp , NULL , pid , vid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
             printf("main[%i]: engine_unload_marked failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -643,9 +687,19 @@ int main ( int argc , char *argv[] ) {
             printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
+        ppm_map_part_push_1di( vid , vid_len , ppm_npart , &res , 0 );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
+            return -1;
+            }
         ppm_map_part_send( &ppm_npart , &ppm_mpart , &res );
         if ( res != 0 ) {
             printf( "main[%i]: call to ppm_map_part_send failed with error %i.\n" , myrank , res );
+            return -1;
+            }
+        ppm_map_part_pop_1di( &vid , &vid_len , &ppm_npart , &ppm_mpart , &res );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_pop_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
         ppm_map_part_pop_1di( &pid , &pid_len , &ppm_npart , &ppm_mpart , &res );
@@ -679,7 +733,7 @@ int main ( int argc , char *argv[] ) {
             }
         for ( k = ppm_npart ; k < ppm_mpart ; k++ )
             ptype[k] = ( pid[k] % 3 != 0 );
-        if ( ( res = engine_load_ghosts( &e , &xp[3*ppm_npart] , &vp[3*ppm_npart] , &ptype[ppm_npart] , &pid[ppm_npart] , NULL , NULL , ppm_mpart-ppm_npart ) ) < 0 ) {
+        if ( ( res = engine_load_ghosts( &e , &xp[3*ppm_npart] , &vp[3*ppm_npart] , &ptype[ppm_npart] , &pid[ppm_npart] , &vid[ppm_npart] , NULL , NULL , ppm_mpart-ppm_npart ) ) < 0 ) {
             printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -705,17 +759,17 @@ int main ( int argc , char *argv[] ) {
             if ( !(e.s.cells[cid].flags & cell_flag_ghost) )
                 for ( k = 0 ; k < e.s.cells[cid].count ; k++ ) {
                     p = &e.s.cells[cid].parts[k];
-                    globloc[p->vid].p = p;
-                    globloc[p->vid].c = &e.s.cells[cid];
+                    globloc[p->id].p = p;
+                    globloc[p->id].c = &e.s.cells[cid];
                     }
         #pragma omp parallel for schedule(static,100), private(cid,k,p)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
             if ( e.s.cells[cid].flags & cell_flag_ghost )
                 for ( k = 0 ; k < e.s.cells[cid].count ; k++ ) {
                     p = &e.s.cells[cid].parts[k];
-                    if ( globloc[p->vid].p == NULL ) {
-                        globloc[p->vid].p = p;
-                        globloc[p->vid].c = &e.s.cells[cid];
+                    if ( globloc[p->id].p == NULL ) {
+                        globloc[p->id].p = p;
+                        globloc[p->id].c = &e.s.cells[cid];
                         }
                     }
         timers[tid_resolv] = getticks() - tic;
@@ -860,39 +914,31 @@ int main ( int argc , char *argv[] ) {
         /* Compute the system temperature. */
         tic = getticks();
         
-        /* Tabulate the total atomic kinetic energy. */
+        /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
         ekin = 0.0; epot = 0.0;
-        #pragma omp parallel for schedule(static,100), private(cid,k,p,v2), reduction(+:ekin,epot)
+        vcom_tot_x = 0.0; vcom_tot_y = 0.0; vcom_tot_z = 0.0;
+        temp = 0.0;
+        #pragma omp parallel for schedule(static), private(p,p_O,p_H1,p_H2,j,k,vcom,v2), reduction(+:ekin,epot,vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
             epot += e.s.cells[cid].epot;
             if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
-                for ( k = 0 ; k < e.s.cells[cid].count ; k++ ) {
-                    p = &( e.s.cells[cid].parts[k] );
+                for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                    p = &( e.s.cells[cid].parts[j] );
                     v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
-                    if ( p->vid % 3 == 0 )
+                    if ( p->type == 0 )
                         ekin += v2 * 15.9994 * 0.5;
                     else
                         ekin += v2 * 1.00794 * 0.5;
+                    if ( p->type != 0 )
+                        continue;
+                    p_O = p; p_H1 = globloc[ p_O->id + 1 ].p; p_H2 = globloc[ p_O->id + 2 ].p;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        vcom[k] = ( p_O->v[k] * 15.9994 +
+                            p_H1->v[k] * 1.00794 +
+                            p_H2->v[k] * 1.00794 ) / 1.801528e+1;
+                    vcom_tot_x += vcom[0]; vcom_tot_y += vcom[1]; vcom_tot_z += vcom[2];
+                    temp += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
                     }
-            }
-            
-        /* Get the v_com and kinetic energy. */
-        vcom_tot_x = 0.0; vcom_tot_y = 0.0; vcom_tot_z = 0.0;
-        temp = 0.0;
-        #pragma omp parallel for schedule(static,100), private(p_O,p_H1,p_H2,k,vcom), reduction(+:vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-            p_O = globloc[ j*3 ].p;
-            if ( p_O == NULL || p_O->flags & part_flag_ghost )
-                continue;
-            p_H1 = globloc[ j*3+1 ].p; p_H2 = globloc[ j*3+2 ].p;
-            for ( k = 0 ; k < 3 ; k++ ) {
-                vcom[k] = ( p_O->v[k] * 15.9994 +
-                    p_H1->v[k] * 1.00794 +
-                    p_H2->v[k] * 1.00794 ) / 1.801528e+1;
-                vcom_tot[k] += vcom[k];
-                }
-            vcom_tot_x += vcom[0]; vcom_tot_y += vcom[1]; vcom_tot_z += vcom[2];
-            temp += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
             }
         vcom_tot[0] = vcom_tot_x; vcom_tot[1] = vcom_tot_y; vcom_tot[2] = vcom_tot_z;
         vcom_tot[3] = temp;
@@ -911,22 +957,26 @@ int main ( int argc , char *argv[] ) {
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
             
         /* Subtract the vcom from the molecules on this proc. */
-        #pragma omp parallel for schedule(static,100), private(p_O,p_H1,p_H2,k,vcom)
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-            p_O = globloc[ j*3 ].p; p_H1 = globloc[ j*3+1 ].p; p_H2 = globloc[ j*3+2 ].p;
-            if ( p_O == NULL || p_H1 == NULL || p_H2 == NULL )
-                continue;
-            for ( k = 0 ; k < 3 ; k++ ) {
-                vcom[k] = ( p_O->v[k] * 15.9994 +
-                    p_H1->v[k] * 1.00794 +
-                    p_H2->v[k] * 1.00794 ) / 1.801528e+1;
-                vcom[k] -= vcom_tot[k];
-                vcom[k] *= ( w - 1.0 );
-                p_O->v[k] += vcom[k];
-                p_H1->v[k] += vcom[k];
-                p_H2->v[k] += vcom[k];
+        #pragma omp parallel for schedule(static), private(j,p_O,p_H1,p_H2,k,vcom)
+        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
+            for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                p_O = &( e.s.cells[cid].parts[j] );
+                if ( ( p_O->type != 0 ) ||
+                     ( p_O != globloc[ p_O->id ].p ) ||
+                     ( p_H1 = globloc[ p_O->id + 1 ].p ) == NULL ||
+                     ( p_H2 = globloc[ p_O->id + 2 ].p ) == NULL )
+                    continue;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    vcom[k] = ( p_O->v[k] * 15.9994 +
+                        p_H1->v[k] * 1.00794 +
+                        p_H2->v[k] * 1.00794 ) / 1.801528e+1;
+                    vcom[k] -= vcom_tot[k];
+                    vcom[k] *= ( w - 1.0 );
+                    p_O->v[k] += vcom[k];
+                    p_H1->v[k] += vcom[k];
+                    p_H2->v[k] += vcom[k];
+                    }
                 }
-            }
         timers[tid_temp] = getticks() - tic;
         if ( verbose && myrank == 0 ) {
             printf("main[%i]: thermostat took %.3f ms.\n",myrank,(double)timers[tid_temp] * itpms); fflush(stdout);
@@ -940,7 +990,7 @@ int main ( int argc , char *argv[] ) {
             errs_dump(stdout);
             return -1;
             }
-        if ( ( ppm_npart = engine_unload_strays( &e , xp , vp , NULL , pid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
+        if ( ( ppm_npart = engine_unload_strays( &e , xp , vp , NULL , pid , vid , NULL , NULL , NULL , xp_len ) ) < 0 ) {
             printf("main[%i]: engine_unload_strays failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
@@ -979,9 +1029,19 @@ int main ( int argc , char *argv[] ) {
             printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
+        ppm_map_part_push_1di( vid , vid_len , ppm_npart , &res , 0 );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_push_1di failed with error %i.\n" , myrank , res );
+            return -1;
+            }
         ppm_map_part_send( &ppm_npart , &ppm_mpart , &res );
         if ( res != 0 ) {
             printf( "main[%i]: call to ppm_map_part_send failed with error %i.\n" , myrank , res );
+            return -1;
+            }
+        ppm_map_part_pop_1di( &vid , &vid_len , &ppm_npart , &ppm_mpart , &res );
+        if ( res != 0 ) {
+            printf( "main[%i]: call to ppm_map_part_pop_1di failed with error %i.\n" , myrank , res );
             return -1;
             }
         ppm_map_part_pop_1di( &pid , &pid_len , &ppm_npart , &ppm_mpart , &res );
@@ -1019,7 +1079,7 @@ int main ( int argc , char *argv[] ) {
             }
         for ( k = 0 ; k < ppm_npart ; k++ )
             ptype[k] = ( pid[k] % 3 != 0 );
-        if ( ( res = engine_load( &e , xp , vp , ptype , pid , NULL , NULL , ppm_npart ) ) < 0 ) {
+        if ( ( res = engine_load( &e , xp , vp , ptype , pid , vid , NULL , NULL , ppm_npart ) ) < 0 ) {
             printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             return -1;
