@@ -30,6 +30,7 @@
 /* Some constants. */
 #define rigid_maxparts                  10
 #define rigid_maxconstr                 (3*rigid_maxparts)
+#define rigid_maxiter                   50
 
 
 /** ID of the last error */

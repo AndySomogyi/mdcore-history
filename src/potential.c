@@ -61,12 +61,13 @@ int potential_err = potential_err_ok;
 #define error(id)				( potential_err = errs_register( id , potential_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *potential_err_msg[5] = {
+char *potential_err_msg[6] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
     "The requested value was out of bounds.",
     "Not yet implemented.",
+    "Maximum number of intervals reached before tolerance satisfied."
 	};
     
     
@@ -114,9 +115,12 @@ void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e 
     alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
     ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
     
+    /* Check ranges. */
     /* for ( j = 0 ; j < 4 ; j++ )
         if ( ind.i[j] > p[j]->n ) {
-            printf("potential_eval_vec_4single: dookie.\n");
+            printf( "potential_eval_vec_4single_r: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
+                r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
+                p[j]->n , p[j]->a , p[j]->b );
             fflush(stdout);
             } */
     
@@ -243,6 +247,15 @@ void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float
     alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
     ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
     
+    /* Check ranges. */
+    /* for ( j = 0 ; j < 4 ; j++ )
+        if ( ind.i[j] > p[j]->n ) {
+            printf( "potential_eval_vec_4single_r: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
+                r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
+                p[j]->n , p[j]->a , p[j]->b );
+            fflush(stdout);
+            } */
+            
     /* get the table offset */
     for ( k = 0 ; k < 4 ; k++ )
         data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
@@ -1044,12 +1057,12 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
     int ind, k;
     FPTYPE x, ee, eff, *c;
     
-    /* is r in the house? */
-    /* if ( r < p->a || r > p->b )
-        printf("potential_eval_r: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
-    
     /* compute the index */
     ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    
+    /* is r in the house? */
+    /* if ( ind > p->n )
+        printf("potential_eval_r: requested potential at r=%e (ind=%.8e), not in [%e,%e].\n",r , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]),p->a,p->b); */
     
     /* if ( ind > p->n ) {
         printf("potential_eval: r=%.18e.\n",r);
@@ -1738,10 +1751,15 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     
     /* compute the interval transform */
     w = 1.0 / (a - b); w *= w;
-    p->alpha[0] = -( a * ( alpha * b - a ) ) * w;
-    p->alpha[1] = ( alpha * ( b + a ) - 2 * a ) * w;
-    p->alpha[2] = -(alpha - 1) * w;
+    p->alpha[0] = a*a*w - alpha*b*a*w;
+    p->alpha[1] = -2*a*w + alpha*(a+b)*w;
+    p->alpha[2] = w - alpha*w;
     
+    /* Correct the transform to the right. */
+    w = 2*FPTYPE_EPSILON*(fabs(p->alpha[0])+fabs(p->alpha[1])+fabs(p->alpha[2]));
+    p->alpha[0] -= w*a/(a-b);
+    p->alpha[1] += w/(a-b);
+
     /* compute the smallest interpolation... */
     /* printf("potential_init: trying l=%i...\n",l); fflush(stdout); */
     xi_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l + 1) );
@@ -1783,6 +1801,10 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         
     /* loop until we have an upper bound on the right... */
     while ( 1 ) {
+    
+        /* Have we too many intervals? */
+        if ( r > potential_ivalsmax )
+            return error(potential_err_ivalsmax);
     
         /* compute the larger interpolation... */
         /* printf("potential_init: trying r=%i...\n",r); fflush(stdout); */

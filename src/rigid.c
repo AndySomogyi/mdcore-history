@@ -82,10 +82,10 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
     struct part *p[rigid_maxparts], **partlist;
     struct cell *c[rigid_maxparts], **celllist;
     struct rigid *r;
-    FPTYPE dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
-    FPTYPE m[rigid_maxparts], tol, lambda, w;
-    FPTYPE vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
-    FPTYPE vcom[3], wvc[3*rigid_maxconstr];
+    double dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
+    double m[rigid_maxparts], tol, lambda, w;
+    double vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
+    double vcom[3], wvc[3*rigid_maxconstr];
 
     /* Check for bad input. */
     partlist = e->s.partlist;
@@ -150,18 +150,17 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
             }
             
         /* for ( k = 0 ; k < nr_parts ; k++ )
-            printf( "rigid_eval_shake: part %i at [ %e , %e , %e ].\n" , k , xp[3*k] , xp[3*k+1] , xp[3*k+2] );
+            printf( "rigid_eval_shake: part %i (%i) at [ %e , %e , %e ].\n" , k , r->parts[k] , xp[3*k] , xp[3*k+1] , xp[3*k+2] );
         for ( k = 0 ; k < nr_constr ; k++ ) {
             pid = r->constr[k].i;
             pjd = r->constr[k].j;
             printf( "rigid_eval_shake: constr %i between parts %i and %i, d=%e.\n" , k , r->constr[k].i , r->constr[k].j , sqrt(r->constr[k].d2) );
             printf( "rigid_eval_shake: vc is [ %e , %e , %e ].\n" , vc[3*k] , vc[3*k+1] , vc[3*k+2] );
             printf( "rigid_eval_shake: dx is [ %e , %e , %e ].\n" , xp[3*pid]-xp[3*pjd] , xp[3*pid+1]-xp[3*pjd+1] , xp[3*pid+2]-xp[3*pjd+2] );
-            }
-        fflush(stdout); getchar(); */
+            } */
                     
         /* Main SHAKE loop. */
-        for ( iter = 0 ; iter < 20 ; iter++ ) {
+        for ( iter = 0 ; iter < rigid_maxiter ; iter++ ) {
         
             /* Compute the residues (squared). */
             for ( max_res = 0.0 , k = 0 ; k < nr_constr ; k++ ) {
@@ -194,6 +193,16 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
                 }
         
             } /* Main SHAKE loop. */
+        if ( iter == rigid_maxiter ) {
+            printf( "rigid_eval_shake: rigid %i failed to converge in less than %i iterations.\n" , rid , rigid_maxiter );
+            for ( k = 0 ; k < nr_constr ; k++ ) {
+                pid = r->constr[k].i;
+                pjd = r->constr[k].j;
+                printf( "rigid_eval_shake: constr %i between parts %i and %i, d=%e.\n" , k , r->parts[pid] , r->parts[pjd] , sqrt(r->constr[k].d2) );
+                printf( "rigid_eval_shake: res[%i]=%e.\n" , k , res[k] );
+                }
+            }
+            
             
         /* for ( k = 0 ; k < nr_parts ; k++ )
             printf( "rigid_eval_shake: part %i at [ %e , %e , %e ].\n" , k , xp[3*k] , xp[3*k+1] , xp[3*k+2] );

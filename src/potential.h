@@ -28,6 +28,7 @@
 #define potential_err_malloc                -2
 #define potential_err_bounds                -3
 #define potential_err_nyi                   -4
+#define potential_err_ivalsmax              -5
 
 
 /* some constants */
@@ -38,7 +39,7 @@
 #define potential_N                         100
 #define potential_align                     64
 #define potential_align                     64
-#define potential_ivalsmax                  100
+#define potential_ivalsmax                  200
 
 
 /* potential flags */
