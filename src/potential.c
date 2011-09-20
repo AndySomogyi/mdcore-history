@@ -1911,10 +1911,20 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
     FPTYPE phi[7], cee[6], fa, fb, dfa, dfb;
     FPTYPE h, m, w, e, err_loc, maxf, x;
     FPTYPE fx[potential_N];
+    static FPTYPE *coskx = NULL;
 
     /* check input sanity */
     if ( f == NULL || fp == NULL || xi == NULL || err == NULL )
         return error(potential_err_null);
+        
+    /* Do we need to init the pre-computed cosines? */
+    if ( coskx == NULL ) {
+        if ( ( coskx = (FPTYPE *)malloc( sizeof(FPTYPE) * 7 * potential_N ) ) == NULL )
+            return error(potential_err_malloc);
+        for ( k = 0 ; k < 7 ; k++ )
+            for ( j = 0 ; j < potential_N ; j++ )
+                coskx[ k*potential_N + j ] = cos( j * k * M_PI / potential_N );
+        }
         
     /* init the maximum interpolation error */
     *err = 0.0;
@@ -1940,7 +1950,7 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         for ( j = 0 ; j < 7 ; j++ ) {
             phi[j] = (fa + (1-2*(j%2))*fb) / 2;
             for ( k = 1 ; k < potential_N ; k++ )
-                phi[j] += fx[k] * cos( j * k * M_PI / potential_N );
+                phi[j] += fx[k] * coskx[ j*potential_N + k ];
             phi[j] *= 2.0 / potential_N;
             }
         
@@ -1976,9 +1986,9 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
 
         /* compute a local error estimate (klutzy) */
         maxf = 0.0; err_loc = 0.0;
-        for ( k = 0 ; k < potential_N ; k++ ) {
+        for ( k = 1 ; k < potential_N ; k++ ) {
             maxf = fmax( fabs( fx[k] ) , maxf );
-            x = cos( k * M_PI / potential_N );
+            x = coskx[ potential_N + k ];
             e = fabs( fx[k] - c[ind+7]
                 -x * ( c[ind+6] + 
                 x * ( c[ind+5] + 

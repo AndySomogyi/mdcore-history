@@ -120,7 +120,8 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
             continue;
         
         /* Skip if both ghosts. */
-        if ( pi->flags & part_flag_ghost && pj->flags & part_flag_ghost )
+        if ( ( pi->flags & part_flag_ghost ) && 
+             ( pj->flags & part_flag_ghost ) )
             continue;
             
         /* Get the potential. */
@@ -137,12 +138,12 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
                 shift[k] = 1;
             }
         for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-            dx[k] = pi->x[k] - pj->x[k] + shift[k]*h[k];
+            dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
             r2 += dx[k] * dx[k];
             }
-
+        
         if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
-            printf( "bond_evalf: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
+            printf( "bond_eval: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
                 bid , e->types[pi->type].name , e->types[pj->type].name , pot->a , pot->b , sqrt(r2) );
             r2 = fmax( pot->a*pot->a , fmin( pot->b*pot->b , r2 ) );
             }

@@ -85,7 +85,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
     struct potential *pot;
     FPTYPE xi[3], xj[3], xk[3], dxi[3] , dxk[3], ctheta, wi, wk;
     register FPTYPE t1, t10, t11, t12, t13, t21, t22, t23, t24, t25, t26, t27, t3,
-        t5, t6, t7, t8, t9, t4, t14, t31, t41, t2;
+        t5, t6, t7, t8, t9, t4, t14, t2;
     struct potential **pots;
 #if defined(VECTORIZE)
     struct potential *potq[4];
@@ -160,8 +160,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         t25 = -FPTYPE_TWO*xj[1];
         t26 = -FPTYPE_TWO*xj[0];
         t6 = (t24+xi[2])*xi[2]+(t25+xi[1])*xi[1]+(t26+xi[0])*xi[0]+t21;
-        t31 = sqrt(t6);
-        t3 = FPTYPE_ONE/t31;
+        t3 = FPTYPE_ONE/sqrt(t6);
         t10 = xk[0]-xj[0];
         t11 = xi[2]-xj[2];
         t12 = xi[1]-xj[1];
@@ -171,8 +170,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         t7 = t13*t10+t12*t9+t11*t8;
         t27 = t3*t7;
         t5 = (t24+xk[2])*xk[2]+(t25+xk[1])*xk[1]+(t26+xk[0])*xk[0]+t21;
-        t41 = sqrt(t5);
-        t1 = FPTYPE_ONE/t41;
+        t1 = FPTYPE_ONE/sqrt(t5);
         t23 = t1/t5*t7;
         t22 = FPTYPE_ONE/t6*t27;
         dxi[0] = (t10*t3-t13*t22)*t1;
@@ -182,7 +180,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         dxk[1] = (t12*t1-t9*t23)*t3;
         dxk[2] = (t11*t1-t8*t23)*t3;
         ctheta = FPTYPE_FMAX( -FPTYPE_ONE , FPTYPE_FMIN( FPTYPE_ONE , t1*t27 ) );
-
+        
         /* printf( "angle_eval: cos of angle %i (%s-%s-%s) is %e.\n" , aid ,
             e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , ctheta ); */
         /* printf( "angle_eval: ids are ( %i , %i , %i ).\n" , pi->id , pj->id , pk->id );
@@ -199,8 +197,8 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         printf( "angle_eval: dxk is [ %e , %e , %e ], ||dxk||=%e.\n" ,
             dxk[0] , dxk[1] , dxk[2] , sqrt( dxk[0]*dxk[0] + dxk[1]*dxk[1] + dxk[2]*dxk[2] ) ); */
         if ( ctheta < pot->a || ctheta > pot->b ) {
-            printf( "angle_eval: angle %i (%s-%s-%s) out of range [%e,%e], ctheta=%e.\n" ,
-                aid , e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , pot->a , pot->b , ctheta );
+            printf( "angle_eval[%i]: angle %i (%s-%s-%s) out of range [%e,%e], ctheta=%e.\n" ,
+                e->nodeID , aid , e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , pot->a , pot->b , ctheta );
             ctheta = fmax( pot->a , fmin( pot->b , ctheta ) );
             }
 
@@ -365,7 +363,7 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
     struct potential *pot;
     FPTYPE xi[3], xj[3], xk[3], dxi[3] , dxk[3], ctheta, wi, wk;
     register FPTYPE t1, t10, t11, t12, t13, t21, t22, t23, t24, t25, t26, t27, t3,
-        t5, t6, t7, t8, t9, t4, t14, t31, t41, t2;
+        t5, t6, t7, t8, t9, t4, t14, t2;
     struct potential **pots;
 #if defined(VECTORIZE)
     struct potential *potq[4];
@@ -440,8 +438,7 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
         t25 = -FPTYPE_TWO*xj[1];
         t26 = -FPTYPE_TWO*xj[0];
         t6 = (t24+xi[2])*xi[2]+(t25+xi[1])*xi[1]+(t26+xi[0])*xi[0]+t21;
-        t31 = sqrt(t6);
-        t3 = FPTYPE_ONE/t31;
+        t3 = FPTYPE_ONE/sqrt(t6);
         t10 = xk[0]-xj[0];
         t11 = xi[2]-xj[2];
         t12 = xi[1]-xj[1];
@@ -451,8 +448,7 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
         t7 = t13*t10+t12*t9+t11*t8;
         t27 = t3*t7;
         t5 = (t24+xk[2])*xk[2]+(t25+xk[1])*xk[1]+(t26+xk[0])*xk[0]+t21;
-        t41 = sqrt(t5);
-        t1 = FPTYPE_ONE/t41;
+        t1 = FPTYPE_ONE/sqrt(t5);
         t23 = t1/t5*t7;
         t22 = FPTYPE_ONE/t6*t27;
         dxi[0] = (t10*t3-t13*t22)*t1;

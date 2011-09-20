@@ -82,10 +82,10 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
     struct part *p[rigid_maxparts], **partlist;
     struct cell *c[rigid_maxparts], **celllist;
     struct rigid *r;
-    double dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
-    double m[rigid_maxparts], tol, lambda;
-    double vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
-    double vcom[3];
+    FPTYPE dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
+    FPTYPE m[rigid_maxparts], tol, lambda, w;
+    FPTYPE vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
+    FPTYPE vcom[3], wvc[3*rigid_maxconstr];
 
     /* Check for bad input. */
     partlist = e->s.partlist;
@@ -143,8 +143,10 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
         for ( k = 0 ; k < nr_constr ; k++ ) {
             pid = r->constr[k].i;
             pjd = r->constr[k].j;
-            for ( j = 0 ; j < 3 ; j++ )
+            for ( j = 0 ; j < 3 ; j++ ) {
                 vc[k*3+j] = (xp[3*pid+j] - dt*p[pid]->v[j]) - (xp[3*pjd+j] - dt*p[pjd]->v[j]);
+                wvc[k*3+j] = FPTYPE_ONE / ( m[pid] + m[pjd] ) * vc[3*k+j];
+                }
             }
             
         /* for ( k = 0 ; k < nr_parts ; k++ )
@@ -185,8 +187,9 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
                 pjd = r->constr[k].j;
                 lambda = 0.5 * res[k] / ( (xp[3*pid] - xp[3*pjd])*vc[3*k] + (xp[3*pid+1] - xp[3*pjd+1])*vc[3*k+1] + (xp[3*pid+2] - xp[3*pjd+2])*vc[3*k+2] );
                 for ( j = 0 ; j < 3 ; j++ ) {
-                    xp[3*pid+j] += lambda * m[pjd] / (m[pid] + m[pjd]) * vc[3*k+j];
-                    xp[3*pjd+j] -= lambda * m[pid] / (m[pid] + m[pjd]) * vc[3*k+j];
+                    w = lambda * wvc[3*k+j];
+                    xp[3*pid+j] += w * m[pjd];
+                    xp[3*pjd+j] -= w * m[pid];
                     }
                 }
         

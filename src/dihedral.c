@@ -90,7 +90,7 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
     register FPTYPE t1, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21,
         t22, t24, t26, t3, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40,
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
-        t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59, t60;
+        t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
 #if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
@@ -120,7 +120,7 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
     
         /* Get the particles involved. */
         pid = d[did].i; pjd = d[did].j; pkd = d[did].k; pld = d[did].l;
-        if ( ( pi = partlist[ pid] ) == NULL )
+        if ( ( pi = partlist[ pid ] ) == NULL )
             continue;
         if ( ( pj = partlist[ pjd ] ) == NULL )
             continue;
@@ -130,7 +130,10 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
             continue;
             
         /* Skip if all three are ghosts. */
-        if ( ( pi->flags & part_flag_ghost ) && ( pj->flags & part_flag_ghost ) && ( pk->flags & part_flag_ghost ) )
+        if ( ( pi->flags & part_flag_ghost ) &&
+             ( pj->flags & part_flag_ghost ) &&
+             ( pk->flags & part_flag_ghost ) &&
+             ( pl->flags & part_flag_ghost ) )
             continue;
             
         /* Get the potential. */
@@ -193,8 +196,7 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
         t59 = t9*t9;
         t6 = t12*t11-t59;
         t3 = t6*t5;
-        t60 = sqrt(t3);
-        t1 = FPTYPE_ONE/t60;
+        t1 = FPTYPE_ONE/sqrt(t3);
         t8 = -t26*t18-t24*t17-t22*t16;
         t47 = (t9*t7-t8*t11)*t1;
         t46 = FPTYPE_TWO*t8;
@@ -221,7 +223,8 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
         dxi[1] = t36*t1-t33*t31;
         dxi[2] = t37*t1-t34*t31;
         dxj[0] = (t15*t7+t21*t46+t42*t18)*t1-(-t15*t44+t18*t45+(-t39-t12*t21)*t5-t21*t43)*t38;
-        dxj[1] = (t14*t7+t20*t46+t42*t17)*t1-(-t14*t44+t17*t45+(-t40-t12*t20)*t5-t20*t43)*t38;dxj[2] = (t13*t7+t19*t46+t42*t16)*t1-(-t13*t44+t16*t45+(-t41-t12*t19)*t5-t19*t43)*t38;
+        dxj[1] = (t14*t7+t20*t46+t42*t17)*t1-(-t14*t44+t17*t45+(-t40-t12*t20)*t5-t20*t43)*t38;
+        dxj[2] = (t13*t7+t19*t46+t42*t16)*t1-(-t13*t44+t16*t45+(-t41-t12*t19)*t5-t19*t43)*t38;
         dxl[0] = t32*t1-t35*t30;
         dxl[1] = t33*t1-t36*t30;
         dxl[2] = t34*t1-t37*t30;
@@ -425,7 +428,7 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
     register FPTYPE t1, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21,
         t22, t24, t26, t3, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40,
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
-        t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59, t60;
+        t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
 #if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
@@ -465,7 +468,10 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
             continue;
         
         /* Skip if all three are ghosts. */
-        if ( ( pi->flags & part_flag_ghost ) && ( pj->flags & part_flag_ghost ) && ( pk->flags & part_flag_ghost ) )
+        if ( ( pi->flags & part_flag_ghost ) &&
+             ( pj->flags & part_flag_ghost ) &&
+             ( pk->flags & part_flag_ghost ) &&
+             ( pl->flags & part_flag_ghost ) )
             continue;
             
         /* Get the potential. */
@@ -528,8 +534,7 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
         t59 = t9*t9;
         t6 = t12*t11-t59;
         t3 = t6*t5;
-        t60 = sqrt(t3);
-        t1 = FPTYPE_ONE/t60;
+        t1 = FPTYPE_ONE/sqrt(t3);
         t8 = -t26*t18-t24*t17-t22*t16;
         t47 = (t9*t7-t8*t11)*t1;
         t46 = FPTYPE_TWO*t8;

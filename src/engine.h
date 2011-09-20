@@ -59,10 +59,10 @@
 #define engine_flag_unsorted             2048
 #define engine_flag_mpi                  4096
 
-#define engine_bonds_chunk               100
-#define engine_angles_chunk              100
-#define engine_rigids_chunk              100
-#define engine_dihedrals_chunk           100
+#define engine_bonds_chunk               500
+#define engine_angles_chunk              500
+#define engine_rigids_chunk              500
+#define engine_dihedrals_chunk           500
 
 
 /** ID of the last error. */

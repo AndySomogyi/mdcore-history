@@ -1320,7 +1320,7 @@ int engine_dihedral_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(eff,finger,count), reduction(+:epot)
+        #pragma omp parallel private(k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
         if ( omp_get_num_threads() > 1 && e->nr_dihedrals > engine_dihedrals_chunk ) {
     
             /* Allocate a buffer for the forces. */
@@ -1351,15 +1351,16 @@ int engine_dihedral_eval ( struct engine *e ) {
                 } /* main loop. */
 
             /* Write-back the forces. */
-            #pragma omp critical
             for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
                 c = &s->cells[ cid ];
+                pthread_mutex_lock( &c->cell_mutex );
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &c->parts[ pid ];
                     gpid = p->id;
                     for ( k = 0 ; k < 3 ; k++ )
                         p->f[k] += eff[ gpid*4 + k ];
                     }
+                pthread_mutex_unlock( &c->cell_mutex );
                 }
             free( eff );
                 
@@ -1407,7 +1408,7 @@ int engine_angle_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(eff,finger,count), reduction(+:epot)
+        #pragma omp parallel private(k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
         if ( omp_get_num_threads() > 1 && e->nr_angles > engine_angles_chunk ) {
     
             /* Allocate a buffer for the forces. */
@@ -1438,15 +1439,16 @@ int engine_angle_eval ( struct engine *e ) {
                 } /* main loop. */
 
             /* Write-back the forces. */
-            #pragma omp critical
             for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
                 c = &s->cells[ cid ];
+                pthread_mutex_lock( &c->cell_mutex );
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &c->parts[ pid ];
                     gpid = p->id;
                     for ( k = 0 ; k < 3 ; k++ )
                         p->f[k] += eff[ gpid*4 + k ];
                     }
+                pthread_mutex_unlock( &c->cell_mutex );
                 }
             free( eff );
                 
@@ -1557,7 +1559,7 @@ int engine_bond_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(eff,finger,count), reduction(+:epot)
+        #pragma omp parallel private(k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
         if ( omp_get_num_threads() > 1 && e->nr_bonds > engine_bonds_chunk ) {
     
             /* Allocate a buffer for the forces. */
@@ -1588,15 +1590,16 @@ int engine_bond_eval ( struct engine *e ) {
                 } /* main loop. */
 
             /* Write-back the forces. */
-            #pragma omp critical
             for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
                 c = &s->cells[ cid ];
+                pthread_mutex_lock( &c->cell_mutex );
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &c->parts[ pid ];
                     gpid = p->id;
                     for ( k = 0 ; k < 3 ; k++ )
                         p->f[k] += eff[ gpid*4 + k ];
                     }
+                pthread_mutex_unlock( &c->cell_mutex );
                 }
             free( eff );
                 
@@ -2084,11 +2087,18 @@ int engine_split ( struct engine *e ) {
     /* Empty unmarked cells. */
     for ( k = 0 ; k < e->s.nr_cells ; k++ )
         if ( !( e->s.cells[k].flags & cell_flag_marked ) )
-            e->s.cells[k].count = 0;
+            cell_flush( &e->s.cells[k] , e->s.partlist , e->s.celllist );
+            
+    /* Set ghost markings. */
+    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
+        if ( e->s.cells[cid].flags & cell_flag_ghost )
+            for ( k = 0 ; k < e->s.cells[cid].count ; k++ )
+                e->s.cells[cid].parts[k].flags |= part_flag_ghost;
         
     /* Re-build the tuples if needed. */
-    if ( space_maketuples( &e->s ) < 0 )
-        return error(engine_err_space);
+    if ( e->flags & engine_flag_tuples )
+        if ( space_maketuples( &e->s ) < 0 )
+            return error(engine_err_space);
         
     /* Done deal. */
     return engine_err_ok;
