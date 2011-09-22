@@ -1307,9 +1307,11 @@ int engine_dihedral_eval ( struct engine *e ) {
 
     double epot = 0.0;
     struct space *s;
+    struct dihedral temp;
+    int nr_dihedrals = e->nr_dihedrals, i, j;
     #ifdef HAVE_OPENMP
         FPTYPE *eff;
-        int finger_global = 0, finger, count, cid, pid, gpid, k;
+        int finger_global = 0, finger, count, count_tot, cid, pid, gpid, k;
         struct part *p;
         struct cell *c;
     #endif
@@ -1317,27 +1319,55 @@ int engine_dihedral_eval ( struct engine *e ) {
     /* Get a handle on the space. */
     s = &e->s;
 
+    /* Sort the dihedrals (if in parallel). */
+    if ( e->nr_nodes > 1 ) {
+        i = 0; j = nr_dihedrals-1;
+        while ( i < j ) {
+            while ( i < nr_dihedrals &&
+                    s->partlist[e->dihedrals[i].i] != NULL &&
+                    s->partlist[e->dihedrals[i].j] != NULL &&
+                    s->partlist[e->dihedrals[i].k] != NULL &&
+                    s->partlist[e->dihedrals[i].l] != NULL )
+                i += 1;
+            while ( j >= 0 &&
+                    ( s->partlist[e->dihedrals[j].i] == NULL ||
+                      s->partlist[e->dihedrals[j].j] == NULL ||
+                      s->partlist[e->dihedrals[j].k] == NULL ||
+                      s->partlist[e->dihedrals[j].l] == NULL ) )
+                j -= 1;
+            if ( i < j ) {
+                temp = e->dihedrals[i];
+                e->dihedrals[i] = e->dihedrals[j];
+                e->dihedrals[j] = temp;
+                }
+            }
+        nr_dihedrals = i;
+        }
+
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
-        if ( omp_get_num_threads() > 1 && e->nr_dihedrals > engine_dihedrals_chunk ) {
+        #pragma omp parallel num_threads(engine_bonded_nrthreads) private(count_tot,k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
+        if ( ( e->flags & engine_flag_parbonded ) &&
+             ( omp_get_num_threads() > 1 ) && 
+             ( nr_dihedrals > engine_dihedrals_chunk ) ) {
     
             /* Allocate a buffer for the forces. */
             eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
             bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
+            count_tot = 0;
 
             /* Main loop. */
-            while ( finger_global < e->nr_dihedrals ) {
+            while ( finger_global < nr_dihedrals ) {
 
                 /* Get a finger on the dihedrals list. */
                 #pragma omp critical
                 {
-                    if ( finger_global < e->nr_dihedrals ) {
+                    if ( finger_global < nr_dihedrals ) {
                         finger = finger_global;
                         count = engine_dihedrals_chunk;
-                        if ( finger + count > e->nr_dihedrals )
-                            count = e->nr_dihedrals - finger;
+                        if ( finger + count > nr_dihedrals )
+                            count = nr_dihedrals - finger;
                         finger_global += count;
                         }
                     else
@@ -1347,30 +1377,36 @@ int engine_dihedral_eval ( struct engine *e ) {
                 /* Compute the dihedraled interactions. */
                 if ( count > 0 )
                     dihedral_evalf( &e->dihedrals[finger] , count , e , eff , &epot );
+                    
+                /* Update the total count. */
+                count_tot += count;
 
                 } /* main loop. */
 
-            /* Write-back the forces. */
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &s->cells[ cid ];
-                pthread_mutex_lock( &c->cell_mutex );
-                for ( pid = 0 ; pid < c->count ; pid++ ) {
-                    p = &c->parts[ pid ];
-                    gpid = p->id;
-                    for ( k = 0 ; k < 3 ; k++ )
-                        p->f[k] += eff[ gpid*4 + k ];
+            /* Write-back the forces if anything was done. */
+            if ( count_tot > 0 )
+                for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                    c = &s->cells[ cid ];
+                    if ( c->flags & cell_flag_ghost )
+                        continue;
+                    pthread_mutex_lock( &c->cell_mutex );
+                    for ( pid = 0 ; pid < c->count ; pid++ ) {
+                        p = &c->parts[ pid ];
+                        gpid = p->id;
+                        for ( k = 0 ; k < 3 ; k++ )
+                            p->f[k] += eff[ gpid*4 + k ];
+                        }
+                    pthread_mutex_unlock( &c->cell_mutex );
                     }
-                pthread_mutex_unlock( &c->cell_mutex );
-                }
             free( eff );
                 
             }
             
         /* Otherwise, evaluate directly. */
         else if ( omp_get_thread_num() == 0 )
-            dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot );
+            dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot );
     #else
-        if ( dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot ) < 0 )
+        if ( dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot ) < 0 )
             return error(engine_err_dihedral);
     #endif
         
@@ -1395,9 +1431,11 @@ int engine_angle_eval ( struct engine *e ) {
 
     double epot = 0.0;
     struct space *s;
+    struct angle temp;
+    int nr_angles = e->nr_angles, i, j;
     #ifdef HAVE_OPENMP
         FPTYPE *eff;
-        int finger_global = 0, finger, count, cid, pid, gpid, k;
+        int finger_global = 0, finger, count, count_tot, cid, pid, gpid, k;
         struct part *p;
         struct cell *c;
     #endif
@@ -1405,27 +1443,53 @@ int engine_angle_eval ( struct engine *e ) {
     /* Get a handle on the space. */
     s = &e->s;
 
+    /* Sort the angles (if in parallel). */
+    if ( e->nr_nodes > 1 ) {
+        i = 0; j = nr_angles-1;
+        while ( i < j ) {
+            while ( i < nr_angles &&
+                    s->partlist[e->angles[i].i] != NULL &&
+                    s->partlist[e->angles[i].j] != NULL &&
+                    s->partlist[e->angles[i].k] != NULL )
+                i += 1;
+            while ( j >= 0 &&
+                    ( s->partlist[e->angles[j].i] == NULL ||
+                      s->partlist[e->angles[j].j] == NULL ||
+                      s->partlist[e->angles[j].k] == NULL ) )
+                j -= 1;
+            if ( i < j ) {
+                temp = e->angles[i];
+                e->angles[i] = e->angles[j];
+                e->angles[j] = temp;
+                }
+            }
+        nr_angles = i;
+        }
+
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
-        if ( omp_get_num_threads() > 1 && e->nr_angles > engine_angles_chunk ) {
+        #pragma omp parallel num_threads(engine_bonded_nrthreads) private(count_tot,k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
+        if ( ( e->flags & engine_flag_parbonded ) &&
+             ( omp_get_num_threads() > 1 ) && 
+             ( nr_angles > engine_angles_chunk ) ) {
     
             /* Allocate a buffer for the forces. */
             eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
             bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
+            count_tot = 0;
 
             /* Main loop. */
-            while ( finger_global < e->nr_angles ) {
+            while ( finger_global < nr_angles ) {
 
                 /* Get a finger on the angles list. */
                 #pragma omp critical
                 {
-                    if ( finger_global < e->nr_angles ) {
+                    if ( finger_global < nr_angles ) {
                         finger = finger_global;
                         count = engine_angles_chunk;
-                        if ( finger + count > e->nr_angles )
-                            count = e->nr_angles - finger;
+                        if ( finger + count > nr_angles )
+                            count = nr_angles - finger;
                         finger_global += count;
                         }
                     else
@@ -1436,29 +1500,35 @@ int engine_angle_eval ( struct engine *e ) {
                 if ( count > 0 )
                     angle_evalf( &e->angles[finger] , count , e , eff , &epot );
 
+                /* Update the total count. */
+                count_tot += count;
+
                 } /* main loop. */
 
-            /* Write-back the forces. */
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &s->cells[ cid ];
-                pthread_mutex_lock( &c->cell_mutex );
-                for ( pid = 0 ; pid < c->count ; pid++ ) {
-                    p = &c->parts[ pid ];
-                    gpid = p->id;
-                    for ( k = 0 ; k < 3 ; k++ )
-                        p->f[k] += eff[ gpid*4 + k ];
+            /* Write-back the forces (if anything was done). */
+            if ( count_tot > 0 )
+                for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                    c = &s->cells[ cid ];
+                    if ( c->flags & cell_flag_ghost )
+                        continue;
+                    pthread_mutex_lock( &c->cell_mutex );
+                    for ( pid = 0 ; pid < c->count ; pid++ ) {
+                        p = &c->parts[ pid ];
+                        gpid = p->id;
+                        for ( k = 0 ; k < 3 ; k++ )
+                            p->f[k] += eff[ gpid*4 + k ];
+                        }
+                    pthread_mutex_unlock( &c->cell_mutex );
                     }
-                pthread_mutex_unlock( &c->cell_mutex );
-                }
             free( eff );
                 
             }
             
         /* Otherwise, evaluate directly. */
         else if ( omp_get_thread_num() == 0 )
-            angle_eval( e->angles , e->nr_angles , e , &epot );
+            angle_eval( e->angles , nr_angles , e , &epot );
     #else
-        if ( angle_eval( e->angles , e->nr_angles , e , &epot ) < 0 )
+        if ( angle_eval( e->angles , nr_angles , e , &epot ) < 0 )
             return error(engine_err_angle);
     #endif
         
@@ -1482,6 +1552,8 @@ int engine_angle_eval ( struct engine *e ) {
 int engine_rigid_eval ( struct engine *e ) {
 
     struct space *s;
+    struct rigid temp;
+    int nr_rigids = e->nr_rigids, i, j, k;
     #ifdef HAVE_OPENMP
         int finger_global = 0, finger, count;
     #endif
@@ -1489,23 +1561,48 @@ int engine_rigid_eval ( struct engine *e ) {
     /* Get a handle on the space. */
     s = &e->s;
 
+    /* Sort the rigids (if in parallel). */
+    if ( e->nr_nodes > 1 ) {
+        i = 0; j = nr_rigids-1;
+        while ( i < j ) {
+            while ( i < nr_rigids ) {
+                for ( k = 0 ; k < e->rigids[i].nr_parts && s->partlist[e->rigids[i].parts[k]] != NULL ; k++ );
+                if ( k < e->rigids[i].nr_parts )
+                    break;
+                i += 1;
+                }
+            while ( j >= 0 ) {
+                for ( k = 0 ; k < e->rigids[j].nr_parts && s->partlist[e->rigids[j].parts[k]] != NULL ; k++ );
+                if ( k == e->rigids[j].nr_parts )
+                    break;
+                j -= 1;
+                }
+            if ( i < j ) {
+                temp = e->rigids[i];
+                e->rigids[i] = e->rigids[j];
+                e->rigids[j] = temp;
+                }
+            }
+        nr_rigids = i;
+        }
+
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
         #pragma omp parallel private(finger,count)
-        if ( omp_get_num_threads() > 1 && e->nr_rigids > engine_rigids_chunk ) {
+        if ( omp_get_num_threads() > 1 && nr_rigids > engine_rigids_chunk ) {
     
             /* Main loop. */
-            while ( finger_global < e->nr_rigids ) {
+            while ( finger_global < nr_rigids ) {
 
                 /* Get a finger on the bonds list. */
                 #pragma omp critical
                 {
-                    if ( finger_global < e->nr_rigids ) {
+                    if ( finger_global < nr_rigids ) {
                         finger = finger_global;
                         count = engine_rigids_chunk;
-                        if ( finger + count > e->nr_rigids )
-                            count = e->nr_rigids - finger;
+                        if ( finger + count > nr_rigids )
+                            count = nr_rigids - finger;
                         finger_global += count;
                         }
                     else
@@ -1522,9 +1619,9 @@ int engine_rigid_eval ( struct engine *e ) {
             
         /* Otherwise, evaluate directly. */
         else if ( omp_get_thread_num() == 0 )
-            rigid_eval_shake( e->rigids , e->nr_rigids , e );
+            rigid_eval_shake( e->rigids , nr_rigids , e );
     #else
-        if ( rigid_eval_shake( e->rigids , e->nr_rigids , e ) < 0 )
+        if ( rigid_eval_shake( e->rigids , nr_rigids , e ) < 0 )
             return error(engine_err_rigid);
     #endif
         
@@ -1546,37 +1643,63 @@ int engine_bond_eval ( struct engine *e ) {
 
     double epot = 0.0;
     struct space *s;
+    int nr_bonds = e->nr_bonds, i, j;
+    struct bond temp;
     #ifdef HAVE_OPENMP
         FPTYPE *eff;
-        int finger_global = 0, finger, count, cid, pid, gpid, k;
+        int finger_global = 0, finger, count, count_tot, cid, pid, gpid, k;
         struct part *p;
         struct cell *c;
     #endif
     
     /* Get a handle on the space. */
     s = &e->s;
+    
+    /* Sort the bonds (if in parallel). */
+    if ( e->nr_nodes > 1 ) {
+        i = 0; j = nr_bonds-1;
+        while ( i < j ) {
+            while ( i < nr_bonds &&
+                    s->partlist[e->bonds[i].i] != NULL &&
+                    s->partlist[e->bonds[i].j] != NULL )
+                i += 1;
+            while ( j >= 0 &&
+                    ( s->partlist[e->bonds[j].i] == NULL ||
+                      s->partlist[e->bonds[j].j] == NULL ) )
+                j -= 1;
+            if ( i < j ) {
+                temp = e->bonds[i];
+                e->bonds[i] = e->bonds[j];
+                e->bonds[j] = temp;
+                }
+            }
+        nr_bonds = i;
+        }
 
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
-        if ( omp_get_num_threads() > 1 && e->nr_bonds > engine_bonds_chunk ) {
+        #pragma omp parallel num_threads(engine_bonded_nrthreads) private(count_tot,k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
+        if ( ( e->flags & engine_flag_parbonded ) &&
+             ( omp_get_num_threads() > 1 ) && 
+             ( nr_bonds > engine_bonds_chunk ) ) {
     
             /* Allocate a buffer for the forces. */
             eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
             bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
+            count_tot = 0;
 
             /* Main loop. */
-            while ( finger_global < e->nr_bonds ) {
+            while ( finger_global < nr_bonds ) {
 
                 /* Get a finger on the bonds list. */
                 #pragma omp critical
                 {
-                    if ( finger_global < e->nr_bonds ) {
+                    if ( finger_global < nr_bonds ) {
                         finger = finger_global;
                         count = engine_bonds_chunk;
-                        if ( finger + count > e->nr_bonds )
-                            count = e->nr_bonds - finger;
+                        if ( finger + count > nr_bonds )
+                            count = nr_bonds - finger;
                         finger_global += count;
                         }
                     else
@@ -1586,30 +1709,36 @@ int engine_bond_eval ( struct engine *e ) {
                 /* Compute the bonded interactions. */
                 if ( count > 0 )
                     bond_evalf( &e->bonds[finger] , count , e , eff , &epot );
+                    
+                /* Update the total count. */
+                count_tot += count;
 
                 } /* main loop. */
 
-            /* Write-back the forces. */
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &s->cells[ cid ];
-                pthread_mutex_lock( &c->cell_mutex );
-                for ( pid = 0 ; pid < c->count ; pid++ ) {
-                    p = &c->parts[ pid ];
-                    gpid = p->id;
-                    for ( k = 0 ; k < 3 ; k++ )
-                        p->f[k] += eff[ gpid*4 + k ];
+            /* Write-back the forces (if anything was done). */
+            if ( count_tot > 0 )
+                for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                    c = &s->cells[ cid ];
+                    if ( c->flags & cell_flag_ghost )
+                        continue;
+                    pthread_mutex_lock( &c->cell_mutex );
+                    for ( pid = 0 ; pid < c->count ; pid++ ) {
+                        p = &c->parts[ pid ];
+                        gpid = p->id;
+                        for ( k = 0 ; k < 3 ; k++ )
+                            p->f[k] += eff[ gpid*4 + k ];
+                        }
+                    pthread_mutex_unlock( &c->cell_mutex );
                     }
-                pthread_mutex_unlock( &c->cell_mutex );
-                }
             free( eff );
                 
             }
             
         /* Otherwise, evaluate directly. */
         else if ( omp_get_thread_num() == 0 )
-            bond_eval( e->bonds , e->nr_bonds , e , &epot );
+            bond_eval( e->bonds , nr_bonds , e , &epot );
     #else
-        if ( bond_eval( e->bonds , e->nr_bonds , e , &epot ) < 0 )
+        if ( bond_eval( e->bonds , nr_bonds , e , &epot ) < 0 )
             return error(engine_err_bond);
     #endif
         
@@ -2939,11 +3068,11 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
     return engine_err_ok;
     
     }
-
-
+    
+    
 /**
- * @brief Run the engine for a single time step.
- *
+ * @brief Compute the nonbonded interactions in the current step.
+ * 
  * @param e The #engine on which to run.
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
@@ -2951,25 +3080,14 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
  * This routine advances the timestep counter by one, prepares the #space
  * for a timestep, releases the #runner's associated with the #engine
  * and waits for them to finnish.
- *
- * Once all the #runner's are done, the particle velocities and positions
- * are updated and the particles are re-sorted in the #space.
  */
-/* TODO: Should the velocities and positions really be updated here? */
+ 
+int engine_nonbond_eval ( struct engine *e ) {
 
-int engine_step ( struct engine *e ) {
-
-    int cid, pid, k, delta[3];
-    struct cell *c, *c_dest;
-    struct part *p;
     struct space *s;
-    FPTYPE dt, w, h[3];
-    double epot = 0.0;
     
     /* Get a grip on the space. */
     s = &(e->s);
-    for ( k = 0 ; k < 3 ; k++ )
-        h[k] = s->h[k];
 
     /* increase the time stepper */
     e->time += 1;
@@ -2994,21 +3112,34 @@ int engine_step ( struct engine *e ) {
         if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
             return error(engine_err_pthread);
             
-    /* Do bonds? */
-    if ( e->nr_bonds > 0 )
-        if ( engine_bond_eval( e ) < 0 )
-            return error(engine_err);
+    /* All in a days work. */
+    return engine_err_ok;
+    
+    }
+    
+    
+/**
+ * @brief Update the particle velocities and positions, re-shuffle if
+ *      appropriate.
+ * @param e The #engine on which to run.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_advance ( struct engine *e ) {
 
-    /* Do angles? */
-    if ( e->nr_angles > 0 )
-        if ( engine_angle_eval( e ) < 0 )
-            return error(engine_err);
-
-    /* Do dihedrals? */
-    if ( e->nr_dihedrals > 0 )
-        if ( engine_dihedral_eval( e ) < 0 )
-            return error(engine_err);
-
+    int cid, pid, k, delta[3];
+    struct cell *c, *c_dest;
+    struct part *p;
+    struct space *s;
+    FPTYPE dt, w, h[3];
+    double epot = 0.0;
+    
+    /* Get a grip on the space. */
+    s = &(e->s);
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+        
     /* update the particle velocities and positions */
     dt = e->dt;
     if ( e->flags & engine_flag_verlet || e->flags & engine_flag_mpi )
@@ -3032,6 +3163,7 @@ int engine_step ( struct engine *e ) {
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
             epot += c->epot;
+            c->epot = 0.0;
             if ( c->flags & cell_flag_ghost )
                 continue;
             pid = 0;
@@ -3081,6 +3213,53 @@ int engine_step ( struct engine *e ) {
     /* Store the accumulated potential energy. */
     s->epot += epot;
         
+    /* return quietly */
+    return engine_err_ok;
+    
+    }
+
+
+/**
+ * @brief Run the engine for a single time step.
+ *
+ * @param e The #engine on which to run.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * This routine advances the timestep counter by one, prepares the #space
+ * for a timestep, releases the #runner's associated with the #engine
+ * and waits for them to finnish.
+ *
+ * Once all the #runner's are done, the particle velocities and positions
+ * are updated and the particles are re-sorted in the #space.
+ */
+/* TODO: Should the velocities and positions really be updated here? */
+
+int engine_step ( struct engine *e ) {
+
+    /* Take a step */
+    if ( engine_nonbond_eval( e ) < 0 )
+        return error(engine_err);
+            
+    /* Do bonds? */
+    if ( e->nr_bonds > 0 )
+        if ( engine_bond_eval( e ) < 0 )
+            return error(engine_err);
+
+    /* Do angles? */
+    if ( e->nr_angles > 0 )
+        if ( engine_angle_eval( e ) < 0 )
+            return error(engine_err);
+
+    /* Do dihedrals? */
+    if ( e->nr_dihedrals > 0 )
+        if ( engine_dihedral_eval( e ) < 0 )
+            return error(engine_err);
+
+    /* update the particle velocities and positions */
+    if ( engine_advance( e ) < 0 )
+        return error(engine_err);
+            
     /* return quietly */
     return engine_err_ok;
     

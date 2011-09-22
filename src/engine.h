@@ -58,11 +58,15 @@
 #define engine_flag_partlist             1024
 #define engine_flag_unsorted             2048
 #define engine_flag_mpi                  4096
+#define engine_flag_parbonded            8192
 
-#define engine_bonds_chunk               500
-#define engine_angles_chunk              500
-#define engine_rigids_chunk              500
-#define engine_dihedrals_chunk           500
+#define engine_bonds_chunk               200
+#define engine_angles_chunk              200
+#define engine_rigids_chunk              200
+#define engine_dihedrals_chunk           200
+
+#define engine_bonded_maxnrthreads       16
+#define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
 
 
 /** ID of the last error. */
@@ -162,6 +166,7 @@ struct engine_comm {
 /* associated functions */
 int engine_addpot ( struct engine *e , struct potential *p , int i , int j );
 int engine_addtype ( struct engine *e , double mass , double charge , char *name , char *name2 );
+int engine_advance ( struct engine *e );
 int engine_angle_addpot ( struct engine *e , struct potential *p );
 int engine_angle_add ( struct engine *e , int i , int j , int k , int pid );
 int engine_angle_eval ( struct engine *e );
@@ -180,6 +185,7 @@ int engine_gettype2 ( struct engine *e , char *name2 );
 int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags );
 int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , int N );
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , int N );
+int engine_nonbond_eval ( struct engine *e );
 int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol , int rigidH );
 int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb );
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d );
