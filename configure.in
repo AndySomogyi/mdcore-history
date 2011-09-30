@@ -153,5 +153,18 @@ AM_CONDITIONAL([HAVECELL],[test -n "$CELLTOP"])
 DX_INIT_DOXYGEN(mdcore,doc/Doxyfile,doc/)
 
 # generate the Makefiles
-AC_OUTPUT(Makefile src/Makefile src/Makefile_cell src/spu/Makefile examples/Makefile examples/argon/Makefile examples/bulk/Makefile examples/bulk/Makefile_cell examples/btree/Makefile examples/hybrid/Makefile examples/flexible/Makefile examples/jac/Makefile doc/Makefile)
+AC_OUTPUT(Makefile
+    src/Makefile
+    src/Makefile_cell
+    src/spu/Makefile
+    examples/Makefile
+    examples/argon/Makefile
+    examples/bulk/Makefile
+    examples/bulk/Makefile_cell
+    examples/btree/Makefile
+    examples/hybrid/Makefile
+    examples/flexible/Makefile
+    examples/jac/Makefile
+    examples/apoa1/Makefile
+    doc/Makefile)
 
