@@ -117,8 +117,8 @@ void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e 
     
     /* Check ranges. */
     /* for ( j = 0 ; j < 4 ; j++ )
-        if ( ind.i[j] > p[j]->n ) {
-            printf( "potential_eval_vec_4single_r: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
+        if ( ind.i[j] == 0 || ind.i[j] > p[j]->n ) {
+            printf( "potential_eval_vec_4single: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
                 r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
                 p[j]->n , p[j]->a , p[j]->b );
             fflush(stdout);
@@ -1058,17 +1058,12 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
     FPTYPE x, ee, eff, *c;
     
     /* compute the index */
-    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2] ) );
     
     /* is r in the house? */
     /* if ( ind > p->n )
-        printf("potential_eval_r: requested potential at r=%e (ind=%.8e), not in [%e,%e].\n",r , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]),p->a,p->b); */
+        printf("potential_eval_r: requested potential at r=%e (ind=%.8e), not in [%e,%e].\n",r , p->alpha[0] + r * (p->alpha[1] + r * (p->alpha[2] + r * p->alpha[3])),p->a,p->b); */
     
-    /* if ( ind > p->n ) {
-        printf("potential_eval: r=%.18e.\n",r);
-        fflush(stdout);
-        } */
-            
     /* get the table offset */
     c = &(p->c[ind * potential_chunk]);
     
@@ -1208,8 +1203,8 @@ void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE 
     if ( p->flags & potential_flag_Coulomb ) {
     
         /* compute the energy and the force */
-        ee += p->alpha[2] * ir;
-        eff += -p->alpha[2] * ir2;
+        ee += potential_escale * p->alpha[2] * ir;
+        eff += -potential_escale * p->alpha[2] * ir2;
     
         }
         
@@ -1280,6 +1275,54 @@ inline double potential_LJ126_6p ( double r , double A , double B ) {
     }
     
 /**
+ * @brief The Coulomb potential.
+ *
+ * @param r The interaction radius.
+ *
+ * @return The potential @f$ \frac{1}{4\pi r} @f$
+ *      evaluated at @c r.
+ */
+
+inline double potential_Coulomb ( double r ) {
+
+    return potential_escale / r;
+
+    }
+    
+/**
+ * @brief The Coulomb potential (first derivative).
+ *
+ * @param r The interaction radius.
+ *
+ * @return The first derivative of the potential @f$ \frac{1}{4\pi r} @f$
+ *      evaluated at @c r.
+ */
+
+inline double potential_Coulomb_p ( double r ) {
+
+    return -potential_escale / (r*r);
+
+    }
+    
+/**
+ * @brief TheCoulomb potential (sixth derivative).
+ *
+ * @param r The interaction radius.
+ *
+ * @return The sixth derivative of the potential @f$ \frac{1}{4\pi r} @f$
+ *      evaluated at @c r.
+ */
+
+inline double potential_Coulomb_6p ( double r ) {
+
+    double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
+
+    return 720.0 * potential_escale / r7;
+    
+    }
+        
+
+/**
  * @brief The short-range part of an Ewald summation.
  *
  * @param r The interaction radius.
@@ -1291,7 +1334,7 @@ inline double potential_LJ126_6p ( double r , double A , double B ) {
 
 inline double potential_Ewald ( double r , double kappa ) {
 
-    return erfc( kappa * r ) / r;
+    return potential_escale * erfc( kappa * r ) / r;
 
     }
     
@@ -1310,7 +1353,7 @@ inline double potential_Ewald_p ( double r , double kappa ) {
     double r2 = r * r, ir = 1.0 / r, ir2 = ir * ir;
     const double isqrtpi = 0.56418958354775628695;
 
-    return -2 * exp( -kappa*kappa * r2 ) * kappa * ir * isqrtpi -
+    return -2 * potential_escale * exp( -kappa*kappa * r2 ) * kappa * ir * isqrtpi -
         erfc( kappa * r ) * ir2;
 
     }
@@ -1334,7 +1377,7 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
 
     t6 = erfc(kappa*r);
     t23 = exp(-kappa2*r2);
-    return 720.0*t6/r*ir6+(1440.0*ir6+(960.0*ir4+(384.0*ir2+(144.0+(-128.0*r2+64.0*kappa2*r4)*kappa2)*kappa2)*kappa2)*kappa2)*kappa*isqrtpi*t23;
+    return potential_escale * 720.0*t6/r*ir6+(1440.0*ir6+(960.0*ir4+(384.0*ir2+(144.0+(-128.0*r2+64.0*kappa2*r4)*kappa2)*kappa2)*kappa2)*kappa2)*kappa*isqrtpi*t23;
     
     }
         
@@ -1644,6 +1687,112 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
     
 
 /**
+ * @brief Creates a #potential representing a shifted Coulomb potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param q The charge scaling of the potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \frac{1}{4\pi r} @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
+struct potential *potential_create_Coulomb ( double a , double b , double q , double tol ) {
+
+    struct potential *p;
+    
+    /* the potential functions */
+    double f ( double r ) {
+        return potential_escale * q * ( 1.0/r - 1.0/b );
+        }
+        
+    double dfdr ( double r ) {
+        return potential_escale * q / ( r * r );
+        }
+        
+    double d6fdr6 ( double r ) {
+        double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
+        return 720.0 * potential_escale * q / r7;
+        }
+        
+    /* allocate the potential */
+    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
+
+/**
+ * @brief Creates a #potential representing the sum of a
+ *      12-6 Lennard-Jones potential and a shifted Coulomb potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param q The charge scaling of the potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
+struct potential *potential_create_LJ126_Coulomb ( double a , double b , double A , double B , double q , double tol ) {
+
+    struct potential *p;
+    
+    /* the potential functions */
+    double f ( double r ) {
+        return potential_LJ126 ( r , A , B ) +
+            potential_escale * q * ( 1.0/r - 1.0/b );
+        }
+        
+    double dfdr ( double r ) {
+        return potential_LJ126_p ( r , A , B ) -
+            potential_escale * q / ( r * r );
+        }
+        
+    double d6fdr6 ( double r ) {
+        double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
+        return potential_LJ126_6p ( r , A , B ) +
+            720.0 * potential_escale * q / r7;
+        }
+        
+    /* allocate the potential */
+    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
+    
+/**
  * @brief Creates a #potential representing a 12-6 Lennard-Jones potential
  *
  * @param a The smallest radius for which the potential will be constructed.
@@ -1754,6 +1903,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->alpha[0] = a*a*w - alpha*b*a*w;
     p->alpha[1] = -2*a*w + alpha*(a+b)*w;
     p->alpha[2] = w - alpha*w;
+    p->alpha[3] = 0.0;
     
     /* Correct the transform to the right. */
     w = 2*FPTYPE_EPSILON*(fabs(p->alpha[0])+fabs(p->alpha[1])+fabs(p->alpha[2]));
@@ -1802,10 +1952,6 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     /* loop until we have an upper bound on the right... */
     while ( 1 ) {
     
-        /* Have we too many intervals? */
-        if ( r > potential_ivalsmax )
-            return error(potential_err_ivalsmax);
-    
         /* compute the larger interpolation... */
         /* printf("potential_init: trying r=%i...\n",r); fflush(stdout); */
         xi_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r + 1) );
@@ -1829,6 +1975,13 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         if ( err_r < tol )
             break;
             
+        /* Have we too many intervals? */
+        else if ( 2*r > potential_ivalsmax ) {
+            /* printf( "potential_init: warning: maximum nr of intervals (%i) reached, err=%e.\n" , r , err_r );
+            break; */
+            return error(potential_err_ivalsmax);
+            }
+    
         /* otherwise, l=r and r = 2*r */
         else {
             l = r; err_l = err_r;
@@ -1905,6 +2058,323 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     
     
 /**
+ * @brief Construct a #potential from the given function.
+ *
+ * @param p A pointer to an empty #potential.
+ * @param f A pointer to the potential function to be interpolated.
+ * @param fp A pointer to the first derivative of @c f.
+ * @param f6p A pointer to the sixth derivative of @c f.
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param tol The absolute tolerance to which the interpolation should match
+ *      the exact potential.
+ *
+ * @return #potential_err_ok or <0 on error (see #potential_err).
+ *
+ * Computes an interpolated potential function from @c f in @c [a,b] to the
+ * locally relative tolerance @c tol.
+ *
+ * The sixth derivative @c f6p is used to compute the optimal node
+ * distribution. If @c f6p is @c NULL, the derivative is approximated
+ * numerically.
+ *
+ * The zeroth interval contains a linear extension of @c f for values < a.
+ */
+
+int potential_init3 ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol ) {
+
+    double alpha, w;
+    int l = potential_ivalsa, r = potential_ivalsb, m;
+    FPTYPE err_l, err_r, err_m;
+    FPTYPE *xi_l, *xi_r, *xi_m;
+    FPTYPE *c_l, *c_r, *c_m;
+    int i, k;
+    double e, a2, b2;
+    FPTYPE mtol = 10 * FPTYPE_EPSILON;
+
+    /* check inputs */
+    if ( p == NULL || f == NULL || fp == NULL )
+        return error(potential_err_null);
+        
+    /* check if we have a user-specified 6th derivative or not. */
+    if ( f6p == NULL )
+        return error(potential_err_nyi);
+        
+    /* Stretch the domain ever so slightly to accommodate for rounding
+       error when computing the index. */
+    b += fabs(b) * sqrt(FPTYPE_EPSILON);
+    a -= fabs(a) * sqrt(FPTYPE_EPSILON);
+        
+    /* set the boundaries */
+    p->a = a; p->b = b;
+    
+    /* compute the optimal alpha for this potential */
+    alpha = potential_getalpha(f6p,a,b);
+    /* printf("potential_init: alpha is %22.16e\n",(double)alpha); fflush(stdout); */
+    
+    /* compute the interval transform */
+    w = 1.0 / (a - b); w *= w * w;
+    a2 = a*a; b2 = b*b;
+    p->alpha[0] = a*(a2-3*alpha*b*a+3*alpha*b2)*w;
+    p->alpha[1] = 3*(a2*alpha-a2-alpha*b2)*w;
+    p->alpha[2] = -3*(a*alpha-a-alpha*b)*w;
+    p->alpha[3] = -w;
+    
+    /* Correct the transform to the right. */
+    w = 2*FPTYPE_EPSILON*(fabs(p->alpha[0])+fabs(p->alpha[1])+fabs(p->alpha[2])+fabs(p->alpha[3]));
+    p->alpha[0] -= w*a/(a-b);
+    p->alpha[1] += w/(a-b);
+    /* printf( "potential_init: p(a)=%e, p(b)=%e.\n" ,
+        p->alpha[0] + a*(p->alpha[1] + a*(p->alpha[2] + a*p->alpha[3])) , 
+        p->alpha[0] + b*(p->alpha[1] + b*(p->alpha[2] + b*p->alpha[3])) ); */
+
+    /* compute the smallest interpolation... */
+    /* printf("potential_init: trying l=%i...\n",l); fflush(stdout); */
+    xi_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l + 1) );
+    c_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l+1) * potential_chunk );
+    if ( posix_memalign( (void **)&c_l , potential_align , sizeof(FPTYPE) * (l+1) * potential_chunk ) < 0 )
+        return error(potential_err_malloc);
+    xi_l[0] = a; xi_l[l] = b;
+    for ( i = 1 ; i < l ; i++ ) {
+        xi_l[i] = a + (b - a) * i / l;
+        while ( 1 ) {
+            e = i - l * (p->alpha[0] + xi_l[i]*(p->alpha[1] + xi_l[i]*(p->alpha[2] + xi_l[i]*p->alpha[3])));
+            xi_l[i] += e / (l * (p->alpha[1] + xi_l[i]*(2*p->alpha[2] + xi_l[i]*3*p->alpha[3])));
+            if ( fabs(e) < l*mtol )
+                break;
+            }
+        }
+    if ( potential_getcoeffs(f,fp,xi_l,l,&c_l[potential_chunk],&err_l) < 0 )
+        return error(potential_err);
+    /* fflush(stderr); printf("potential_init: err_l=%22.16e.\n",err_l); */
+        
+    /* if this interpolation is good enough, stop here! */
+    if ( err_l < tol ) {
+        p->n = l;
+        p->c = c_l;
+        p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n; p->alpha[3] *= p->n;
+        p->alpha[0] += 1;
+        p->c[0] = a; p->c[1] = 1.0 / a;
+        p->c[potential_degree+2] = f(a);
+        p->c[potential_degree+1] = fp(a) * a;
+        p->c[potential_degree] = 0.0;
+        for ( k = 2 ; k <= potential_degree ; k++ )
+            p->c[potential_degree] += k * (k-1) * p->c[2*potential_chunk-k-1] * ( 1 - 2*(k%2) );
+        p->c[potential_degree] *= a * a * p->c[potential_degree+4] * p->c[potential_degree+4];
+        for ( k = 2 ; k < potential_degree ; k++ )
+            p->c[k] = 0.0;
+        free(xi_l);
+        return potential_err_ok;
+        }
+        
+    /* loop until we have an upper bound on the right... */
+    while ( 1 ) {
+    
+        /* compute the larger interpolation... */
+        /* printf("potential_init: trying r=%i...\n",r); fflush(stdout); */
+        xi_r = (FPTYPE *)malloc( sizeof(FPTYPE) * (r + 1) );
+        if ( posix_memalign( (void **)&c_r , potential_align , sizeof(FPTYPE) * (r+1) * potential_chunk ) != 0 )
+            return error(potential_err_malloc);
+        xi_r[0] = a; xi_r[r] = b;
+        for ( i = 1 ; i < r ; i++ ) {
+            xi_r[i] = a + (b - a) * i / r;
+            while ( 1 ) {
+                e = i - r * (p->alpha[0] + xi_r[i]*(p->alpha[1] + xi_r[i]*(p->alpha[2] + xi_r[i]*p->alpha[3])));
+                xi_r[i] += e / (r * (p->alpha[1] + xi_r[i]*(2*p->alpha[2] + xi_r[i]*3*p->alpha[3])));
+                if ( fabs(e) < r*mtol )
+                    break;
+                }
+            }
+        if ( potential_getcoeffs(f,fp,xi_r,r,&c_r[potential_chunk],&err_r) < 0 )
+            return error(potential_err);
+        /* printf("potential_init: err_r=%22.16e.\n",err_r); fflush(stdout); */
+            
+        /* if this is better than tolerance, break... */
+        if ( err_r < tol )
+            break;
+            
+        /* Have we too many intervals? */
+        else if ( 2*r > potential_ivalsmax ) {
+            printf( "potential_init: warning: maximum nr of intervals (%i) reached, err=%e.\n" , r , err_r );
+            break;
+            }
+    
+        /* otherwise, l=r and r = 2*r */
+        else {
+            l = r; err_l = err_r;
+            free(xi_l); xi_l = xi_r;
+            free(c_l); c_l = c_r;
+            r *= 2;
+            }
+
+        } /* loop until we have a good right estimate */
+        
+    /* we now have a left and right estimate -- binary search! */
+    while ( r - l > 1 ) {
+    
+        /* find the middle */
+        m = 0.5 * ( r + l );
+        
+        /* construct that interpolation */
+        /* printf("potential_init: trying m=%i...\n",m); fflush(stdout); */
+        xi_m = (FPTYPE *)malloc( sizeof(FPTYPE) * (m + 1) );
+        if ( posix_memalign( (void **)&c_m , potential_align , sizeof(FPTYPE) * (m+1) * potential_chunk ) != 0 )
+            return error(potential_err_malloc);
+        xi_m[0] = a; xi_m[m] = b;
+        for ( i = 1 ; i < m ; i++ ) {
+            xi_m[i] = a + (b - a) * i / m;
+            while ( 1 ) {
+                e = i - m * (p->alpha[0] + xi_m[i]*(p->alpha[1] + xi_m[i]*(p->alpha[2] + xi_m[i]*p->alpha[3])));
+                xi_m[i] += e / (m * (p->alpha[1] + xi_m[i]*(2*p->alpha[2] + xi_m[i]*3*p->alpha[3])));
+                if ( fabs(e) < m*mtol )
+                    break;
+                }
+            }
+        if ( potential_getcoeffs(f,fp,xi_m,m,&c_m[potential_chunk],&err_m) != 0 )
+            return error(potential_err);
+        /* printf("potential_init: err_m=%22.16e.\n",err_m); fflush(stdout); */
+            
+        /* go left? */
+        if ( err_m > tol ) {
+            l = m; err_l = err_m;
+            free(xi_l); xi_l = xi_m;
+            free(c_l); c_l = c_m;
+            }
+            
+        /* otherwise, go right... */
+        else {
+            r = m; err_r = err_m;
+            free(xi_r); xi_r = xi_m;
+            free(c_r); c_r = c_m;
+            }
+                
+        } /* binary search */
+        
+    /* as of here, the right estimate is the smallest interpolation below */
+    /* the requested tolerance */
+    p->n = r;
+    p->c = c_r;
+    p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n; p->alpha[3] *= p->n;
+    p->alpha[0] += 1.0;
+    p->c[0] = a; p->c[1] = 1.0 / a;
+    p->c[potential_degree+2] = f(a);
+    p->c[potential_degree+1] = fp(a) * a;
+    p->c[potential_degree] = 0.0;
+    for ( k = 2 ; k <= potential_degree ; k++ )
+        p->c[potential_degree] += k * (k-1) * p->c[2*potential_chunk-k-1] * ( 1 - 2*(k%2) );
+    p->c[potential_degree] *= a * a * p->c[potential_chunk+1] * p->c[potential_chunk+1];
+    for ( k = 2 ; k < potential_degree ; k++ )
+        p->c[k] = 0.0;
+    free(xi_r);
+    free(xi_l); free(c_l);
+        
+    /* all is well that ends well... */
+    return potential_err_ok;
+    
+    }
+    
+    
+/**
+ * @brief Compute the optimal first derivatives for the given set of
+ *      nodes.
+ *
+ * @param f Pointer to the function to be interpolated.
+ * @param n Number of intervals.
+ * @param xi Pointer to an array of nodes between whicht the function @c f
+ *      will be interpolated.
+ * @param fp Pointer to an array in which to store the first derivatives
+ *      of @c f.
+ *
+ * @return #potential_err_ok or < 0 on error (see #potential_err).
+ */
+ 
+int potential_getfp ( double (*f)( double ) , int n , FPTYPE *x , double *fp ) {
+    
+    int i, k;
+    double m, h, eff, fx[n+1], hx[n], ih[n], ih2[n];
+    double d0[n+1], d1[n+1], d2[n+1], b[n+1];
+    double viwl1[n], viwr1[n];
+    static double *w = NULL, *xi = NULL;
+    
+    /* Cardinal functions. */
+    const double cwl1[4] = { 0.25, -0.25, -0.25, 0.25 };
+    const double cwr1[4] = { -0.25, -0.25, 0.25, 0.25 };
+    const double wl0wl1 = 0.1125317885884428;
+    const double wl1wl1 = 0.03215579530433858;
+    const double wl0wr1 = -0.04823369227661384;
+    const double wl1wr1 = -0.02143719641629633;
+    const double wr0wr1 = -0.1125317885884429;
+    const double wr1wr1 = 0.03215579530433859;
+    const double wl1wr0 = 0.04823369227661384;
+
+    /* Pre-compute the weights? */
+    if ( w == NULL ) {
+        if ( ( w = (double *)malloc( sizeof(double) * potential_N ) ) == NULL ||
+             ( xi = (double *)malloc( sizeof(double) * potential_N ) ) == NULL )
+            return error(potential_err_malloc);
+        for ( k = 1 ; k < potential_N-1 ; k++ ) {
+            xi[k] = cos( k * M_PI / (potential_N - 1) );
+            w[k] = 1.0 / sqrt( 1.0 - xi[k]*xi[k] );
+            }
+        xi[0] = 1.0; xi[potential_N-1] = -1.0;
+        w[0] = 0.0; w[potential_N-1] = 0.0;
+        }
+        
+    /* Get the values of fx and ih. */
+    for ( i = 0 ; i <= n ; i++ )
+        fx[i] = f( x[i] );
+    for ( i = 0 ; i < n ; i++ ) {
+        hx[i] = x[i+1] - x[i];
+        ih[i] = 1.0 / hx[i];
+        ih2[i] = ih[i] * ih[i];
+        }
+        
+    /* Compute the products of f with respect to wl1 and wr1. */
+    for ( i = 0 ; i < n ; i++ ) {
+        viwl1[i] = 0.0; viwr1[i] = 0.0;
+        m = 0.5*(x[i] + x[i+1]);
+        h = 0.5*(x[i+1] - x[i]);
+        for ( k = 1 ; k < potential_N-1 ; k++ ) {
+            eff = f( m + h*xi[k] );
+            viwl1[i] += w[k] * ( eff * ( cwl1[0] + xi[k]*(cwl1[1] + xi[k]*(cwl1[2] + xi[k]*cwl1[3])) ) );
+            viwr1[i] += w[k] * ( eff * ( cwr1[0] + xi[k]*(cwr1[1] + xi[k]*(cwr1[2] + xi[k]*cwr1[3])) ) );
+            }
+        viwl1[i] /= potential_N-2;
+        viwr1[i] /= potential_N-2;
+        }
+        
+    /* Fill the diagonals and the right-hand side. */
+    d1[0] = wl1wl1 * hx[0];
+    d2[0] = wl1wr1 * hx[0];
+    b[0] = 2 * ( viwl1[0] - fx[0]*wl0wl1 - fx[1]*wl1wr0 );
+    for ( i = 1 ; i < n ; i++ ) {
+        d0[i] = wl1wr1 * hx[i-1];
+        d1[i] = wr1wr1 * hx[i-1] + wl1wl1 * hx[i];
+        d2[i] = wl1wr1 * hx[i];
+        b[i] = 2 * ( viwr1[i-1] - fx[i-1]*wl0wr1 - fx[i]*wr0wr1 ) +
+               2 * ( viwl1[i] - fx[i]*wl0wl1 - fx[i+1]*wl1wr0 );
+        }
+    d0[n] = wl1wr1 * hx[n-1];
+    d1[n] = wr1wr1 * hx[n-1];
+    b[n] = 2 * ( viwr1[n-1] - fx[n-1]*wl0wr1 - fx[n]*wr0wr1 );
+    
+    /* Solve the trilinear system. */
+    for ( i = 1 ; i <= n ; i++ )  {
+        m = d0[i]/d1[i-1];
+        d1[i] = d1[i] - m*d2[i-1];
+        b[i] = b[i] - m*b[i-1];
+        }
+    fp[n] = b[n]/d1[n];
+    for ( i = n - 1 ; i >= 0 ; i-- )
+        fp[i] = ( b[i] - d2[i]*fp[i+1] ) / d1[i];
+        
+    /* Fingers crossed... */
+    return potential_err_ok;
+        
+    }
+    
+    
+/**
  * @brief Compute the interpolation coefficients over a given set of nodes.
  * 
  * @param f Pointer to the function to be interpolated.
@@ -1930,9 +2400,9 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
 int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYPE *xi , int n , FPTYPE *c , FPTYPE *err ) {
 
     int i, j, k, ind;
-    FPTYPE phi[7], cee[6], fa, fb, dfa, dfb;
-    FPTYPE h, m, w, e, err_loc, maxf, x;
-    FPTYPE fx[potential_N];
+    double phi[7], cee[6], fa, fb, dfa, dfb, fix[n], fpx[n];
+    double h, m, w, e, err_loc, maxf, x;
+    double fx[potential_N];
     static FPTYPE *coskx = NULL;
 
     /* check input sanity */
@@ -1948,6 +2418,17 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
                 coskx[ k*potential_N + j ] = cos( j * k * M_PI / potential_N );
         }
         
+    /* Get fx and fpx. */
+    for ( k = 0 ; k <= n ; k++ )
+        fix[k] = f( xi[k] );
+        
+    /* Compute the optimal fpx. */
+    if ( potential_getfp( f , n , xi , fpx ) < 0 )
+        return error(potential_err);
+    /* for ( k = 0 ; k <= n ; k++ )
+        printf( "potential_getcoeffs: fp[%i]=%e , fpx[%i]=%e.\n" , k , fp(xi[k]) , k , fpx[k] );
+    fflush(stdout); getchar(); */
+        
     /* init the maximum interpolation error */
     *err = 0.0;
     
@@ -1962,8 +2443,8 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         h = (xi[i+1] - xi[i]) / 2;
         
         /* evaluate f and fp at the edges */
-        fa = f(xi[i]); fb = f(xi[i+1]);
-        dfa = fp(xi[i]) * h; dfb = fp(xi[i+1]) * h;
+        fa = fix[i]; fb = fix[i+1];
+        dfa = fpx[i] * h; dfb = fpx[i+1] * h;
         // printf("potential_getcoeffs: xi[i]=%22.16e\n",xi[i]);
         
         /* compute the coefficients phi of f */
@@ -2098,6 +2579,85 @@ double potential_getalpha ( double (*f6p)( double ) , double a , double b ) {
         fa[i] = 0.0;
         for ( j = 0 ; j < potential_N ; j++ ) {
             temp = fabs( pow( alpha[i] + 2 * (1 - alpha[i]) * xi[j] , -6 ) * fx[j] );
+            if ( temp > fa[i] )
+                fa[i] = temp;
+            }
+    
+        } /* main loop */
+        
+    /* return the average */
+    return (alpha[0] + alpha[3]) / 2;
+
+    }
+
+/**
+ * @brief Compute the parameter @f$\alpha@f$ for the optimal node distribution.
+ *
+ * @param f6p Pointer to a function representing the 6th derivative of the
+ *      interpoland.
+ * @param a Left limit of the interpolation.
+ * @param b Right limit of the interpolation.
+ *
+ * @return The computed value for @f$\alpha@f$.
+ *
+ * The value @f$\alpha@f$ is computed using Brent's algortihm to 4 decimal
+ * digits.
+ */
+ 
+double potential_getalpha3 ( double (*f6p)( double ) , double a , double b ) {
+
+    double xi[potential_N], fx[potential_N];
+    int i, j;
+    double temp;
+    double alpha[4], fa[4], maxf = 0.0;
+    const double golden = 2.0 / (1 + sqrt(5));
+    
+    /* start by evaluating f6p at the N nodes between 'a' and 'b' */
+    for ( i = 0 ; i < potential_N ; i++ ) {
+        xi[i] = ((double)i + 1) / (potential_N + 1);
+        fx[i] = f6p( a + (b-a) * xi[i] );
+        maxf = fmax( maxf , fabs(fx[i]) );
+        }
+        
+    /* Trivial? */
+    if ( maxf == 0.0 )
+        return 0.5;
+        
+    /* set the initial values for alpha */
+    alpha[0] = 0; alpha[3] = 1;
+    alpha[1] = alpha[3] - golden; alpha[2] = alpha[0] + golden;
+    for ( i = 0 ; i < 4 ; i++ ) {
+        fa[i] = 0.0;
+        for ( j = 0 ; j < potential_N ; j++ ) {
+            temp = fabs( pow( 3*alpha[i] - 6*alpha[i]*xi[j] + 3*xi[j]*xi[j] , -6 ) * fx[j] );
+            if ( temp > fa[i] )
+                fa[i] = temp;
+            }
+        }
+        
+    /* main loop (brent's algorithm) */
+    while ( alpha[3] - alpha[0] > 1.0e-4 ) {
+    
+        /* go west? */
+        if ( fa[1] < fa[2] ) {
+            alpha[3] = alpha[2]; fa[3] = fa[2];
+            alpha[2] = alpha[1]; fa[2] = fa[1];
+            alpha[1] = alpha[3] - (alpha[3] - alpha[0]) * golden;
+            i = 1;
+            }
+            
+        /* nope, go east... */
+        else {
+            alpha[0] = alpha[1]; fa[0] = fa[1];
+            alpha[1] = alpha[2]; fa[1] = fa[2];
+            alpha[2] = alpha[0] + (alpha[3] - alpha[0]) * golden;
+            i = 2;
+            }
+            
+        /* compute the new value */
+        fa[i] = 0.0;
+        for ( j = 0 ; j < potential_N ; j++ ) {
+            temp = fabs( pow( 3*alpha[i] - 6*alpha[i]*xi[j] + 3*xi[j]*xi[j] , -6 ) * fx[j] );
             if ( temp > fa[i] )
                 fa[i] = temp;
             }

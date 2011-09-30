@@ -260,14 +260,14 @@ struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist
         
     /* is there room for this particle? */
     if ( c->count == c->size ) {
-        if ( posix_memalign( (void **)&temp , cell_partalign , align_ceil( sizeof(struct part) * ( c->size + cell_incr ) ) ) != 0 ) {
+        c->size *= 1.414;
+        if ( posix_memalign( (void **)&temp , cell_partalign , align_ceil( sizeof(struct part) * c->size ) ) != 0 ) {
             error(cell_err_malloc);
             return NULL;
             }
         memcpy( temp , c->parts , sizeof(struct part) * c->count );
         free( c->parts );
         c->parts = temp;
-        c->size += cell_incr;
         if ( partlist != NULL )
             for ( k = 0 ; k < c->count ; k++ )
                 partlist[ c->parts[k].id ] = &( c->parts[k] );

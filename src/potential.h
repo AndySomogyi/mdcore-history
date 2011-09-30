@@ -39,7 +39,10 @@
 #define potential_N                         100
 #define potential_align                     64
 #define potential_align                     64
-#define potential_ivalsmax                  200
+#define potential_ivalsmax                  320
+
+#define potential_escale                    (0.079577471545947667882)
+// #define potential_escale                    1.0
 
 
 /* potential flags */
@@ -57,20 +60,20 @@ extern int potential_err;
 /** The #potential structure. */
 struct potential {
 
+    /** Coefficients for the interval transform. */
+    FPTYPE alpha[4];
+    
+    /** The coefficients. */
+    FPTYPE *c;
+    
     /** Interval edges. */
     double a, b;
     
     /** Flags. */
     unsigned int flags;
     
-    /** Coefficients for the interval transform. */
-    FPTYPE alpha[3];
-    
     /** Nr of intervals. */
     int n;
-    
-    /** The coefficients. */
-    FPTYPE *c;
     
     };
     
@@ -81,7 +84,9 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
 double potential_getalpha ( double (*f6p)( double ) , double a , double b );
 struct potential *potential_create_LJ126 ( double a , double b , double A , double B , double tol );
 struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol );
+struct potential *potential_create_LJ126_Coulomb ( double a , double b , double A , double B , double q , double tol );
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol );
+struct potential *potential_create_Coulomb ( double a , double b , double q , double tol );
 struct potential *potential_create_harmonic ( double a , double b , double K , double r0 , double tol );
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol );
 struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol );
@@ -105,3 +110,6 @@ double potential_LJ126_6p ( double r , double A , double B );
 double potential_Ewald ( double r , double kappa );
 double potential_Ewald_p ( double r , double kappa );
 double potential_Ewald_6p ( double r , double kappa );
+double potential_Coulomb ( double r );
+double potential_Coulomb_p ( double r );
+double potential_Coulomb_6p ( double r );

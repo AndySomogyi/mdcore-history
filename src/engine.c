@@ -50,6 +50,7 @@
 #include "rigid.h"
 #include "angle.h"
 #include "dihedral.h"
+#include "exclusion.h"
 #include "reader.h"
 #include "engine.h"
 
@@ -62,7 +63,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[18] = {
+char *engine_err_msg[19] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -81,7 +82,661 @@ char *engine_err_msg[18] = {
     "An error occured while interpreting the PDB file.",
     "An error occured while interpreting the CPF file.",
     "An error occured when calling a potential function.", 
+    "An error occured when calling an exclusion function.", 
 	};
+
+
+/**
+ * @brief Check if the Verlet-list needs to be updated.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_verlet_update ( struct engine *e ) {
+
+    int cid, pid, k;
+    double dx, w, maxdx = 0.0, skin;
+    struct cell *c;
+    struct part *p;
+    struct space *s = &e->s;
+    #ifdef HAVE_OPENMP
+        int step;
+        double lmaxdx;
+    #endif
+    
+    /* Do we really need to do this? */
+    if ( !(e->flags & engine_flag_verlet) )
+        return engine_err_ok;
+    
+    /* Get the skin width. */    
+    skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) ) - s->cutoff;
+    
+    /* Get the maximum particle movement. */
+    #ifdef HAVE_OPENMP
+        #pragma omp parallel private(cid,pid,p,dx,k,w,step,lmaxdx)
+        {
+            lmaxdx = 0.0; step = omp_get_num_threads();
+            for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
+                c = &(s->cells[cid]);
+                if ( !( c->flags & cell_flag_ghost ) )
+                    for ( pid = 0 ; pid < c->count ; pid++ ) {
+                        p = &(c->parts[pid]);
+                        for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                            w = p->x[k] - c->oldx[ 4*pid + k ];
+                            dx += w*w;
+                            }
+                        lmaxdx = fmax( dx , lmaxdx );
+                        }
+                }
+            #pragma omp critical
+            maxdx = fmax( lmaxdx , maxdx );
+            }
+    #else
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( !( c->falgs & cell_flag_ghost ) )
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &(c->parts[pid]);
+                    for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                        w = p->x[k] - c->oldx[ 4*pid + k ];
+                        dx += w*w;
+                        }
+                    maxdx = fmax( dx , maxdx );
+                    }
+            }
+    #endif
+
+    #ifdef HAVE_MPI
+    /* Collect the maximum displacement from other nodes. */
+    if ( ( e->flags & engine_flag_mpi ) && ( e->nr_nodes > 1 ) ) {
+        if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE_PRECISION , MPI_MAX , MPI_COMM_WORLD ) != MPI_SUCCESS )
+            return error(engine_err_mpi);
+        }
+    #endif
+
+    /* Are we still in the green? */
+    s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
+        
+    /* Do we have to rebuild the Verlet list? */
+    if ( s->verlet_rebuild ) {
+    
+        /* printf("engine_verlet_update: (re)building verlet lists...\n");
+        printf("engine_verlet_update: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
+        
+        /* Shuffle the domain. */
+        if ( space_shuffle( s ) < 0 )
+            return error(space_err);
+            
+        /* Store the current positions as a reference. */
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( c->flags & cell_flag_ghost )
+                continue;
+            if ( c->oldx == NULL || c->oldx_size < c->count ) {
+                free(c->oldx);
+                c->oldx_size = c->size + 20;
+                c->oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * c->oldx_size );
+                }
+            for ( pid = 0 ; pid < c->count ; pid++ ) {
+                p = &(c->parts[pid]);
+                for ( k = 0 ; k < 3 ; k++ )
+                    c->oldx[ 4*pid + k ] = p->x[k];
+                }
+            }
+            
+        /* Set the nrpairs to zero. */
+        if ( !( e->flags & engine_flag_verlet_pairwise ) && s->verlet_nrpairs != NULL )
+            bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
+
+        }
+            
+    /* All done! */
+    return engine_err_ok;
+
+    }
+    
+
+/**
+ * @brief Read the potentials from a XPLOR parameter file.
+ *
+ * @param e The #engine.
+ * @param xplor The open XPLOR parameter file.
+ * @param kappa The PME screening width.
+ * @param tol The absolute tolerance for interpolation.
+ * @param rigidH Convert all bonds over a type starting with 'H'
+ *      to a rigid constraint.
+ *
+ * If @c kappa is zero, truncated Coulomb electrostatic interactions are
+ * assumed. If @c kappa is less than zero, no electrostatic interactions
+ * are computed.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+
+int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double tol , int rigidH ) {
+
+    struct reader r;
+    char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
+    int tid, tjd, wc[4];
+    int res, j, k, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
+    double K, Kr0, r0, r2, r6, *eps, *rmin, A, B, q, al, ar, am, vl, vr, vm;
+    struct potential *p;
+    
+    /* Check inputs. */
+    if ( e == NULL || xplor == NULL )
+        return error(engine_err_null);
+        
+    /* Allocate some local memory for the index arrays. */
+    if ( ( ind1 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL ||
+         ( ind2 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL ||
+         ( eps = (double *)alloca( sizeof(double) * e->nr_types ) ) == NULL ||
+         ( rmin = (double *)alloca( sizeof(double) * e->nr_types ) ) == NULL )
+        return error(engine_err_malloc);
+    bzero( eps , sizeof(double) * e->nr_types );
+    bzero( rmin , sizeof(double) * e->nr_types );
+        
+    /* Init the reader with the XPLOR file. */
+    if ( reader_init( &r , xplor , NULL , "!{" , "\n" ) < 0 )
+        return error(engine_err_reader);
+        
+    /* Main loop. */
+    while ( !( r.flags & reader_flag_eof ) ) {
+    
+        /* Get the first token */
+        if ( ( res = reader_gettoken( &r , buff , 100 ) ) == reader_err_eof )
+            break;
+        else if ( res < 0 )
+            return error(engine_err_reader);
+
+        /* Did we get a bond? */
+        if ( strncasecmp( buff , "BOND" , 4 ) == 0 ) {
+    
+            /* Get the atom types. */
+            if ( reader_gettoken( &r , type1 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type2 , 100 ) < 0 )
+                return error(engine_err_reader);
+
+            /* Get the parameters K and r0. */
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            K = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            r0 = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+
+            /* Is this a rigid bond (and do we care)? */  
+            if ( rigidH && ( type1[0] == 'H' || type2[0] == 'H' ) ) {
+
+                /* Loop over all bonds... */
+                for ( k = 0 ; k < e->nr_bonds ; k++ ) {
+
+                    /* Does this bond match the types? */
+                    if ( ( strcmp( e->types[e->s.partlist[e->bonds[k].i]->type].name , type1 ) == 0 &&
+                           strcmp( e->types[e->s.partlist[e->bonds[k].j]->type].name , type2 ) == 0 ) ||
+                         ( strcmp( e->types[e->s.partlist[e->bonds[k].i]->type].name , type2 ) == 0 &&
+                           strcmp( e->types[e->s.partlist[e->bonds[k].j]->type].name , type1 ) == 0 ) ) {
+
+                        /* Register as a constraint. */
+                        if ( engine_rigid_add( e , e->bonds[k].i , e->bonds[k].j , 0.1*r0 ) < 0 )
+                            return error(engine_err);
+
+                        /* Remove this bond. */
+                        e->nr_bonds -= 1;
+                        e->bonds[k] = e->bonds[e->nr_bonds];
+                        k -= 1;
+
+                        }
+
+                    } /* Loop over all bonds. */
+
+                }
+
+            /* Otherwise... */
+            else {
+
+                /* Are type1 and type2 the same? */
+                if ( strcmp( type1 , type2 ) == 0 ) {
+
+                    /* Fill the ind1 array. */
+                    for ( nr_ind1 = 0 , k = 0 ; k < e->nr_types ; k++ )
+                        if ( strcmp( type1 , e->types[k].name ) == 0 ) {
+                            ind1[nr_ind1] = k;
+                            nr_ind1 += 1;
+                            }
+
+                    /* Are there any indices? */
+                    if ( nr_ind1 > 0 ) {
+
+                        /* Create the harmonic potential. */
+                        if ( ( p = potential_create_harmonic( 0.05*r0 , 0.15*r0 , 418.4*K , 0.1*r0 , tol ) ) == NULL )
+                            return error(engine_err_potential);
+
+                        /* Loop over the types and add the potential. */
+                        for ( tid = 0 ; tid < nr_ind1 ; tid++ )
+                            for ( tjd = tid ; tjd < nr_ind1 ; tjd++ )
+                                if ( engine_bond_addpot( e , p , ind1[tid] , ind1[tjd] ) < 0 )
+                                    return error(engine_err);
+
+                        }
+
+                    }
+                /* Otherwise... */
+                else {
+
+                    /* Fill the ind1 and ind2 arrays. */
+                    for ( nr_ind1 = 0 , nr_ind2 = 0 , k = 0 ; k < e->nr_types ; k++ ) {
+                        if ( strcmp( type1 , e->types[k].name ) == 0 ) {
+                            ind1[nr_ind1] = k;
+                            nr_ind1 += 1;
+                            }
+                        else if ( strcmp( type2 , e->types[k].name ) == 0 ) {
+                            ind2[nr_ind2] = k;
+                            nr_ind2 += 1;
+                            }
+                        }
+
+                    /* Are there any indices? */
+                    if ( nr_ind1 > 0 && nr_ind2 > 0 ) {
+
+                        /* Create the harmonic potential. */
+                        if ( ( p = potential_create_harmonic( 0.05*r0 , 0.15*r0 , 418.4*K , 0.1*r0 , tol ) ) == NULL )
+                            return error(engine_err_potential);
+
+                        /* Loop over the types and add the potential. */
+                        for ( tid = 0 ; tid < nr_ind1 ; tid++ )
+                            for ( tjd = 0 ; tjd < nr_ind2 ; tjd++ )
+                                if ( engine_bond_addpot( e , p , ind1[tid] , ind2[tjd] ) < 0 )
+                                    return error(engine_err);
+
+                        }
+
+                    }
+
+                }
+                
+            } /* Is it a bond? */
+        
+        /* Is it an angle? */    
+        else if ( strncasecmp( buff , "ANGL" , 4 ) == 0 ) {
+        
+            /* Get the atom types. */
+            if ( reader_gettoken( &r , type1 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type2 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type3 , 100 ) < 0 )
+                return error(engine_err_reader);
+
+            /* Check if these types even exist. */
+            if ( engine_gettype( e , type1 ) < 0 && 
+                 engine_gettype( e , type2 ) < 0 &&
+                 engine_gettype( e , type3 ) < 0 ) {
+                if ( reader_skipline( &r ) < 0 )
+                    return error(engine_err_reader);
+                continue;
+                }
+
+            /* Get the parameters K and r0. */
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            K = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            r0 = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+
+            /* Run through the angle list and create the potential if necessary. */
+            potid = -1;
+            for ( k = 0 ; k < e->nr_angles ; k++ ) {
+
+                /* Does this angle match the types? */
+                if ( ( strcmp( e->types[e->s.partlist[e->angles[k].i]->type].name , type1 ) == 0 &&
+                       strcmp( e->types[e->s.partlist[e->angles[k].j]->type].name , type2 ) == 0 &&
+                       strcmp( e->types[e->s.partlist[e->angles[k].k]->type].name , type3 ) == 0 ) ||
+                     ( strcmp( e->types[e->s.partlist[e->angles[k].i]->type].name , type3 ) == 0 &&
+                       strcmp( e->types[e->s.partlist[e->angles[k].j]->type].name , type2 ) == 0 &&
+                       strcmp( e->types[e->s.partlist[e->angles[k].k]->type].name , type1 ) == 0 ) ) {
+
+                    /* Do we need to create the potential? */
+                    if ( potid < 0 ) {
+                        if ( ( p = potential_create_harmonic_angle( M_PI/180*(r0-45) , M_PI/180*(r0+45) , 4.184*K , M_PI/180*r0 , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        if ( ( potid = engine_angle_addpot( e , p ) ) < 0 )
+                            return error(engine_err);
+                        /* printf( "engine_read_cpf: generated potential for angle %s %s %s with %i intervals.\n" ,
+                            type1 , type2 , type3 , e->p_angle[potid]->n ); */
+                        }
+
+                    /* Add the potential to the angle. */
+                    e->angles[k].pid = potid;
+
+                    }
+
+                }
+            
+            } /* Is it an angle? */
+            
+        /* Perhaps a propper dihedral? */
+        else if ( strncasecmp( buff , "DIHE" , 4 ) == 0 ) {
+        
+            /* Get the atom types. */
+            if ( reader_gettoken( &r , type1 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type2 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type3 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type4 , 100 ) < 0 )
+                return error(engine_err_reader);
+
+            /* Check for wildcards. */
+            wc[0] = ( strcmp( type1 , "X" ) == 0 );
+            wc[1] = ( strcmp( type2 , "X" ) == 0 );
+            wc[2] = ( strcmp( type3 , "X" ) == 0 );
+            wc[3] = ( strcmp( type4 , "X" ) == 0 );
+
+            /* Check if these types even exist. */
+            if ( ( wc[0] || engine_gettype( e , type1 ) < 0 ) && 
+                 ( wc[1] || engine_gettype( e , type2 ) < 0 ) &&
+                 ( wc[2] || engine_gettype( e , type3 ) < 0 ) &&
+                 ( wc[3] || engine_gettype( e , type4 ) < 0 ) ) {
+                if ( reader_skipline( &r ) < 0 )
+                    return error(engine_err_reader);
+                continue;
+                }
+
+            /* Get the parameters K and r0. */
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            K = strtod( buff , &endptr );
+            if ( *endptr != 0 ) {
+                printf( "engine_read_xplor: failed to parse double on line %i, col %i.\n" , r.line , r.col );
+                return error(engine_err_cpf);
+                }
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            n = strtol( buff , &endptr , 0 );
+            if ( *endptr != 0 ) {
+                printf( "engine_read_xplor: failed to parse int on line %i, col %i.\n" , r.line , r.col );
+                return error(engine_err_cpf);
+                }
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            r0 = strtod( buff , &endptr );
+            if ( *endptr != 0 ) {
+                printf( "engine_read_xplor: failed to parse double on line %i, col %i.\n" , r.line , r.col );
+                return error(engine_err_cpf);
+                }
+
+            /* Run through the dihedral list and create the potential if necessary. */
+            potid = -1;
+            for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
+
+                /* Does this dihedral match the types? */
+                if ( ( e->dihedrals[k].pid == -1 ) &&
+                     ( ( ( wc[0] || strcmp( e->types[e->s.partlist[e->dihedrals[k].i]->type].name , type1 ) == 0 ) &&
+                         ( wc[1] || strcmp( e->types[e->s.partlist[e->dihedrals[k].j]->type].name , type2 ) == 0 ) &&
+                         ( wc[2] || strcmp( e->types[e->s.partlist[e->dihedrals[k].k]->type].name , type3 ) == 0 ) &&
+                         ( wc[3] || strcmp( e->types[e->s.partlist[e->dihedrals[k].l]->type].name , type4 ) == 0 ) ) ||
+                       ( ( wc[3] || strcmp( e->types[e->s.partlist[e->dihedrals[k].i]->type].name , type4 ) == 0 ) &&
+                         ( wc[2] || strcmp( e->types[e->s.partlist[e->dihedrals[k].j]->type].name , type3 ) == 0 ) &&
+                         ( wc[1] || strcmp( e->types[e->s.partlist[e->dihedrals[k].k]->type].name , type2 ) == 0 ) &&
+                         ( wc[0] || strcmp( e->types[e->s.partlist[e->dihedrals[k].l]->type].name , type1 ) == 0 ) ) ) ) {
+
+                    /* Do we need to create the potential? */
+                    if ( potid < 0 ) {
+                        if ( ( p = potential_create_harmonic_dihedral( 4.184*K , n , M_PI/180*r0 , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        if ( ( potid = engine_dihedral_addpot( e , p ) ) < 0 )
+                            return error(engine_err);
+                        /* printf( "engine_read_cpf: generated potential for dihedral %s %s %s %s in [%e,%e] with %i intervals.\n" ,
+                            type1 , type2 , type3 , type4 , e->p_dihedral[potid]->a , e->p_dihedral[potid]->b , e->p_dihedral[potid]->n ); */
+                        }
+
+                    /* Add the potential to the dihedral. */
+                    e->dihedrals[k].pid = potid;
+
+                    }
+
+                }
+            
+            } /* Dihedral? */
+            
+        /* Or an improper dihedral instead? */
+        else if ( strncasecmp( buff , "IMPR" , 4 ) == 0 ) {
+        
+            /* Get the atom types. */
+            if ( reader_gettoken( &r , type1 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type2 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type3 , 100 ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , type4 , 100 ) < 0 )
+                return error(engine_err_reader);
+
+            /* Check for wildcards. */
+            wc[0] = ( strcmp( type1 , "X" ) == 0 );
+            wc[1] = ( strcmp( type2 , "X" ) == 0 );
+            wc[2] = ( strcmp( type3 , "X" ) == 0 );
+            wc[3] = ( strcmp( type4 , "X" ) == 0 );
+
+            /* Check if these types even exist. */
+            if ( ( wc[0] || engine_gettype( e , type1 ) < 0 ) && 
+                 ( wc[1] || engine_gettype( e , type2 ) < 0 ) &&
+                 ( wc[2] || engine_gettype( e , type3 ) < 0 ) &&
+                 ( wc[3] || engine_gettype( e , type4 ) < 0 ) ) {
+                if ( reader_skipline( &r ) < 0 )
+                    return error(engine_err_reader);
+                continue;
+                }
+
+            /* Get the parameters K and r0. */
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            K = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+            if ( reader_skiptoken( &r ) < 0 )
+                return error(engine_err_reader);
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            r0 = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+
+            /* Run through the dihedral list and create the potential if necessary. */
+            potid = -1;
+            for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
+
+                /* Does this dihedral match the types? */
+                if ( ( e->dihedrals[k].pid == -2 ) &&
+                     ( ( ( wc[0] || strcmp( e->types[e->s.partlist[e->dihedrals[k].i]->type].name , type1 ) == 0 ) &&
+                         ( wc[1] || strcmp( e->types[e->s.partlist[e->dihedrals[k].j]->type].name , type2 ) == 0 ) &&
+                         ( wc[2] || strcmp( e->types[e->s.partlist[e->dihedrals[k].k]->type].name , type3 ) == 0 ) &&
+                         ( wc[3] || strcmp( e->types[e->s.partlist[e->dihedrals[k].l]->type].name , type4 ) == 0 ) ) ||
+                       ( ( wc[3] || strcmp( e->types[e->s.partlist[e->dihedrals[k].i]->type].name , type4 ) == 0 ) &&
+                         ( wc[2] || strcmp( e->types[e->s.partlist[e->dihedrals[k].j]->type].name , type3 ) == 0 ) &&
+                         ( wc[1] || strcmp( e->types[e->s.partlist[e->dihedrals[k].k]->type].name , type2 ) == 0 ) &&
+                         ( wc[0] || strcmp( e->types[e->s.partlist[e->dihedrals[k].l]->type].name , type1 ) == 0 ) ) ) ) {
+
+                    /* Do we need to create the potential? */
+                    if ( potid < 0 ) {
+                        if ( ( p = potential_create_harmonic_angle( M_PI/180*(r0-45) , M_PI/180*(r0+45) , 4.184*K , M_PI/180*r0 , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        if ( ( potid = engine_dihedral_addpot( e , p ) ) < 0 )
+                            return error(engine_err);
+                        /* printf( "engine_read_cpf: generated potential for imp. dihedral %s %s %s %s with %i intervals.\n" ,
+                            type1 , type2 , type3 , type4 , e->p_dihedral[potid]->n ); */
+                        }
+
+                    /* Add the potential to the dihedral. */
+                    e->dihedrals[k].pid = potid;
+
+                    }
+
+                }
+            
+            } /* Improper dihedral? */
+            
+        /* Well then maybe a non-bonded interaction... */
+        else if ( strncasecmp( buff , "NONB" , 4 ) == 0 ) {
+        
+            /* Get the atom type. */
+            if ( reader_gettoken( &r , type1 , 100 ) < 0 )
+                return error(engine_err_reader);
+
+            /* Get the next two parameters. */
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            K = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+                return error(engine_err_reader);
+            r0 = strtod( buff , &endptr );
+            if ( *endptr != 0 )
+                return error(engine_err_cpf);
+
+            /* Run through the types and store the parameters for each match. */
+            for ( k = 0 ; k < e->nr_types ; k++ )
+                if ( strcmp( e->types[k].name , type1 ) == 0 ) {
+                    eps[k] = K;
+                    rmin[k] = r0;
+                    }
+                
+            } /* non-bonded iteraction. */
+            
+        /* Otherwise, do, well, nothing. */
+        else {
+        
+            }
+            
+        /* Skip the rest of the line. */
+        if ( reader_skipline( &r ) < 0 )
+            return error(engine_err_reader);
+    
+        } /* Main loop. */
+        
+                        
+    /* Loop over all the type pairs and construct the non-bonded potentials. */
+    for ( j = 0 ; j < e->nr_types ; j++ )
+        for ( k = j ; k < e->nr_types ; k++ ) {
+            
+            /* Has a potential been specified for this case? */
+            if ( ( eps[j] == 0.0 || eps[k] == 0.0 ) &&
+                 ( kappa < 0.0 || e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
+                continue;
+                
+            /* Construct the common LJ parameters. */
+            K = 4.184 * sqrt( eps[j] * eps[k] );
+            r0 = 0.05 * ( rmin[j] + rmin[k] );
+            r2 = r0*r0; r6 = r2*r2*r2;
+            A = K*r6*r6; B = 2*K*r6;
+            q = e->types[j].charge*e->types[k].charge;
+                
+            /* Construct the potential. */
+            /* printf( "engine_read_cpf: creating %s-%s potential with A=%e B=%e q=%e.\n" ,
+                e->types[j].name , e->types[k].name , 
+                K*r6*r6 , K*2*r6 , e->types[j].charge*e->types[k].charge ); */
+            if ( K == 0.0 ) {
+                if ( q != 0.0 && kappa >= 0.0 ) {
+                    if ( kappa > 0.0 ) {
+                        if ( ( p = potential_create_Ewald( 0.1 , e->s.cutoff , q , kappa , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        }
+                    else {
+                        if ( ( p = potential_create_Coulomb( 0.1 , e->s.cutoff , q , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        }
+                    }
+                else
+                    p = NULL;
+                }
+            if ( kappa < 0.0 ) {
+                al = r0/2; vl = potential_LJ126( al , A , B );
+                ar = r0; vr = potential_LJ126( ar , A , B );
+                Kr0 = fabs( potential_LJ126( r0 , A , B ) );
+                while ( ar-al > 1e-5 ) {
+                    am = 0.5*(al + ar); vm = potential_LJ126( am , A , B );
+                    if ( fabs(vm) < 5*Kr0 ) {
+                        ar = am; vr = vm;
+                        }
+                    else {
+                        al = am; vl = vm;
+                        }
+                    }
+                if ( ( p = potential_create_LJ126( al , e->s.cutoff , A , B , tol ) ) == NULL ) {
+                    printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e on [%e,%e].\n" ,
+                    e->types[j].name , e->types[k].name , 
+                    A , B , al , e->s.cutoff );
+                    return error(engine_err_potential);
+                    }
+                }
+            else if ( kappa == 0.0 ) {
+                al = r0/2; vl = potential_LJ126( al , A , B ) + potential_escale*q/al;
+                ar = r0; vr = potential_LJ126( ar , A , B ) + potential_escale*q/ar;
+                Kr0 = fabs( potential_LJ126( r0 , A , B ) + potential_escale*q/r0 );
+                while ( ar-al > 1e-5 ) {
+                    am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + potential_escale*q/am;
+                    if ( fabs(vm) < 5*Kr0 ) {
+                        ar = am; vr = vm;
+                        }
+                    else {
+                        al = am; vl = vm;
+                        }
+                    }
+                if ( ( p = potential_create_LJ126_Coulomb( al , e->s.cutoff , A , B , q , tol ) ) == NULL ) {
+                    printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
+                    e->types[j].name , e->types[k].name , 
+                    A ,B , q ,
+                    al , e->s.cutoff );
+                    return error(engine_err_potential);
+                    }
+                }
+            else  {
+                al = r0/2; vl = potential_LJ126( al , A , B ) + q*potential_Ewald( al , kappa );
+                ar = r0; vr = potential_LJ126( ar , A , B ) + q*potential_Ewald( ar, kappa );
+                Kr0 = fabs( potential_LJ126( r0 , A , B ) + q*potential_Ewald( r0, kappa ) );
+                while ( ar-al > 1e-5 ) {
+                    am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + q*potential_Ewald( am , kappa );
+                    if ( fabs(vm) < 5*Kr0 ) {
+                        ar = am; vr = vm;
+                        }
+                    else {
+                        al = am; vl = vm;
+                        }
+                    }
+                if ( ( p = potential_create_LJ126_Ewald( al , e->s.cutoff , A , B , q , kappa , tol ) ) == NULL ) {
+                    printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
+                    e->types[j].name , e->types[k].name , 
+                    A , B , q ,
+                    al , e->s.cutoff );
+                    return error(engine_err_potential);
+                    }
+                }
+                
+            /* Register it with the local authorities. */
+            if ( p != NULL && engine_addpot( e , p , j , k ) < 0 )
+                return error(engine_err);
+                
+            }
+        
+    /* It's been a hard day's night. */
+    return engine_err_ok;
+        
+    }
 
 
 /**
@@ -107,7 +762,8 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
     int tid, tjd, wc[4];
     int j, k, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
-    double K, r0, r2, r6, *eps, *rmin;
+    double K, Kr0, r0, r2, r6, *eps, *rmin;
+    double al, ar, am, vl, vr, vm, A, B, q;
     struct potential *p;
     
     /* Check inputs. */
@@ -572,32 +1228,105 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
             
         }
         
-    /* Loop over all the type pairs and construct the potentials. */
+    /* Loop over all the type pairs and construct the non-bonded potentials. */
     for ( j = 0 ; j < e->nr_types ; j++ )
         for ( k = j ; k < e->nr_types ; k++ ) {
             
             /* Has a potential been specified for this case? */
             if ( ( eps[j] == 0.0 || eps[k] == 0.0 ) &&
-                 ( e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
+                 ( kappa < 0.0 || e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
                 continue;
                 
             /* Construct the common LJ parameters. */
             K = 4.184 * sqrt( eps[j] * eps[k] );
-            if ( K == 0.0 )
-                r0 = 0.1 / 0.78;
-            else
-                r0 = 0.1 * ( rmin[j] + rmin[k] );
+            r0 = 0.1 * ( rmin[j] + rmin[k] );
             r2 = r0*r0; r6 = r2*r2*r2;
+            A = K*r6*r6; B = 2*K*r6;
+            q = e->types[j].charge*e->types[k].charge;
                 
             /* Construct the potential. */
             /* printf( "engine_read_cpf: creating %s-%s potential with A=%e B=%e q=%e.\n" ,
                 e->types[j].name , e->types[k].name , 
                 K*r6*r6 , K*2*r6 , e->types[j].charge*e->types[k].charge ); */
-            if ( ( p = potential_create_LJ126_Ewald( 0.78*r0 , e->s.cutoff , K*r6*r6 , K*2*r6 , e->types[j].charge*e->types[k].charge , kappa , tol ) ) == NULL )
-                return error(engine_err_potential);
+            if ( K == 0.0 ) {
+                if ( q != 0.0 && kappa >= 0.0 ) {
+                    if ( kappa > 0.0 ) {
+                        if ( ( p = potential_create_Ewald( 0.1 , e->s.cutoff , q , kappa , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        }
+                    else {
+                        if ( ( p = potential_create_Coulomb( 0.1 , e->s.cutoff , q , tol ) ) == NULL )
+                            return error(engine_err_potential);
+                        }
+                    }
+                else
+                    p = NULL;
+                }
+            if ( kappa < 0.0 ) {
+                al = r0/2; vl = potential_LJ126( al , A , B );
+                ar = r0; vr = potential_LJ126( ar , A , B );
+                Kr0 = fabs( potential_LJ126( r0 , A , B ) );
+                while ( ar-al > 1e-5 ) {
+                    am = 0.5*(al + ar); vm = potential_LJ126( am , A , B );
+                    if ( fabs(vm) < 5*Kr0 ) {
+                        ar = am; vr = vm;
+                        }
+                    else {
+                        al = am; vl = vm;
+                        }
+                    }
+                if ( ( p = potential_create_LJ126( al , e->s.cutoff , A , B , tol ) ) == NULL ) {
+                    printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e on [%e,%e].\n" ,
+                    e->types[j].name , e->types[k].name , 
+                    A , B , al , e->s.cutoff );
+                    return error(engine_err_potential);
+                    }
+                }
+            else if ( kappa == 0.0 ) {
+                al = r0/2; vl = potential_LJ126( al , A , B ) + potential_escale*q/al;
+                ar = r0; vr = potential_LJ126( ar , A , B ) + potential_escale*q/ar;
+                Kr0 = fabs( potential_LJ126( r0 , A , B ) + potential_escale*q/r0 );
+                while ( ar-al > 1e-5 ) {
+                    am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + potential_escale*q/am;
+                    if ( fabs(vm) < 5*Kr0 ) {
+                        ar = am; vr = vm;
+                        }
+                    else {
+                        al = am; vl = vm;
+                        }
+                    }
+                if ( ( p = potential_create_LJ126_Coulomb( al , e->s.cutoff , A , B , q , tol ) ) == NULL ) {
+                    printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
+                    e->types[j].name , e->types[k].name , 
+                    A ,B , q ,
+                    al , e->s.cutoff );
+                    return error(engine_err_potential);
+                    }
+                }
+            else  {
+                al = r0/2; vl = potential_LJ126( al , A , B ) + q*potential_Ewald( al , kappa );
+                ar = r0; vr = potential_LJ126( ar , A , B ) + q*potential_Ewald( ar, kappa );
+                Kr0 = fabs( potential_LJ126( r0 , A , B ) + q*potential_Ewald( r0, kappa ) );
+                while ( ar-al > 1e-5 ) {
+                    am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + q*potential_Ewald( am , kappa );
+                    if ( fabs(vm) < 5*Kr0 ) {
+                        ar = am; vr = vm;
+                        }
+                    else {
+                        al = am; vl = vm;
+                        }
+                    }
+                if ( ( p = potential_create_LJ126_Ewald( al , e->s.cutoff , A , B , q , kappa , tol ) ) == NULL ) {
+                    printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
+                    e->types[j].name , e->types[k].name , 
+                    A , B , q ,
+                    al , e->s.cutoff );
+                    return error(engine_err_potential);
+                    }
+                }
                 
             /* Register it with the local authorities. */
-            if ( engine_addpot( e , p , j , k ) < 0 )
+            if ( p != NULL && engine_addpot( e , p , j , k ) < 0 )
                 return error(engine_err);
                 
             }
@@ -942,7 +1671,7 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
             for ( k = 0 ; k < 3 ; k++ ) {
                 if ( ( bufflen = reader_gettoken( &r , buff , 100 ) ) < 0 )
                     return error(engine_err_reader);
-                x[k] = fmod( 0.1 * strtod( buff , &endptr ) , e->s.dim[k] );
+                x[k] = fmod( e->s.dim[k] - e->s.origin[k] + 0.1 * strtod( buff , &endptr ) , e->s.dim[k] ) + e->s.origin[k];
                 if ( *endptr != 0 )
                     return error(engine_err_pdb);
                 }
@@ -1095,7 +1824,7 @@ int engine_dihedral_add ( struct engine *e , int i , int j , int k , int l , int
         
     /* Do we need to grow the dihedrals array? */
     if ( e->nr_dihedrals == e->dihedrals_size ) {
-        e->dihedrals_size += 100;
+        e->dihedrals_size *= 1.414;
         if ( ( dummy = (struct dihedral *)malloc( sizeof(struct dihedral) * e->dihedrals_size ) ) == NULL )
             return error(engine_err_malloc);
         memcpy( dummy , e->dihedrals , sizeof(struct dihedral) * e->nr_dihedrals );
@@ -1143,7 +1872,7 @@ int engine_angle_add ( struct engine *e , int i , int j , int k , int pid ) {
         
     /* Do we need to grow the angles array? */
     if ( e->nr_angles == e->angles_size ) {
-        e->angles_size += 100;
+        e->angles_size *= 1.414;
         if ( ( dummy = (struct angle *)malloc( sizeof(struct angle) * e->angles_size ) ) == NULL )
             return error(engine_err_malloc);
         memcpy( dummy , e->angles , sizeof(struct angle) * e->nr_angles );
@@ -1230,7 +1959,7 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
         
     /* Do we need to grow the rigids array? */
     if ( e->nr_rigids == e->rigids_size ) {
-        e->rigids_size += 100;
+        e->rigids_size  *= 1.414;
         if ( ( dummy = (struct rigid *)malloc( sizeof(struct rigid) * e->rigids_size ) ) == NULL )
             return error(engine_err_malloc);
         memcpy( dummy , e->rigids , sizeof(struct rigid) * e->nr_rigids );
@@ -1247,6 +1976,142 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
     e->rigids[ e->nr_rigids ].constr[0].j = 1;
     e->rigids[ e->nr_rigids ].constr[0].d2 = d*d;
     e->nr_rigids += 1;
+    
+    /* It's the end of the world as we know it. */
+    return engine_err_ok;
+
+    }
+    
+    
+/**
+ * @brief Remove duplicate exclusions.
+ *
+ * @param e The #engine.
+ *
+ * @return The number of unique exclusions or < 0 on error (see #engine_err).
+ */
+ 
+int engine_exclusion_shrink ( struct engine *e ) {
+
+    int j, k;
+
+    /* Recursive quicksort for the exclusions. */
+    void qsort ( int l , int r ) {
+        
+        int i = l, j = r;
+        int pivot_i = e->exclusions[ (l + r)/2 ].i;
+        int pivot_j = e->exclusions[ (l + r)/2 ].j;
+        struct exclusion temp;
+        
+        /* Too small? */
+        if ( r - l < 10 ) {
+        
+            /* Use Insertion Sort. */
+            for ( i = l+1 ; i <= r ; i++ ) {
+                pivot_i = e->exclusions[i].i;
+                pivot_j = e->exclusions[i].j;
+                for ( j = i-1 ; j >= l ; j-- )
+                    if ( e->exclusions[j].i < pivot_i ||
+                         ( e->exclusions[j].i == pivot_i && e->exclusions[j].j < pivot_j ) ) {
+                        temp = e->exclusions[j];
+                        e->exclusions[j] = e->exclusions[j+1];
+                        e->exclusions[j+1] = temp;
+                        }
+                    else
+                        break;
+                }
+        
+            }
+            
+        else {
+        
+            /* Partition. */
+            while ( i <= j ) {
+                while ( e->exclusions[i].i < pivot_i ||
+                       ( e->exclusions[i].i == pivot_i && e->exclusions[i].j < pivot_j ) )
+                    i += 1;
+                while ( e->exclusions[j].i > pivot_i ||
+                       ( e->exclusions[j].i == pivot_i && e->exclusions[j].j > pivot_j ) )
+                    j -= 1;
+                if ( i <= j ) {
+                    temp = e->exclusions[i];
+                    e->exclusions[i] = e->exclusions[j];
+                    e->exclusions[j] = temp;
+                    i += 1;
+                    j -= 1;
+                    }
+                }
+
+            /* Recurse. */
+            if ( l < j )
+                qsort( l , j );
+            if ( i < r )
+                qsort( i , r );
+                
+            }
+        
+        }
+        
+    /* Sort the exclusions. */
+    qsort( 0 , e->nr_exclusions-1 );
+    
+    /* Run through the exclusions and skip duplicates. */
+    for ( j = 1 , k = 1 ; k < e->nr_exclusions ; k++ )
+        if ( e->exclusions[k].j != e->exclusions[k-1].j ||
+             e->exclusions[k].i != e->exclusions[k-1].i ) {
+            e->exclusions[j] = e->exclusions[k];
+            j += 1;
+            }
+            
+    /* Set the number of exclusions to j. */
+    e->nr_exclusions = j;
+    
+    /* Go home. */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Add a exclusioned interaction to the engine.
+ *
+ * @param e The #engine.
+ * @param i The ID of the first #part.
+ * @param j The ID of the second #part.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_exclusion_add ( struct engine *e , int i , int j ) {
+
+    struct exclusion *dummy;
+
+    /* Check inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+    /* if ( i > e->s.nr_parts || j > e->s.nr_parts )
+        return error(engine_err_range); */
+        
+    /* Do we need to grow the exclusions array? */
+    if ( e->nr_exclusions == e->exclusions_size ) {
+        e->exclusions_size *= 1.414;
+        if ( ( dummy = (struct exclusion *)malloc( sizeof(struct exclusion) * e->exclusions_size ) ) == NULL )
+            return error(engine_err_malloc);
+        memcpy( dummy , e->exclusions , sizeof(struct exclusion) * e->nr_exclusions );
+        free( e->exclusions );
+        e->exclusions = dummy;
+        }
+        
+    /* Store this exclusion. */
+    if ( i <= j ) {
+        e->exclusions[ e->nr_exclusions ].i = i;
+        e->exclusions[ e->nr_exclusions ].j = j;
+        }
+    else {
+        e->exclusions[ e->nr_exclusions ].i = j;
+        e->exclusions[ e->nr_exclusions ].j = i;
+        }
+    e->nr_exclusions += 1;
     
     /* It's the end of the world as we know it. */
     return engine_err_ok;
@@ -1276,7 +2141,7 @@ int engine_bond_add ( struct engine *e , int i , int j ) {
         
     /* Do we need to grow the bonds array? */
     if ( e->nr_bonds == e->bonds_size ) {
-        e->bonds_size += 100;
+        e->bonds_size  *= 1.414;
         if ( ( dummy = (struct bond *)malloc( sizeof(struct bond) * e->bonds_size ) ) == NULL )
             return error(engine_err_malloc);
         memcpy( dummy , e->bonds , sizeof(struct bond) * e->nr_bonds );
@@ -1290,6 +2155,189 @@ int engine_bond_add ( struct engine *e , int i , int j ) {
     e->nr_bonds += 1;
     
     /* It's the end of the world as we know it. */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Compute all bonded interactions stored in this engine.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Does the same as #engine_bond_eval, #engine_angle_eval and
+ * #engine_dihedral eval, yet all in one go to avoid excessive
+ * updates of the particle forces.
+ */
+ 
+int engine_bonded_eval ( struct engine *e ) {
+
+    double epot = 0.0;
+    struct space *s;
+    struct dihedral dtemp;
+    struct angle atemp;
+    struct bond btemp;
+    struct exclusion etemp;
+    int nr_dihedrals = e->nr_dihedrals, nr_bonds = e->nr_bonds;
+    int nr_angles = e->nr_angles, nr_exclusions = e->nr_exclusions;
+    int i, j, k;
+    #ifdef HAVE_OPENMP
+        int nr_threads, thread_id;
+    #endif
+    
+    /* Get a handle on the space. */
+    s = &e->s;
+
+    /* If in parallel... */
+    if ( e->nr_nodes > 1 ) {
+        
+        #pragma omp parallel for schedule(static), private(i,j,dtemp,atemp,btemp,etemp)
+        for ( k = 0 ; k < 4 ; k++ ) {
+    
+            if ( k == 0 ) {
+                /* Sort the dihedrals. */
+                i = 0; j = nr_dihedrals-1;
+                while ( i < j ) {
+                    while ( i < nr_dihedrals &&
+                            s->partlist[e->dihedrals[i].i] != NULL &&
+                            s->partlist[e->dihedrals[i].j] != NULL &&
+                            s->partlist[e->dihedrals[i].k] != NULL &&
+                            s->partlist[e->dihedrals[i].l] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->dihedrals[j].i] == NULL ||
+                              s->partlist[e->dihedrals[j].j] == NULL ||
+                              s->partlist[e->dihedrals[j].k] == NULL ||
+                              s->partlist[e->dihedrals[j].l] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        dtemp = e->dihedrals[i];
+                        e->dihedrals[i] = e->dihedrals[j];
+                        e->dihedrals[j] = dtemp;
+                        }
+                    }
+                nr_dihedrals = i;
+                }
+
+            else if ( k == 1 ) {
+                /* Sort the angles. */
+                i = 0; j = nr_angles-1;
+                while ( i < j ) {
+                    while ( i < nr_angles &&
+                            s->partlist[e->angles[i].i] != NULL &&
+                            s->partlist[e->angles[i].j] != NULL &&
+                            s->partlist[e->angles[i].k] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->angles[j].i] == NULL ||
+                              s->partlist[e->angles[j].j] == NULL ||
+                              s->partlist[e->angles[j].k] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        atemp = e->angles[i];
+                        e->angles[i] = e->angles[j];
+                        e->angles[j] = atemp;
+                        }
+                    }
+                nr_angles = i;
+                }
+
+            else if ( k == 2 ) {
+                /* Sort the bonds. */
+                i = 0; j = nr_bonds-1;
+                while ( i < j ) {
+                    while ( i < nr_bonds &&
+                            s->partlist[e->bonds[i].i] != NULL &&
+                            s->partlist[e->bonds[i].j] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->bonds[j].i] == NULL ||
+                              s->partlist[e->bonds[j].j] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        btemp = e->bonds[i];
+                        e->bonds[i] = e->bonds[j];
+                        e->bonds[j] = btemp;
+                        }
+                    }
+                nr_bonds = i;
+                }
+
+            else if ( k == 3 ) {
+                /* Sort the exclusions. */
+                i = 0; j = nr_exclusions-1;
+                while ( i < j ) {
+                    while ( i < nr_exclusions &&
+                            s->partlist[e->exclusions[i].i] != NULL &&
+                            s->partlist[e->exclusions[i].j] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->exclusions[j].i] == NULL ||
+                              s->partlist[e->exclusions[j].j] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        etemp = e->exclusions[i];
+                        e->exclusions[i] = e->exclusions[j];
+                        e->exclusions[j] = etemp;
+                        }
+                    }
+                nr_exclusions = i;
+                }
+        
+            }
+        
+        }
+        
+
+    #ifdef HAVE_OPENMP
+    
+        /* Is it worth parallelizing? */
+        #pragma omp parallel private(thread_id,nr_threads), reduction(+:epot)
+        if ( ( e->flags & engine_flag_parbonded ) &&
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) &&
+             ( nr_bonds + nr_angles + nr_dihedrals ) > 0 ) {
+             
+            /* Get the thread ID. */
+            thread_id = omp_get_thread_num();
+
+            /* Compute the bonded interactions. */
+            bond_eval_div( e->bonds , nr_bonds , nr_threads , thread_id , e , &epot );
+                    
+            /* Compute the angle interactions. */
+            angle_eval_div( e->angles , nr_angles , nr_threads , thread_id , e , &epot );
+                    
+            /* Compute the dihedral interactions. */
+            dihedral_eval_div( e->dihedrals , nr_dihedrals , nr_threads , thread_id , e , &epot );
+                    
+            /* Correct for excluded interactons. */
+            exclusion_eval_div( e->exclusions , nr_exclusions , nr_threads , thread_id , e , &epot );
+                    
+            }
+            
+        /* Otherwise, evaluate directly. */
+        else if ( omp_get_thread_num() == 0 ) {
+            bond_eval( e->bonds , nr_bonds , e , &epot );
+            angle_eval( e->angles , nr_angles , e , &epot );
+            dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot );
+            exclusion_eval( e->exclusions , nr_exclusions , e , &epot );
+            }
+    #else
+        if ( bond_eval( e->bonds , nr_bonds , e , &epot ) < 0 )
+            return error(engine_err_bond);
+        if ( angle_eval( e->angles , nr_angles , e , &epot ) < 0 )
+            return error(engine_err_angle);
+        if ( dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot ) < 0 )
+            return error(engine_err_dihedral);
+        if ( exclusion_eval( e->exclusions , nr_exclusions , e , &epot ) < 0 )
+            return error(engine_err_exclusion);
+    #endif
+        
+    /* Store the potential energy. */
+    s->epot += epot;
+    
+    /* I'll be back... */
     return engine_err_ok;
 
     }
@@ -1311,7 +2359,7 @@ int engine_dihedral_eval ( struct engine *e ) {
     int nr_dihedrals = e->nr_dihedrals, i, j;
     #ifdef HAVE_OPENMP
         FPTYPE *eff;
-        int finger_global = 0, finger, count, count_tot, cid, pid, gpid, k;
+        int nr_threads, cid, pid, gpid, k;
         struct part *p;
         struct cell *c;
     #endif
@@ -1347,57 +2395,33 @@ int engine_dihedral_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel num_threads(engine_bonded_nrthreads) private(count_tot,k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
+        #pragma omp parallel private(k,nr_threads,c,p,cid,pid,gpid,eff), reduction(+:epot)
         if ( ( e->flags & engine_flag_parbonded ) &&
-             ( omp_get_num_threads() > 1 ) && 
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) && 
              ( nr_dihedrals > engine_dihedrals_chunk ) ) {
     
             /* Allocate a buffer for the forces. */
             eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
             bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
-            count_tot = 0;
 
-            /* Main loop. */
-            while ( finger_global < nr_dihedrals ) {
-
-                /* Get a finger on the dihedrals list. */
-                #pragma omp critical
-                {
-                    if ( finger_global < nr_dihedrals ) {
-                        finger = finger_global;
-                        count = engine_dihedrals_chunk;
-                        if ( finger + count > nr_dihedrals )
-                            count = nr_dihedrals - finger;
-                        finger_global += count;
-                        }
-                    else
-                        count = 0;
-                    }
-
-                /* Compute the dihedraled interactions. */
-                if ( count > 0 )
-                    dihedral_evalf( &e->dihedrals[finger] , count , e , eff , &epot );
+            /* Compute the dihedral interactions. */
+            k = omp_get_thread_num();
+            dihedral_evalf( &e->dihedrals[k*nr_dihedrals/nr_threads] , (k+1)*nr_dihedrals/nr_threads - k*nr_dihedrals/nr_threads , e , eff , &epot );
                     
-                /* Update the total count. */
-                count_tot += count;
-
-                } /* main loop. */
-
-            /* Write-back the forces if anything was done. */
-            if ( count_tot > 0 )
-                for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                    c = &s->cells[ cid ];
-                    if ( c->flags & cell_flag_ghost )
-                        continue;
-                    pthread_mutex_lock( &c->cell_mutex );
-                    for ( pid = 0 ; pid < c->count ; pid++ ) {
-                        p = &c->parts[ pid ];
-                        gpid = p->id;
-                        for ( k = 0 ; k < 3 ; k++ )
-                            p->f[k] += eff[ gpid*4 + k ];
-                        }
-                    pthread_mutex_unlock( &c->cell_mutex );
+            /* Write-back the forces (if anything was done). */
+            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                c = &s->cells[ cid ];
+                if ( c->flags & cell_flag_ghost )
+                    continue;
+                pthread_mutex_lock( &c->cell_mutex );
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &c->parts[ pid ];
+                    gpid = p->id;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->f[k] += eff[ gpid*4 + k ];
                     }
+                pthread_mutex_unlock( &c->cell_mutex );
+                }
             free( eff );
                 
             }
@@ -1435,7 +2459,7 @@ int engine_angle_eval ( struct engine *e ) {
     int nr_angles = e->nr_angles, i, j;
     #ifdef HAVE_OPENMP
         FPTYPE *eff;
-        int finger_global = 0, finger, count, count_tot, cid, pid, gpid, k;
+        int nr_threads, cid, pid, gpid, k;
         struct part *p;
         struct cell *c;
     #endif
@@ -1469,57 +2493,33 @@ int engine_angle_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel num_threads(engine_bonded_nrthreads) private(count_tot,k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
+        #pragma omp parallel private(k,nr_threads,c,p,cid,pid,gpid,eff), reduction(+:epot)
         if ( ( e->flags & engine_flag_parbonded ) &&
-             ( omp_get_num_threads() > 1 ) && 
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) && 
              ( nr_angles > engine_angles_chunk ) ) {
     
             /* Allocate a buffer for the forces. */
             eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
             bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
-            count_tot = 0;
 
-            /* Main loop. */
-            while ( finger_global < nr_angles ) {
-
-                /* Get a finger on the angles list. */
-                #pragma omp critical
-                {
-                    if ( finger_global < nr_angles ) {
-                        finger = finger_global;
-                        count = engine_angles_chunk;
-                        if ( finger + count > nr_angles )
-                            count = nr_angles - finger;
-                        finger_global += count;
-                        }
-                    else
-                        count = 0;
-                    }
-
-                /* Compute the angleed interactions. */
-                if ( count > 0 )
-                    angle_evalf( &e->angles[finger] , count , e , eff , &epot );
-
-                /* Update the total count. */
-                count_tot += count;
-
-                } /* main loop. */
-
+            /* Compute the angle interactions. */
+            k = omp_get_thread_num();
+            angle_evalf( &e->angles[k*nr_angles/nr_threads] , (k+1)*nr_angles/nr_threads - k*nr_angles/nr_threads , e , eff , &epot );
+                    
             /* Write-back the forces (if anything was done). */
-            if ( count_tot > 0 )
-                for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                    c = &s->cells[ cid ];
-                    if ( c->flags & cell_flag_ghost )
-                        continue;
-                    pthread_mutex_lock( &c->cell_mutex );
-                    for ( pid = 0 ; pid < c->count ; pid++ ) {
-                        p = &c->parts[ pid ];
-                        gpid = p->id;
-                        for ( k = 0 ; k < 3 ; k++ )
-                            p->f[k] += eff[ gpid*4 + k ];
-                        }
-                    pthread_mutex_unlock( &c->cell_mutex );
+            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                c = &s->cells[ cid ];
+                if ( c->flags & cell_flag_ghost )
+                    continue;
+                pthread_mutex_lock( &c->cell_mutex );
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &c->parts[ pid ];
+                    gpid = p->id;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->f[k] += eff[ gpid*4 + k ];
                     }
+                pthread_mutex_unlock( &c->cell_mutex );
+                }
             free( eff );
                 
             }
@@ -1632,6 +2632,81 @@ int engine_rigid_eval ( struct engine *e ) {
     
 
 /**
+ * @brief Correct for the excluded interactions stored in this engine.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_exclusion_eval ( struct engine *e ) {
+
+    double epot = 0.0;
+    struct space *s;
+    int nr_exclusions = e->nr_exclusions, i, j;
+    struct exclusion temp;
+    #ifdef HAVE_OPENMP
+        int nr_threads, thread_id;
+    #endif
+    
+    /* Get a handle on the space. */
+    s = &e->s;
+    
+    /* Sort the exclusions (if in parallel). */
+    if ( e->nr_nodes > 1 ) {
+        i = 0; j = nr_exclusions-1;
+        while ( i < j ) {
+            while ( i < nr_exclusions &&
+                    s->partlist[e->exclusions[i].i] != NULL &&
+                    s->partlist[e->exclusions[i].j] != NULL )
+                i += 1;
+            while ( j >= 0 &&
+                    ( s->partlist[e->exclusions[j].i] == NULL ||
+                      s->partlist[e->exclusions[j].j] == NULL ) )
+                j -= 1;
+            if ( i < j ) {
+                temp = e->exclusions[i];
+                e->exclusions[i] = e->exclusions[j];
+                e->exclusions[j] = temp;
+                }
+            }
+        nr_exclusions = i;
+        }
+
+    #ifdef HAVE_OPENMP
+    
+        /* Is it worth parallelizing? */
+        #pragma omp parallel private(thread_id,nr_threads), reduction(+:epot)
+        if ( ( e->flags & engine_flag_parbonded ) &&
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) &&
+             ( nr_exclusions > 0 ) ) {
+             
+            /* Get the thread ID. */
+            thread_id = omp_get_thread_num();
+
+            /* Correct for excluded interactons. */
+            exclusion_eval_mod( e->exclusions , nr_exclusions , nr_threads , thread_id , e , &epot );
+                    
+            }
+            
+        /* Otherwise, evaluate directly. */
+        else if ( omp_get_thread_num() == 0 )
+            exclusion_eval( e->exclusions , nr_exclusions , e , &epot );
+    #else
+        if ( exclusion_eval( e->exclusions , nr_exclusions , e , &epot ) < 0 )
+            return error(engine_err_exclusion);
+    #endif
+        
+    /* Store the potential energy. */
+    s->epot += epot;
+    
+    /* I'll be back... */
+    return engine_err_ok;
+
+    }
+
+
+/**
  * @brief Compute the bonded interactions stored in this engine.
  * 
  * @param e The #engine.
@@ -1647,7 +2722,7 @@ int engine_bond_eval ( struct engine *e ) {
     struct bond temp;
     #ifdef HAVE_OPENMP
         FPTYPE *eff;
-        int finger_global = 0, finger, count, count_tot, cid, pid, gpid, k;
+        int nr_threads, cid, pid, gpid, k;
         struct part *p;
         struct cell *c;
     #endif
@@ -1679,57 +2754,33 @@ int engine_bond_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel num_threads(engine_bonded_nrthreads) private(count_tot,k,c,p,cid,pid,gpid,eff,finger,count), reduction(+:epot)
+        #pragma omp parallel private(k,nr_threads,c,p,cid,pid,gpid,eff), reduction(+:epot)
         if ( ( e->flags & engine_flag_parbonded ) &&
-             ( omp_get_num_threads() > 1 ) && 
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) && 
              ( nr_bonds > engine_bonds_chunk ) ) {
     
             /* Allocate a buffer for the forces. */
             eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
             bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
-            count_tot = 0;
 
-            /* Main loop. */
-            while ( finger_global < nr_bonds ) {
-
-                /* Get a finger on the bonds list. */
-                #pragma omp critical
-                {
-                    if ( finger_global < nr_bonds ) {
-                        finger = finger_global;
-                        count = engine_bonds_chunk;
-                        if ( finger + count > nr_bonds )
-                            count = nr_bonds - finger;
-                        finger_global += count;
-                        }
-                    else
-                        count = 0;
-                    }
-
-                /* Compute the bonded interactions. */
-                if ( count > 0 )
-                    bond_evalf( &e->bonds[finger] , count , e , eff , &epot );
+            /* Compute the bonded interactions. */
+            k = omp_get_thread_num();
+            bond_evalf( &e->bonds[k*nr_bonds/nr_threads] , (k+1)*nr_bonds/nr_threads - k*nr_bonds/nr_threads , e , eff , &epot );
                     
-                /* Update the total count. */
-                count_tot += count;
-
-                } /* main loop. */
-
             /* Write-back the forces (if anything was done). */
-            if ( count_tot > 0 )
-                for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                    c = &s->cells[ cid ];
-                    if ( c->flags & cell_flag_ghost )
-                        continue;
-                    pthread_mutex_lock( &c->cell_mutex );
-                    for ( pid = 0 ; pid < c->count ; pid++ ) {
-                        p = &c->parts[ pid ];
-                        gpid = p->id;
-                        for ( k = 0 ; k < 3 ; k++ )
-                            p->f[k] += eff[ gpid*4 + k ];
-                        }
-                    pthread_mutex_unlock( &c->cell_mutex );
+            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+                c = &s->cells[ cid ];
+                if ( c->flags & cell_flag_ghost )
+                    continue;
+                pthread_mutex_lock( &c->cell_mutex );
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &c->parts[ pid ];
+                    gpid = p->id;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->f[k] += eff[ gpid*4 + k ];
                     }
+                pthread_mutex_unlock( &c->cell_mutex );
+                }
             free( eff );
                 
             }
@@ -2056,54 +3107,61 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
             }
         }
         
-    /* Shuffle the particles to the correct cells. */
-    #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        c = &(s->cells[cid]);
-        pid = 0;
-        while ( pid < c->count ) {
+    /* Do we need to update cell locations? */
+    if ( !( e->flags & engine_flag_verlet ) ) {
+    
+        /* Shuffle the particles to the correct cells. */
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( !(c->flags & cell_flag_marked) )
+                continue;
+            pid = 0;
+            while ( pid < c->count ) {
 
-            p = &( c->parts[pid] );
-            for ( k = 0 ; k < 3 ; k++ )
-                delta[k] = __builtin_isgreaterequal( p->x[k] , h[k] ) - __builtin_isless( p->x[k] , 0.0 );
-
-            /* do we have to move this particle? */
-            if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
+                p = &( c->parts[pid] );
                 for ( k = 0 ; k < 3 ; k++ )
-                    p->x[k] -= delta[k] * h[k];
-                c_dest = &( s->cells[ space_cellid( s ,
-                    (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
-                    (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
-                    (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
+                    delta[k] = __builtin_isgreaterequal( p->x[k] , h[k] ) - __builtin_isless( p->x[k] , 0.0 );
 
-	            if ( c_dest->flags & cell_flag_marked ) {
-                    pthread_mutex_lock(&c_dest->cell_mutex);
-                    cell_add_incomming( c_dest , p );
-	                pthread_mutex_unlock(&c_dest->cell_mutex);
-                    s->celllist[ p->id ] = c_dest;
-                    }
-                else {
-                    s->partlist[ p->id ] = NULL;
-                    s->celllist[ p->id ] = NULL;
-                    }
+                /* do we have to move this particle? */
+                if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->x[k] -= delta[k] * h[k];
+                    c_dest = &( s->cells[ space_cellid( s ,
+                        (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
+                        (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
+                        (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
 
-                c->count -= 1;
-                if ( pid < c->count ) {
-                    c->parts[pid] = c->parts[c->count];
-                    s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
+	                if ( c_dest->flags & cell_flag_marked ) {
+                        pthread_mutex_lock(&c_dest->cell_mutex);
+                        cell_add_incomming( c_dest , p );
+	                    pthread_mutex_unlock(&c_dest->cell_mutex);
+                        s->celllist[ p->id ] = c_dest;
+                        }
+                    else {
+                        s->partlist[ p->id ] = NULL;
+                        s->celllist[ p->id ] = NULL;
+                        }
+
+                    c->count -= 1;
+                    if ( pid < c->count ) {
+                        c->parts[pid] = c->parts[c->count];
+                        s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
+                        }
                     }
+                else
+                    pid += 1;
                 }
-            else
-                pid += 1;
             }
-        }
 
-    /* Welcome the new particles in each cell. */
-    #pragma omp parallel for schedule(static), private(c)
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        c = &(s->cells[cid]);
-        if ( c->flags & cell_flag_marked )
-            cell_welcome( c , s->partlist );
+        /* Welcome the new particles in each cell. */
+        #pragma omp parallel for schedule(static), private(c)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( c->flags & cell_flag_marked )
+                cell_welcome( c , s->partlist );
+            }
+            
         }
         
     /* Call it a day. */
@@ -2224,6 +3282,14 @@ int engine_split ( struct engine *e ) {
             for ( k = 0 ; k < e->s.cells[cid].count ; k++ )
                 e->s.cells[cid].parts[k].flags |= part_flag_ghost;
         
+    /* Number non-ghost cells. */
+    for ( k = 0 , cid = 0 ; cid < e->s.nr_cells ; cid++ )
+        if ( !( e->s.cells[cid].flags & cell_flag_ghost ) )
+            e->s.cells[cid].id = k++;
+        else
+            e->s.cells[cid].id = -e->s.nr_cells;
+    e->s.nr_cells_real = k;
+
     /* Re-build the tuples if needed. */
     if ( e->flags & engine_flag_tuples )
         if ( space_maketuples( &e->s ) < 0 )
@@ -2987,13 +4053,51 @@ int engine_addpot ( struct engine *e , struct potential *p , int i , int j ) {
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  *
- * Allocates and starts the specified number of #runner.
+ * Allocates and starts the specified number of #runner. Also initializes
+ * the Verlet lists.
  */
 
 int engine_start ( struct engine *e , int nr_runners ) {
 
-    int i;
+    int cid, pid, k, i;
+    struct cell *c;
+    struct part *p;
+    struct space *s = &e->s;
     struct runner *temp;
+    
+    /* Fill-in the Verlet lists if needed. */
+    if ( e->flags & engine_flag_verlet ) {
+    
+        /* Shuffle the domain. */
+        if ( space_shuffle( s ) < 0 )
+            return error(space_err);
+            
+        /* Store the current positions as a reference. */
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( c->flags & cell_flag_ghost )
+                continue;
+            if ( c->oldx == NULL || c->oldx_size < c->count ) {
+                free(c->oldx);
+                c->oldx_size = c->size + 20;
+                c->oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * c->oldx_size );
+                }
+            for ( pid = 0 ; pid < c->count ; pid++ ) {
+                p = &(c->parts[pid]);
+                for ( k = 0 ; k < 3 ; k++ )
+                    c->oldx[ 4*pid + k ] = p->x[k];
+                }
+            }
+            
+        /* Set the nrpairs to zero. */
+        if ( !( e->flags & engine_flag_verlet_pairwise ) && s->verlet_nrpairs != NULL )
+            bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
+            
+        /* Re-set the Verlet rebuild flag. */
+        s->verlet_rebuild = 1;
+
+        }
 
     /* (re)allocate the runners */
     if ( e->nr_runners == 0 ) {
@@ -3241,24 +4345,18 @@ int engine_step ( struct engine *e ) {
     if ( engine_nonbond_eval( e ) < 0 )
         return error(engine_err);
             
-    /* Do bonds? */
-    if ( e->nr_bonds > 0 )
-        if ( engine_bond_eval( e ) < 0 )
-            return error(engine_err);
+    /* Do bonded interactions. */
+    if ( engine_bonded_eval( e ) < 0 )
+        return error(engine_err);
 
-    /* Do angles? */
-    if ( e->nr_angles > 0 )
-        if ( engine_angle_eval( e ) < 0 )
-            return error(engine_err);
-
-    /* Do dihedrals? */
-    if ( e->nr_dihedrals > 0 )
-        if ( engine_dihedral_eval( e ) < 0 )
-            return error(engine_err);
-
-    /* update the particle velocities and positions */
+    /* update the particle velocities and positions. */
     if ( engine_advance( e ) < 0 )
         return error(engine_err);
+            
+    /* Make sure the verlet lists are up to date. */
+    if ( e->flags & engine_flag_verlet )
+        if ( engine_verlet_update( e ) < 0 )
+            return error(engine_err);
             
     /* return quietly */
     return engine_err_ok;
@@ -3362,6 +4460,12 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     if ( ( e->bonds = (struct bond *)malloc( sizeof( struct bond ) * e->bonds_size ) ) == NULL )
         return error(engine_err_malloc);
     e->nr_bonds = 0;
+    
+    /* Init the exclusions array. */
+    e->exclusions_size = 100;
+    if ( ( e->exclusions = (struct exclusion *)malloc( sizeof( struct exclusion ) * e->exclusions_size ) ) == NULL )
+        return error(engine_err_malloc);
+    e->nr_exclusions = 0;
     
     /* Init the rigids array. */
     e->rigids_size = 100;

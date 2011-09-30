@@ -82,10 +82,10 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
     struct part *p[rigid_maxparts], **partlist;
     struct cell *c[rigid_maxparts], **celllist;
     struct rigid *r;
-    double dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
-    double m[rigid_maxparts], tol, lambda, w;
-    double vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
-    double vcom[3], wvc[3*rigid_maxconstr];
+    FPTYPE dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
+    FPTYPE m[rigid_maxparts], tol, lambda, w;
+    FPTYPE vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
+    FPTYPE vcom[3], wvc[3*rigid_maxconstr];
 
     /* Check for bad input. */
     partlist = e->s.partlist;

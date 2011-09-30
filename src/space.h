@@ -84,7 +84,7 @@ struct space {
     unsigned int period;
     
     /** Total nr of cells in this space. */
-    int nr_cells;
+    int nr_cells, nr_cells_real;
     
     /** Array of cells spanning the space. */
     struct cell *cells;
@@ -98,7 +98,7 @@ struct space {
     /** Id of the next unprocessed pair (for #space_getpair) */
     int next_pair;
     
-    /** Array of cell pairs. */
+    /** Array of cell tuples. */
     struct celltuple *tuples;
     
     /** The number of tuples. */
@@ -157,7 +157,7 @@ struct cellpair {
     /** Pairwise Verlet stuff. */
     int size, count;
     short int *pairs;
-    unsigned char *nr_pairs;
+    short int *nr_pairs;
     
     /** Pointer to chain pairs together. */
     struct cellpair *next;

@@ -27,4 +27,5 @@
 #include "bond.h"
 #include "rigid.h"
 #include "angle.h"
+#include "exclusion.h"
 #include "dihedral.h"

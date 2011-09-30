@@ -41,6 +41,7 @@
 #define engine_err_pdb                   -15
 #define engine_err_cpf                   -16
 #define engine_err_potential             -17
+#define engine_err_exclusion             -18
 
 
 /* some constants */
@@ -60,10 +61,11 @@
 #define engine_flag_mpi                  4096
 #define engine_flag_parbonded            8192
 
-#define engine_bonds_chunk               200
-#define engine_angles_chunk              200
-#define engine_rigids_chunk              200
-#define engine_dihedrals_chunk           200
+#define engine_bonds_chunk               100
+#define engine_angles_chunk              100
+#define engine_rigids_chunk              100
+#define engine_dihedrals_chunk           100
+#define engine_exclusions_chunk          100
 
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
@@ -126,6 +128,12 @@ struct engine {
     /** Nr. of bonds. */
     int nr_bonds, bonds_size;
     
+    /** List of exclusions. */
+    struct exclusion *exclusions;
+    
+    /** Nr. of exclusions. */
+    int nr_exclusions, exclusions_size;
+    
     /** List of rigid bodies. */
     struct rigid *rigids;
     
@@ -174,10 +182,14 @@ int engine_barrier ( struct engine *e );
 int engine_bond_addpot ( struct engine *e , struct potential *p , int i , int j );
 int engine_bond_add ( struct engine *e , int i , int j );
 int engine_bond_eval ( struct engine *e );
+int engine_bonded_eval ( struct engine *e );
 int engine_dihedral_add ( struct engine *e , int i , int j , int k , int l , int pid );
 int engine_dihedral_addpot ( struct engine *e , struct potential *p );
 int engine_dihedral_eval ( struct engine *e );
 int engine_dump_PSF ( struct engine *e , FILE *psf , FILE *pdb , char *excl[] , int nr_excl );
+int engine_exclusion_add ( struct engine *e , int i , int j );
+int engine_exclusion_eval ( struct engine *e );
+int engine_exclusion_shrink ( struct engine *e );
 int engine_flush_ghosts ( struct engine *e );
 int engine_flush ( struct engine *e );
 int engine_gettype ( struct engine *e , char *name );
@@ -188,6 +200,7 @@ int engine_load ( struct engine *e , double *x , double *v , int *type , int *pi
 int engine_nonbond_eval ( struct engine *e );
 int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol , int rigidH );
 int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb );
+int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double tol , int rigidH );
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d );
 int engine_rigid_eval ( struct engine *e );
 int engine_setexplepot ( struct engine *e , struct potential *ep );
@@ -199,6 +212,7 @@ int engine_step ( struct engine *e );
 int engine_unload_marked ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , double *epot , int N );
 int engine_unload_strays ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , double *epot , int N );
 int engine_unload ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , double *epot , int N );
+int engine_verlet_update ( struct engine *e );
 #ifdef HAVE_MPI
     int engine_exchange ( struct engine *e , MPI_Comm comm );
 #endif

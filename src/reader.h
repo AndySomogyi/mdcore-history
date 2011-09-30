@@ -52,6 +52,9 @@ struct reader {
     /** Current character. */
     int c;
     
+    /** Current location in file. */
+    int line, col;
+    
     /** Characters defined as whitespace. */
     char *ws;
     int nr_ws;
@@ -64,6 +67,7 @@ struct reader {
     
 
 /* associated functions */
+int reader_getc ( struct reader *r );
 int reader_init ( struct reader *r , FILE *file , char *ws , char *comm_start , char *comm_stop );
 int reader_gettoken ( struct reader *r , char *buff , int buff_size );
 int reader_getcomment ( struct reader *r , char *buff , int buff_size );

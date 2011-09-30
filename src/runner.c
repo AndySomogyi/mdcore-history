@@ -330,7 +330,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
     FPTYPE pjx[3], pix[3], *pif, *pjf;
-    int pid, pvid, pind, ishift[3];
+    int pid, pind, ishift[3];
     struct verlet_entry *vbuff;
     double epot = 0.0;
 #if defined(VECTORIZE)
@@ -393,7 +393,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
-            pid = part_i->id; pvid = part_i->vid;
+            pid = part_i->id;
             pind = s->verlet_nrpairs[ pid ];
             vbuff = &(s->verlet_list[ pid * space_verlet_maxpairs ]);
             pif = &( part_i->f[0] );
@@ -403,10 +403,6 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
             
                 /* get the other particle */
                 part_j = &(parts_j[j]);
-                
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -605,7 +601,7 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                 pjx[1] = part_j->x[1] + pshift[1];
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjoff = part_j->type * emt;
-                pid = part_j->id; pvid = part_j->vid;
+                pid = part_j->id;
                 pind = s->verlet_nrpairs[ pid ];
                 vbuff = &(s->verlet_list[ pid * space_verlet_maxpairs ]);
                 pjf = &( part_j->f[0] );
@@ -616,10 +612,6 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                     /* get a handle on the second particle */
                     part_i = &( parts_i[left[j]] );
 
-                    /* Skip parts in same virtual group. */
-                    if ( part_i->vid == pvid )
-                        continue;
-                
                     /* get the distance between both particles */
                     r2 = 0.0;
                     for ( k = 0 ; k < 3 ; k++ ) {
@@ -846,7 +838,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
     FPTYPE pix[3], pjx[3], *pif, *pjf;
-    int pind, pid, pvid, nr_pairs, count_i, count_j;
+    int pind, pid, nr_pairs, count_i, count_j;
     double epot = 0.0;
     short int *pairs;
 #if defined(VECTORIZE)
@@ -910,7 +902,6 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
             pif = &( part_i->f[0] );
-            pvid = part_i->vid;
 
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
@@ -918,10 +909,6 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 /* get the other particle */
                 part_j = &(parts_j[j]);
 
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
-                
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = pix[k] - part_j->x[k];
@@ -1029,12 +1016,12 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     free( cp->pairs );
 
                 /* Set the size and width. */
-                cp->size = count_i * count_j;
+                cp->size = (count_i + 10) * (count_j + 10);
 
                 /* Allocate the list data. */
                 if ( ( cp->pairs = (short int *)malloc( sizeof(short int) * cp->size ) ) == NULL )
                     return error(runner_err_malloc);
-                if ( cp->nr_pairs == NULL && ( cp->nr_pairs = (unsigned char *)malloc( sizeof(char) * 256 ) ) == NULL )
+                if ( cp->nr_pairs == NULL && ( cp->nr_pairs = (short int *)malloc( sizeof(short int) * ( count_i + count_j + 20 ) ) ) == NULL )
                     return error(runner_err_malloc);
 
                 }
@@ -1123,17 +1110,12 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     pind = 0;
                     pairs = &( cp->pairs[ pid * count_i ] );
                     pjf = &( part_j->f[0] );
-                    pvid = part_j->vid;
 
                     /* loop over the left particles */
                     for ( j = 0 ; j < lcount ; j++ ) {
 
                         /* get a handle on the second particle */
                         part_i = &( parts_i[left[j]] );
-
-                        /* Skip parts in same virtual group. */
-                        if ( part_i->vid == pvid )
-                            continue;
 
                         /* get the distance between both particles */
                         r2 = 0.0;
@@ -1482,7 +1464,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     FPTYPE dscale;
     FPTYPE shift[3], inshift;
     FPTYPE pix[3], pjx[3], *pif, *pjf;
-    int pid, pvid, count_i, count_j;
+    int pid, count_i, count_j;
     double epot = 0.0;
 #if defined(VECTORIZE)
     struct potential *potq[4];
@@ -1545,7 +1527,6 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
             pif = &( part_i->f[0] );
-            pvid = part_i->vid;
 
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
@@ -1553,10 +1534,6 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 /* get the other particle */
                 part_j = &(parts_j[j]);
 
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
-                
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                     dx[k] = pix[k] - part_j->x[k];
@@ -1668,7 +1645,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                     free( cp->pairs );
 
                 /* Set the size and width. */
-                cp->size = count_i + count_j;
+                cp->size = count_i + count_j + 20;
 
                 /* Allocate the list data. */
                 if ( ( cp->pairs = (short int *)malloc( sizeof(short int) * cp->size ) ) == NULL )
@@ -1773,7 +1750,6 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjoff = part_j->type * emt;
                 pjf = &( part_j->f[0] );
-                pvid = part_j->vid;
 
                 /* loop over the left particles */
                 for ( j = 0 ; j < lcount ; j++ ) {
@@ -1781,10 +1757,6 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                     /* get a handle on the second particle */
                     part_i = &( parts_i[left[j]] );
 
-                    /* Skip parts in same virtual group. */
-                    if ( part_i->vid == pvid )
-                        continue;
-                
                     /* fetch the potential, if any */
                     pot = pots[ pjoff + part_i->type ];
                     if ( pot == NULL )
@@ -1986,7 +1958,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     struct part *part_i, *part_j;
     struct space *s;
     int *left, count = 0, lcount = 0;
-    int i, j, k, pvid, imax, qpos, lo, hi;
+    int i, j, k, imax, qpos, lo, hi;
     struct {
         short int lo, hi;
         } *qstack;
@@ -2062,17 +2034,12 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
             pif = &( part_i->f[0] );
-            pvid = part_i->vid;
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
             
                 /* get the other particle */
                 part_j = &(parts_i[j]);
-                
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -2252,17 +2219,12 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjoff = part_j->type * emt;
                 pjf = &(part_j->f[0]);
-                pvid = part_j->vid;
 
                 /* loop over the left particles */
                 for ( j = 0 ; j < lcount ; j++ ) {
 
                     /* get a handle on the second particle */
                     part_i = &( parts_i[left[j]] );
-
-                    /* Skip parts in same virtual group. */
-                    if ( part_i->vid == pvid )
-                        continue;
 
                     /* get the distance between both particles */
                     r2 = 0.0;
@@ -2464,7 +2426,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
     struct part *part_i, *part_j;
     struct space *s;
     int *left, count = 0, lcount = 0;
-    int i, j, k, pvid, imax, qpos, lo, hi;
+    int i, j, k, imax, qpos, lo, hi;
     struct {
         short int lo, hi;
         } *qstack;
@@ -2546,7 +2508,6 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
             piq = part_i->q;
-            pvid = part_i->vid;
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
@@ -2554,10 +2515,6 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 /* get the other particle */
                 part_j = &(parts_i[j]);
                 pijq = piq * part_j->q;
-                
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -2831,7 +2788,6 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                 pjx[2] = part_j->x[2] + pshift[2];
                 pjoff = part_j->type * emt;
                 pjq = part_j->q;
-                pvid = part_j->vid;
                 #if defined(VECTORIZE)
                     pjf = part_j->f;
                 #endif
@@ -2843,10 +2799,6 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
                     part_i = &( parts_i[left[j]] );
                     pijq = pjq * part_i->q;
 
-                    /* Skip parts in same virtual group. */
-                    if ( part_i->vid == pvid )
-                        continue;
-                
                     /* get the distance between both particles */
                     for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
                         dx[k] = part_i->x[k] - pjx[k];
@@ -3164,7 +3116,7 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
 
 int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
-    int i, j, k, emt, pioff, pvid, count_i, count_j;
+    int i, j, k, emt, pioff, count_i, count_j;
     FPTYPE cutoff2, r2, dx[3], pix[3], w;
     double epot = 0.0;
     struct engine *eng;
@@ -3226,17 +3178,12 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
-            pvid = part_i->vid;
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
             
                 /* get the other particle */
                 part_j = &(parts_i[j]);
-                
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -3343,7 +3290,6 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             pix[1] = part_i->x[1] - shift[1];
             pix[2] = part_i->x[2] - shift[2];
             pioff = part_i->type * emt;
-            pvid = part_i->vid;
             
             /* loop over all other particles */
             for ( j = 0 ; j < count_j ; j++ ) {
@@ -3351,10 +3297,6 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                 /* get the other particle */
                 part_j = &(parts_j[j]);
 
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
-                
                 /* fetch the potential, if any */
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -3547,7 +3489,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
 
 int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
-    int i, j, k, emt, pioff, pvid;
+    int i, j, k, emt, pioff;
     FPTYPE cutoff2, r2, dx[3], pix[3], piq, pijq, w;
     double epot = 0.0;
     struct engine *eng;
@@ -3617,7 +3559,6 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
             pix[2] = part_i->x[2];
             pioff = part_i->type * emt;
             piq = part_i->q;
-            pvid = part_i->vid;
         
             /* loop over all other particles */
             for ( j = 0 ; j < i ; j++ ) {
@@ -3625,10 +3566,6 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
                 /* get the other particle */
                 part_j = &(parts_i[j]);
                 pijq = piq * part_j->q;
-                
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -3820,7 +3757,6 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
             pix[2] = part_i->x[2] - shift[2];
             pioff = part_i->type * emt;
             piq = part_i->q;
-            pvid = part_i->vid;
             
             /* loop over all other particles */
             for ( j = 0 ; j < count_j ; j++ ) {
@@ -3828,10 +3764,6 @@ int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct 
                 /* get the other particle */
                 part_j = &(parts_j[j]);
                 pijq = piq * part_j->q;
-
-                /* Skip parts in same virtual group. */
-                if ( part_j->vid == pvid )
-                    continue;
                 
                 /* get the distance between both particles */
                 for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -4659,7 +4591,7 @@ int runner_run_verlet ( struct runner *r ) {
                     free( eff );
 
                 /* Allocate new eff. */
-                eff_size = s->nr_parts;
+                eff_size = s->nr_parts * 1.1;
                 if ( ( eff = (FPTYPE *)malloc( sizeof(FPTYPE) * eff_size * 4 ) ) == NULL )
                     return error(runner_err_malloc);
 

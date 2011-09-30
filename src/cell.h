@@ -53,6 +53,9 @@ struct cell {
 
     /* some flags */
     unsigned int flags;
+    
+    /* The ID of this cell. */
+    int id;
 
     /* relative cell location */
     int loc[3];

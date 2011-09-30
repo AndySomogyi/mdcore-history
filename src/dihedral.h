@@ -46,3 +46,5 @@ struct dihedral {
 /* associated functions */
 int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot_out );
 int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f , double *epot_out );
+int dihedral_eval_mod ( struct dihedral *d , int N , int nr_threads , int cid_mod , struct engine *e , double *epot_out );
+int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_div , struct engine *e , double *epot_out );

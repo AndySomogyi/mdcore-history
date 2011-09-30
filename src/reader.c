@@ -35,9 +35,6 @@
 int reader_err = reader_err_ok;
 
 
-/* the error macro. */
-#define error(id)				( reader_err = errs_register( id , reader_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
-
 /* list of error messages. */
 char *reader_err_msg[6] = {
 	"Nothing bad happened.",
@@ -47,8 +44,46 @@ char *reader_err_msg[6] = {
     "Maximum buffer size reached.",
     "End of file reached.",
 	};
+char reader_buff[100];
     
+/* the error macro. */
+#define error(r,id)				reader_error( r , id , __LINE__ , __FUNCTION__ )
+int reader_error ( struct reader *r , int id , int line , const char *function ) {
+    sprintf( reader_buff , "reading line %i, col %i: %s" , r->line , r->col , reader_err_msg[-id] );
+    return reader_err = errs_register( id , reader_buff , line , function , __FILE__ );
+    }
+
+
+/**
+ * @brief Read the next char.
+ *
+ * @param r The #reader.
+ *
+ * @return The next character or < 0 on error (see #reader_err).
+ */
+ 
+int reader_getc ( struct reader *r ) {
+
+    /* Get the next char. */
+    if ( ( r->c = getc( r->file ) ) == EOF )
+        r->flags |= reader_flag_eof;
+                
+    /* End of line? */
+    else if ( r->c == '\n' || r->c == '\r' ) {
+        r->line += 1;
+        r->col = 0;
+        }
+        
+    /* Otherwise, just advance. */
+    else
+        r->col += 1;
+        
+    /* Return the char. */
+    return r->c;
+
+    }
     
+
 /**
  * @brief Read until a newline.
  *
@@ -65,14 +100,14 @@ int reader_getline ( struct reader *r , char *buff , int buff_size ) {
 
     /* Check inputs. */
     if ( r == NULL || buff == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Has an EOF already been reached? */
     if ( r->flags & reader_flag_eof )
-        return error(reader_err_eof);
+        return error(r,reader_err_eof);
         
     /* Skip any input util a comment_start is hit. */
-    while ( r->c != '\n' && r->c != '\r' ) {
+    while ( r->c != EOF && r->c != '\n' && r->c != '\r' ) {
     
         /* Is there room in the buffer? */
         if ( k < buff_size-1 ) {
@@ -82,22 +117,18 @@ int reader_getline ( struct reader *r , char *buff , int buff_size ) {
             k += 1;
             
             /* Get the next char. */
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                return error(reader_err_eof);
-                }
+            reader_getc( r );
                 
             }
             
         /* Otherwise, buffer full. */
         else
-            return error(reader_err_buff);
+            return error(r,reader_err_buff);
             
         }
         
     /* Skip the newline character. */
-    if ( ( r->c = getc( r->file ) ) == EOF )
-        r->flags = reader_flag_eof;
+    reader_getc( r );
         
     /* Terminate the buffer. */
     buff[k] = 0;
@@ -122,27 +153,23 @@ int reader_skipline ( struct reader *r ) {
 
     /* Check inputs. */
     if ( r == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Has an EOF already been reached? */
     if ( r->flags & reader_flag_eof )
-        return error(reader_err_eof);
+        return error(r,reader_err_eof);
         
     /* Skip any input util a comment_start is hit. */
-    while ( r->c != '\n' && r->c != '\r' ) {
+    while ( r->c != EOF && r->c != '\n' && r->c != '\r' ) {
     
         /* Get the next char. */
         k += 1;
-        if ( ( r->c = getc( r->file ) ) == EOF ) {
-            r->flags = reader_flag_eof;
-            return error(reader_err_eof);
-            }
+        reader_getc( r );
 
         }
         
     /* Skip the newline character. */
-    if ( ( r->c = getc( r->file ) ) == EOF )
-        r->flags = reader_flag_eof;
+    reader_getc( r );
         
     /* Return the number of read characters. */
     return k;
@@ -241,28 +268,25 @@ int reader_getcomment ( struct reader *r , char *buff , int buff_size ) {
 
     /* Check inputs. */
     if ( r == NULL || buff == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Has an EOF already been reached? */
     if ( r->flags & reader_flag_eof )
-        return error(reader_err_eof);
+        return error(r,reader_err_eof);
         
     /* Skip any input util a comment_start is hit. */
     while ( !reader_iscomm_start( r , r->c ) )
-        if ( ( r->c = getc( r->file ) ) == EOF ) {
-            r->flags = reader_flag_eof;
-            return error(reader_err_eof);
-            }
+        if ( reader_getc( r ) == EOF )
+            return error(r,reader_err_eof);
             
     /* Skip the comment start character. */
-    if ( ( r->c = getc( r->file ) ) == EOF ) {
-        r->flags = reader_flag_eof;
+    if ( reader_getc( r ) == EOF ) {
         buff[0] = 0;
         return 0;
         }
             
     /* Write the input to the buffer until a comm_stop is reached. */
-    while ( !reader_iscomm_stop( r , r->c ) ) {
+    while ( r->c != EOF && !reader_iscomm_stop( r , r->c ) ) {
     
         /* Check buffer length. */
         if ( k < buff_size-1 ) {
@@ -272,14 +296,11 @@ int reader_getcomment ( struct reader *r , char *buff , int buff_size ) {
             k += 1;
             
             /* Get the next char. */
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                break;
-                }
+            reader_getc( r );
                 
             }
         else
-            return error(reader_err_buff);
+            return error(r,reader_err_buff);
     
         } /* Read comment into buffer. */
         
@@ -287,8 +308,7 @@ int reader_getcomment ( struct reader *r , char *buff , int buff_size ) {
     buff[k] = 0;
         
     /* Read the next char. */
-    if ( ( r->c = getc( r->file ) ) == EOF )
-        r->flags = reader_flag_eof;
+    reader_getc( r );
         
     /* Return the comment length. */
     return k;
@@ -310,40 +330,32 @@ int reader_skipcomment ( struct reader *r ) {
 
     /* Check inputs. */
     if ( r == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Has an EOF already been reached? */
     if ( r->flags & reader_flag_eof )
-        return error(reader_err_eof);
+        return error(r,reader_err_eof);
         
     /* Skip any input util a comment_start is hit. */
     while ( !reader_iscomm_start( r , r->c ) )
-        if ( ( r->c = getc( r->file ) ) == EOF ) {
-            r->flags = reader_flag_eof;
-            return error(reader_err_eof);
-            }
+        if ( reader_getc( r ) == EOF )
+            return error(r,reader_err_eof);
             
     /* Skip the comment start character. */
-    if ( ( r->c = getc( r->file ) ) == EOF ) {
-        r->flags = reader_flag_eof;
+    if ( reader_getc( r ) == EOF )
         return 0;
-        }
             
     /* Read the input until a comm_stop is reached. */
-    while ( !reader_iscomm_stop( r , r->c ) ) {
+    while ( r->c != EOF && !reader_iscomm_stop( r , r->c ) ) {
     
         /* Get the next char. */
         k += 1;
-        if ( ( r->c = getc( r->file ) ) == EOF ) {
-            r->flags = reader_flag_eof;
-            break;
-            }
+        reader_getc( r );
                 
         } /* Read comment into buffer. */
         
     /* Read the next char. */
-    if ( ( r->c = getc( r->file ) ) == EOF )
-        r->flags = reader_flag_eof;
+    reader_getc( r );
         
     /* Return the comment length. */
     return k;
@@ -367,35 +379,29 @@ int reader_gettoken ( struct reader *r , char *buff , int buff_size ) {
 
     /* Check inputs. */
     if ( r == NULL || buff == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Has an EOF already been reached? */
     if ( r->flags & reader_flag_eof )
-        return error(reader_err_eof);
+        return error(r,reader_err_eof);
         
     /* Skim-off whitespace and/or comments. */
     while ( 1 ) {
     
         /* Skip whitespace. */
         if ( reader_isws( r , r->c ) ) {
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                return error(reader_err_eof);
-                }
+            if ( reader_getc( r ) == EOF )
+                return error(r,reader_err_eof);
             }
             
         /* Skip comments. */
         else if ( reader_iscomm_start( r , r->c ) ) {
             do {
-                if ( ( r->c = getc( r->file ) ) == EOF ) {
-                    r->flags = reader_flag_eof;
-                    return error(reader_err_eof);
-                    }
+                if ( reader_getc( r ) == EOF )
+                    return error(r,reader_err_eof);
                 } while ( !reader_iscomm_stop( r , r->c ) );
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                return error(reader_err_eof);
-                }
+            if ( reader_getc( r ) == EOF )
+                return error(r,reader_err_eof);
             }
             
         else
@@ -404,7 +410,7 @@ int reader_gettoken ( struct reader *r , char *buff , int buff_size ) {
         } /* get ws and comments. */
         
     /* Read the token. */
-    while ( !reader_isws( r , r->c ) && !reader_iscomm_start( r , r->c ) ) {
+    while ( r->c != EOF && !reader_isws( r , r->c ) && !reader_iscomm_start( r , r->c ) ) {
     
         /* Check buffer length. */
         if ( k < buff_size-1 ) {
@@ -414,14 +420,11 @@ int reader_gettoken ( struct reader *r , char *buff , int buff_size ) {
             k += 1;
             
             /* Get the next char. */
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                break;
-                }
+            reader_getc( r );
                 
             }
         else
-            return error(reader_err_buff);
+            return error(r,reader_err_buff);
     
         } /* Read the token. */
         
@@ -448,35 +451,29 @@ int reader_skiptoken ( struct reader *r ) {
 
     /* Check inputs. */
     if ( r == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Has an EOF already been reached? */
     if ( r->flags & reader_flag_eof )
-        return error(reader_err_eof);
+        return error(r,reader_err_eof);
         
     /* Skim-off whitespace and/or comments. */
     while ( 1 ) {
     
         /* Skip whitespace. */
         if ( reader_isws( r , r->c ) ) {
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                return error(reader_err_eof);
-                }
+            if ( reader_getc( r ) == EOF )
+                return error(r,reader_err_eof);
             }
             
         /* Skip comments. */
         else if ( reader_iscomm_start( r , r->c ) ) {
             do {
-                if ( ( r->c = getc( r->file ) ) == EOF ) {
-                    r->flags = reader_flag_eof;
-                    return error(reader_err_eof);
-                    }
+                if ( reader_getc( r ) == EOF )
+                    return error(r,reader_err_eof);
                 } while ( !reader_iscomm_stop( r , r->c ) );
-            if ( ( r->c = getc( r->file ) ) == EOF ) {
-                r->flags = reader_flag_eof;
-                return error(reader_err_eof);
-                }
+            if ( reader_getc( r ) == EOF )
+                return error(r,reader_err_eof);
             }
             
         else
@@ -485,14 +482,11 @@ int reader_skiptoken ( struct reader *r ) {
         } /* get ws and comments. */
         
     /* Read the token. */
-    while ( !reader_isws( r , r->c ) && !reader_iscomm_start( r , r->c ) ) {
+    while ( r->c != EOF && !reader_isws( r , r->c ) && !reader_iscomm_start( r , r->c ) ) {
     
         /* Get the next char. */
         k += 1;
-        if ( ( r->c = getc( r->file ) ) == EOF ) {
-            r->flags = reader_flag_eof;
-            break;
-            }
+        reader_getc( r );
                 
         } /* Read the token. */
         
@@ -523,7 +517,7 @@ int reader_init ( struct reader *r , FILE *file , char *ws , char *comm_start , 
 
     /* Check inputs. */
     if ( r == NULL || file == NULL )
-        return error(reader_err_null);
+        return error(r,reader_err_null);
         
     /* Init the flags. */
     r->flags = reader_flag_none;
@@ -531,8 +525,12 @@ int reader_init ( struct reader *r , FILE *file , char *ws , char *comm_start , 
     /* Set the file. */
     r->file = file;
     
+    /* Re-set the line and column counts. */
+    r->line = 1;
+    r->col = 0;
+        
     /* Read the first character. */
-    if ( ( r->c = getc( r->file ) ) == EOF )
+    if ( reader_getc( r ) == EOF )
         r->flags = reader_flag_eof;
     else
         r->flags |= reader_flag_ready;

@@ -26,12 +26,17 @@
 #include <alloca.h>
 #include <pthread.h>
 #include <math.h>
+
+/* Include conditional headers. */
+#include "../config.h"
 #ifdef HAVE_OPENMP
     #include <omp.h>
 #endif
+#ifdef HAVE_MPI
+    #include <mpi.h>
+#endif
 
 /* include local headers */
-#include "../config.h"
 #include "errs.h"
 #include "part.h"
 #include "cell.h"
@@ -180,24 +185,12 @@ int space_verlet_get ( struct space *s , int maxcount , int *from ) {
  
 int space_verlet_init ( struct space *s , int list_global ) {
 
-    int cid, pid, k;
-    double dx, w, maxdx = 0.0, skin;
-    struct cell *c;
-    struct part *p;
-    #ifdef HAVE_OPENMP
-        int step;
-        double lmaxdx;
-    #endif
-
     /* Check input for nonsense. */
     if ( s == NULL )
         return error(space_err_null);
     
-    /* Get the skin width. */    
-    skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) ) - s->cutoff;
-    
     /* Allocate the parts and nrpairs lists if necessary. */
-    if ( s->verlet_size < s->nr_parts ) {
+    if ( list_global && s->verlet_size < s->nr_parts ) {
     
         printf("space_verlet_init: (re)allocating verlet lists...\n");
     
@@ -209,88 +202,14 @@ int space_verlet_init ( struct space *s , int list_global ) {
             
         /* Allocate new arrays. */
         s->verlet_size = 1.1 * s->nr_parts;
-        if ( list_global ) {
-            if ( ( s->verlet_list = (struct verlet_entry *)malloc( sizeof(struct verlet_entry) * s->verlet_size * space_verlet_maxpairs ) ) == NULL )
-                return error(space_err_malloc);
-            if ( ( s->verlet_nrpairs = (int *)malloc( sizeof(int) * s->verlet_size ) ) == NULL )
-                return error(space_err_malloc);
-            }
+        if ( ( s->verlet_list = (struct verlet_entry *)malloc( sizeof(struct verlet_entry) * s->verlet_size * space_verlet_maxpairs ) ) == NULL )
+            return error(space_err_malloc);
+        if ( ( s->verlet_nrpairs = (int *)malloc( sizeof(int) * s->verlet_size ) ) == NULL )
+            return error(space_err_malloc);
             
         /* We have to re-build the list now. */
         s->verlet_rebuild = 1;
             
-        }
-        
-    else {
-        
-        /* Check if we need to re-shuffle the particles. */
-        #ifdef HAVE_OPENMP
-            #pragma omp parallel private(cid,pid,p,dx,k,w,step,lmaxdx)
-            {
-                lmaxdx = 0.0; step = omp_get_num_threads();
-                for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
-                    c = &(s->cells[cid]);
-                    for ( pid = 0 ; pid < c->count ; pid++ ) {
-                        p = &(c->parts[pid]);
-                        for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                            w = p->x[k] - c->oldx[ 4*pid + k ];
-                            dx += w*w;
-                            }
-                        lmaxdx = fmax( dx , lmaxdx );
-                        }
-                    }
-                #pragma omp critical
-                maxdx = fmax( lmaxdx , maxdx );
-                }
-        #else
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &(s->cells[cid]);
-                for ( pid = 0 ; pid < c->count ; pid++ ) {
-                    p = &(c->parts[pid]);
-                    for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                        w = p->x[k] - c->oldx[ 4*pid + k ];
-                        dx += w*w;
-                        }
-                    maxdx = fmax( dx , maxdx );
-                    }
-                }
-        #endif
-            
-        /* Are we still in the green? */
-        s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
-        
-        }
-        
-    /* Do we have to rebuild the Verlet list? */
-    if ( s->verlet_rebuild ) {
-    
-        /* printf("space_verlet_init: (re)building verlet lists...\n");
-        printf("space_verlet_init: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
-        
-        /* Shuffle the domain. */
-        if ( space_shuffle( s ) < 0 )
-            return error(space_err);
-            
-        /* Store the current positions as a reference. */
-        #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( c->oldx == NULL || c->oldx_size < c->count ) {
-                free(c->oldx);
-                c->oldx_size = c->size;
-                c->oldx = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * c->oldx_size );
-                }
-            for ( pid = 0 ; pid < c->count ; pid++ ) {
-                p = &(c->parts[pid]);
-                for ( k = 0 ; k < 3 ; k++ )
-                    c->oldx[ 4*pid + k ] = p->x[k];
-                }
-            }
-            
-        /* Set the nrpairs to zero. */
-        if ( list_global )
-            bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
-
         }
         
     /* re-set the Verlet list index. */
@@ -800,42 +719,18 @@ int space_shuffle ( struct space *s ) {
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
 
-    /* loop over all cells */
+    #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
     for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-    
-        /* get the cell */
         c = &(s->cells[cid]);
-        
-        /* Skip ghost cells. */
-        if ( c->flags & cell_flag_ghost )
+        if ( !(c->flags & cell_flag_marked) )
             continue;
-    
-        /* loop over all particles in this cell */
-        /* __builtin_prefetch( &c->parts[0] );
-        __builtin_prefetch( &c->parts[1] );
-        __builtin_prefetch( &c->parts[2] );
-        __builtin_prefetch( &c->parts[3] );
-        __builtin_prefetch( &c->parts[4] );
-        __builtin_prefetch( &c->parts[5] );
-        __builtin_prefetch( &c->parts[6] );
-        __builtin_prefetch( &c->parts[7] ); */
         pid = 0;
         while ( pid < c->count ) {
-        
-            /* get a handle on the particle */
-            /* __builtin_prefetch( &c->parts[pid+8] ); */
-            p = &(c->parts[pid]);
-            
-            /* check if this particle is out of bounds */
-            for ( k = 0 ; k < 3 ; k++ ) {
-                if ( p->x[k] < 0.0 )
-                    delta[k] = -1;
-                else if ( p->x[k] >= h[k] )
-                    delta[k] = 1;
-                else
-                    delta[k] = 0;
-                }
-                
+
+            p = &( c->parts[pid] );
+            for ( k = 0 ; k < 3 ; k++ )
+                delta[k] = __builtin_isgreaterequal( p->x[k] , h[k] ) - __builtin_isless( p->x[k] , 0.0 );
+
             /* do we have to move this particle? */
             if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
                 for ( k = 0 ; k < 3 ; k++ )
@@ -844,25 +739,37 @@ int space_shuffle ( struct space *s ) {
                     (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
                     (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                     (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
-                s->partlist[ p->id ] = cell_add( c_dest , p , s->partlist );
+
+	            if ( c_dest->flags & cell_flag_marked ) {
+                    pthread_mutex_lock(&c_dest->cell_mutex);
+                    cell_add_incomming( c_dest , p );
+	                pthread_mutex_unlock(&c_dest->cell_mutex);
+                    s->celllist[ p->id ] = c_dest;
+                    }
+                else {
+                    s->partlist[ p->id ] = NULL;
+                    s->celllist[ p->id ] = NULL;
+                    }
+
                 s->celllist[ p->id ] = c_dest;
                 c->count -= 1;
                 if ( pid < c->count ) {
                     c->parts[pid] = c->parts[c->count];
                     s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
                     }
-                /* printf("space_shuffle: moving particle %i from cell [%i,%i,%i] to cell [%i,%i,%i].\n",
-                    p->id, c->loc[0], c->loc[1], c->loc[2],
-                    c_dest->loc[0], c_dest->loc[1], c_dest->loc[2]);
-                printf("space_shuffle: particle coords are [%e,%e,%e].\n",
-                    p->x[0], p->x[1], p->x[2]); */
                 }
             else
-                pid++;
-        
-            } /* loop over all particles */
-    
-        } /* loop over all cells */
+                pid += 1;
+            }
+        }
+
+    /* Welcome the new particles in each cell. */
+    #pragma omp parallel for schedule(static), private(c)
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+        c = &(s->cells[cid]);
+        if ( c->flags & cell_flag_marked )
+            cell_welcome( c , s->partlist );
+        }
         
     /* If we've got a Verlet list, reset the counts. */
     if ( s->verlet_nrpairs != NULL )
@@ -1252,6 +1159,14 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                 s->cells[ space_cellid(s,0,i,j) ].flags |= cell_flag_ghost;
                 s->cells[ space_cellid(s,s->cdim[0]-1,i,j) ].flags |= cell_flag_ghost;
                 }
+                
+    /* Number the non-ghost cells. */
+    for ( i = 0 , j = 0 ; i < s->nr_cells ; i++ )
+        if ( !( s->cells[i].flags & cell_flag_ghost ) )
+            s->cells[i].id = j++;
+        else
+            s->cells[i].id = -s->nr_cells;
+    s->nr_cells_real = j;
         
     /* allocate the cell pairs array (pessimistic guess) */
     if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * s->nr_cells * 14 )) == NULL )
@@ -1397,7 +1312,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     s->verlet_nrpairs = NULL;
     s->verlet_oldx = NULL;
     s->verlet_size = 0;
-    s->verlet_rebuild = 0;
+    s->verlet_rebuild = 1;
         
     /* all is well that ends well... */
     return space_err_ok;
