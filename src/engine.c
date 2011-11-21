@@ -39,6 +39,7 @@
 #endif
 
 /* include local headers */
+#include "cycle.h"
 #include "errs.h"
 #include "fptype.h"
 #include "part.h"
@@ -87,6 +88,32 @@ char *engine_err_msg[19] = {
 
 
 /**
+ * @brief Set all the engine timers to 0.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_timers_reset ( struct engine *e ) {
+
+    int k;
+    
+    /* Check input nonsense. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Run through the timers and set them to 0. */
+    for ( k = 0 ; k < engine_nr_timers ; k++ )
+        e->timers[k] = 0;
+        
+    /* What, that's it? */
+    return engine_err_ok;
+
+    }
+    
+
+/**
  * @brief Check if the Verlet-list needs to be updated.
  *
  * @param e The #engine.
@@ -115,7 +142,7 @@ int engine_verlet_update ( struct engine *e ) {
     
     /* Get the maximum particle movement. */
     #ifdef HAVE_OPENMP
-        #pragma omp parallel private(cid,pid,p,dx,k,w,step,lmaxdx)
+        #pragma omp parallel private(c,cid,pid,p,dx,k,w,step,lmaxdx)
         {
             lmaxdx = 0.0; step = omp_get_num_threads();
             for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
@@ -151,7 +178,8 @@ int engine_verlet_update ( struct engine *e ) {
     #ifdef HAVE_MPI
     /* Collect the maximum displacement from other nodes. */
     if ( ( e->flags & engine_flag_mpi ) && ( e->nr_nodes > 1 ) ) {
-        if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE_PRECISION , MPI_MAX , MPI_COMM_WORLD ) != MPI_SUCCESS )
+        /* Do not use in-place as it is buggy when async is going on in the background. */
+        if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE_PRECISION , MPI_MAX , e->comm ) != MPI_SUCCESS )
             return error(engine_err_mpi);
         }
     #endif
@@ -162,13 +190,46 @@ int engine_verlet_update ( struct engine *e ) {
     /* Do we have to rebuild the Verlet list? */
     if ( s->verlet_rebuild ) {
     
-        /* printf("engine_verlet_update: (re)building verlet lists...\n");
+        /* printf("engine_verlet_update: re-building verlet lists next step...\n");
         printf("engine_verlet_update: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
         
+        /* Wait for any unterminated exchange. */
+        if ( e->flags & engine_flag_async )
+            if ( engine_exchange_wait( e ) < 0 )
+                return error(engine_err);
+                
+        /* Flush the ghost cells (to avoid overlapping particles) */
+        #pragma omp parallel for schedule(static), private(c)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( c->flags & cell_flag_ghost )
+                cell_flush( c , s->partlist , s->celllist );
+            }
+        
         /* Shuffle the domain. */
-        if ( space_shuffle( s ) < 0 )
-            return error(space_err);
+        if ( space_shuffle_local( s ) < 0 )
+            return error(engine_err_space);
             
+        /* Get the incomming particle from other procs if needed. */
+        if ( e->flags & engine_flag_mpi )
+            if ( engine_exchange_incomming( e ) < 0 )
+                return error(engine_err);
+                        
+        /* Welcome the new particles in each cell, unhook the old ones. */
+        #pragma omp parallel for schedule(static), private(c,k)
+        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+            c = &(s->cells[cid]);
+            if ( !(c->flags & cell_flag_marked ) )
+                continue;
+            else if ( !(c->flags & cell_flag_ghost) )
+                cell_welcome( c , s->partlist );
+            else {
+                for ( k = 0 ; k < c->incomming_count ; k++ )
+                    e->s.partlist[ c->incomming[k].id ] = NULL;
+                c->incomming_count = 0;
+                }
+            }
+
         /* Store the current positions as a reference. */
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
@@ -1901,26 +1962,110 @@ int engine_angle_add ( struct engine *e , int i , int j , int k , int pid ) {
  * @param pjd The ID of the second #part.
  *
  * @return The index of the rigid constraint or < 0 on error (see #engine_err).
+ *
+ * Beware that currently all particles have to have been inserted before
+ * the rigid constraints are added!
  */
  
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
 
     struct rigid *dummy, *r;
-    int ind, jnd, k, j;
+    int ind, jnd, rid, rjd, k, j;
 
     /* Check inputs. */
     if ( e == NULL )
         return error(engine_err_null);
         
+    /* If we don't have a part2rigid array, allocate and init one. */
+    if ( e->part2rigid == NULL ) {
+        if ( ( e->part2rigid = (int *)malloc( sizeof(int *) * e->s.nr_parts ) ) == NULL )
+            return error(engine_err_malloc);
+        for ( k = 0 ; k < e->s.nr_parts ; k++ )
+            e->part2rigid[k] = -1;
+        }
+        
     /* Update the number of constraints (important for temp). */
     e->nr_constr += 1;
         
     /* Check if we already have a rigid constraint with either pid or pjd. */
-    for ( k = 0 ; k < e->nr_rigids ; k++ ) {
+    rid = e->part2rigid[pid]; rjd = e->part2rigid[pjd];
+    if ( rid < 0 && rjd < 0 ) {
     
-        /* Get a grip on the kth rigid. */
-        r = &e->rigids[k];
+        /* Do we need to grow the rigids array? */
+        if ( e->nr_rigids == e->rigids_size ) {
+            e->rigids_size  *= 1.414;
+            if ( ( dummy = (struct rigid *)malloc( sizeof(struct rigid) * e->rigids_size ) ) == NULL )
+                return error(engine_err_malloc);
+            memcpy( dummy , e->rigids , sizeof(struct rigid) * e->nr_rigids );
+            free( e->rigids );
+            e->rigids = dummy;
+            }
+
+        /* Store this rigid. */
+        e->rigids[ e->nr_rigids ].nr_parts = 2;
+        e->rigids[ e->nr_rigids ].nr_constr = 1;
+        e->rigids[ e->nr_rigids ].parts[0] = pid;
+        e->rigids[ e->nr_rigids ].parts[1] = pjd;
+        e->rigids[ e->nr_rigids ].constr[0].i = 0;
+        e->rigids[ e->nr_rigids ].constr[0].j = 1;
+        e->rigids[ e->nr_rigids ].constr[0].d2 = d*d;
+        e->part2rigid[pid] = e->nr_rigids;
+        e->part2rigid[pjd] = e->nr_rigids;
+        e->nr_rigids += 1;
     
+        }
+        
+    /* Both particles are already in different groups. */
+    else if ( rid >= 0 && rjd >= 0 && rid != rjd ) {
+    
+        /* Get a hold of both rigids. */
+        r = &e->rigids[rid]; dummy = &e->rigids[rjd];
+    
+        /* Get indices for these parts in the respective rigids. */
+        for ( ind = 0 ; r->parts[ind] != pid ; ind++ );
+        for ( jnd = 0 ; dummy->parts[jnd] != pjd ; jnd++ );
+                
+        /* Merge the particles of rjd into rid. */
+        for ( j = 0 ; j < dummy->nr_parts ; j++ ) {
+            r->parts[ r->nr_parts + j ] = dummy->parts[j];
+            e->part2rigid[ dummy->parts[j] ] = rid;
+            }
+            
+        /* Add the constraints from dummy to rid. */
+        for ( j = 0 ; j < dummy->nr_constr ; j++ ) {
+            r->constr[ r->nr_constr + j ] = dummy->constr[ j ];
+            r->constr[ r->nr_constr + j ].i += r->nr_parts;
+            r->constr[ r->nr_constr + j ].j += r->nr_parts;
+            }
+            
+        /* Adjust the number of parts and constr in rid. */
+        r->nr_constr += dummy->nr_constr;
+        r->nr_parts += dummy->nr_parts;
+    
+        /* Store the distance constraint. */
+        r->constr[ r->nr_constr ].i = ind;
+        r->constr[ r->nr_constr ].j = jnd;
+        r->constr[ r->nr_constr ].d2 = d*d;
+        r->nr_constr += 1;
+        
+        /* Remove the rigid rjd. */
+        e->nr_rigids -= 1;
+        if ( rjd < e->nr_rigids ) {
+            e->rigids[ rjd ] = e->rigids[ e->nr_rigids ];
+            for ( j = 0 ; j < e->rigids[ rjd ].nr_parts ; j++ )
+                e->part2rigid[ e->rigids[rjd].parts[j] ] = rjd;
+            }
+        
+        }
+        
+    /* Otherwise, one or both particles are in the same group. */
+    else {
+    
+        /* Get a grip on the rigid. */
+        if ( rid < 0 )
+            rid = rjd;
+        r = &e->rigids[rid];
+        
         /* Try to get indices for these parts in the kth constraint. */
         ind = -1; jnd = -1;
         for ( j = 0 ; j < r->nr_parts ; j++ ) {
@@ -1930,20 +2075,18 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
                 jnd = j;
             }
                 
-        /* Did we find pid and/or pjd? */
-        if ( ind < 0 && jnd < 0 )
-            continue;
-            
         /* Do we need to store i or j? */
         if ( ind < 0 ) {
             r->parts[ r->nr_parts ] = pid;
             ind = r->nr_parts;
             r->nr_parts += 1;
+            e->part2rigid[pid] = rid;
             }
         else if ( jnd < 0 ) {
             r->parts[ r->nr_parts ] = pjd;
             jnd = r->nr_parts;
             r->nr_parts += 1;
+            e->part2rigid[pjd] = rid;
             }
             
         /* Store the distance constraint. */
@@ -1952,31 +2095,8 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
         r->constr[ r->nr_constr ].d2 = d*d;
         r->nr_constr += 1;
         
-        /* We're done! */
-        return k;
-        
         }
         
-    /* Do we need to grow the rigids array? */
-    if ( e->nr_rigids == e->rigids_size ) {
-        e->rigids_size  *= 1.414;
-        if ( ( dummy = (struct rigid *)malloc( sizeof(struct rigid) * e->rigids_size ) ) == NULL )
-            return error(engine_err_malloc);
-        memcpy( dummy , e->rigids , sizeof(struct rigid) * e->nr_rigids );
-        free( e->rigids );
-        e->rigids = dummy;
-        }
-        
-    /* Store this rigid. */
-    e->rigids[ e->nr_rigids ].nr_parts = 2;
-    e->rigids[ e->nr_rigids ].nr_constr = 1;
-    e->rigids[ e->nr_rigids ].parts[0] = pid;
-    e->rigids[ e->nr_rigids ].parts[1] = pjd;
-    e->rigids[ e->nr_rigids ].constr[0].i = 0;
-    e->rigids[ e->nr_rigids ].constr[0].j = 1;
-    e->rigids[ e->nr_rigids ].constr[0].d2 = d*d;
-    e->nr_rigids += 1;
-    
     /* It's the end of the world as we know it. */
     return engine_err_ok;
 
@@ -2187,12 +2307,16 @@ int engine_bonded_eval ( struct engine *e ) {
         int nr_threads, thread_id;
     #endif
     
+    /* Bail if there are no bonded interaction. */
+    if ( nr_bonds == 0 && nr_angles == 0 && nr_dihedrals == 0 && nr_exclusions == 0 )
+        return engine_err_ok;
+    
     /* Get a handle on the space. */
     s = &e->s;
 
     /* If in parallel... */
     if ( e->nr_nodes > 1 ) {
-        
+    
         #pragma omp parallel for schedule(static), private(i,j,dtemp,atemp,btemp,etemp)
         for ( k = 0 ; k < 4 ; k++ ) {
     
@@ -2323,6 +2447,7 @@ int engine_bonded_eval ( struct engine *e ) {
             dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot );
             exclusion_eval( e->exclusions , nr_exclusions , e , &epot );
             }
+            
     #else
         if ( bond_eval( e->bonds , nr_bonds , e , &epot ) < 0 )
             return error(engine_err_bond);
@@ -2542,88 +2667,241 @@ int engine_angle_eval ( struct engine *e ) {
 
 
 /**
- * @brief Resolve the constraints.
+ * @brief Split the rigids into local, semilocal and non-local.
  * 
  * @param e The #engine.
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
+int engine_rigid_sort ( struct engine *e ) {
+
+    struct cell **celllist;
+    struct rigid temp;
+    int nr_rigids = e->nr_rigids, nr_local, nr_ghosts, i, j, k;
+    
+    /* If not in parallel, then we've got nothing to do. */
+    if ( e->nr_nodes == 1 ) {
+        e->rigids_semilocal = e->rigids_local = e->nr_rigids;
+        return engine_err_ok;
+        }
+    
+    /* Get a handle on the celllist. */
+    celllist = e->s.celllist;
+
+    /* Split between local and completely non-local rigids. */
+    i = 0; j = nr_rigids-1;
+    while ( i < j ) {
+        while ( i < nr_rigids ) {
+            for ( nr_ghosts = 0 , k = 0 ; k < e->rigids[i].nr_parts && celllist[e->rigids[i].parts[k]] != NULL ; k++ )
+                if ( celllist[e->rigids[i].parts[k]]->flags & cell_flag_ghost )
+                    nr_ghosts += 1;
+            if ( k < e->rigids[i].nr_parts || nr_ghosts == e->rigids[i].nr_parts )
+                break;
+            i += 1;
+            }
+        while ( j >= 0 ) {
+            for ( nr_ghosts = 0 , k = 0 ; k < e->rigids[j].nr_parts && celllist[e->rigids[j].parts[k]] != NULL ; k++ )
+                if ( celllist[e->rigids[j].parts[k]]->flags & cell_flag_ghost )
+                    nr_ghosts += 1;
+            if ( k == e->rigids[j].nr_parts && nr_ghosts < e->rigids[j].nr_parts )
+                break;
+            j -= 1;
+            }
+        if ( i < j ) {
+            temp = e->rigids[i];
+            e->rigids[i] = e->rigids[j];
+            e->rigids[j] = temp;
+            }
+        }
+    nr_rigids = i;
+
+    /* Split again between strictly local and semi-local (contains ghosts). */
+    i = 0; j = nr_rigids-1;
+    while ( i < j ) {
+        while ( i < nr_rigids ) {
+            for ( k = 0 ; k < e->rigids[i].nr_parts && !(celllist[e->rigids[i].parts[k]]->flags & cell_flag_ghost) ; k++ );
+            if ( k < e->rigids[i].nr_parts )
+                break;
+            i += 1;
+            }
+        while ( j >= 0 ) {
+            for ( k = 0 ; k < e->rigids[j].nr_parts && !(celllist[e->rigids[j].parts[k]]->flags & cell_flag_ghost) ; k++ );
+            if ( k == e->rigids[j].nr_parts )
+                break;
+            j -= 1;
+            }
+        if ( i < j ) {
+            temp = e->rigids[i];
+            e->rigids[i] = e->rigids[j];
+            e->rigids[j] = temp;
+            }
+        }
+    nr_local = i;
+
+
+    /* Store the values in the engine. */
+    e->rigids_local = nr_local;
+    e->rigids_semilocal = nr_rigids;
+        
+    /* I'll be back... */
+    return engine_err_ok;
+
+    }
+
+/**
+ * @brief Resolve the constraints.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Note that if in parallel, #engine_rigid_sort should be called before
+ * this routine.
+ */
+ 
 int engine_rigid_eval ( struct engine *e ) {
 
-    struct space *s;
-    struct rigid temp;
-    int nr_rigids = e->nr_rigids, i, j, k;
+    int nr_local = e->rigids_local, nr_rigids = e->rigids_semilocal;
     #ifdef HAVE_OPENMP
         int finger_global = 0, finger, count;
     #endif
     
-    /* Get a handle on the space. */
-    s = &e->s;
-
-    /* Sort the rigids (if in parallel). */
-    if ( e->nr_nodes > 1 ) {
-        i = 0; j = nr_rigids-1;
-        while ( i < j ) {
-            while ( i < nr_rigids ) {
-                for ( k = 0 ; k < e->rigids[i].nr_parts && s->partlist[e->rigids[i].parts[k]] != NULL ; k++ );
-                if ( k < e->rigids[i].nr_parts )
-                    break;
-                i += 1;
-                }
-            while ( j >= 0 ) {
-                for ( k = 0 ; k < e->rigids[j].nr_parts && s->partlist[e->rigids[j].parts[k]] != NULL ; k++ );
-                if ( k == e->rigids[j].nr_parts )
-                    break;
-                j -= 1;
-                }
-            if ( i < j ) {
-                temp = e->rigids[i];
-                e->rigids[i] = e->rigids[j];
-                e->rigids[j] = temp;
-                }
-            }
-        nr_rigids = i;
-        }
-
-    #ifdef HAVE_OPENMP
+    /* Do we have asynchronous communication going on, e.g. are we waiting
+       for ghosts? */
+    if ( e->flags & engine_flag_async ) {
     
-        /* Is it worth parallelizing? */
-        #pragma omp parallel private(finger,count)
-        if ( omp_get_num_threads() > 1 && nr_rigids > engine_rigids_chunk ) {
-    
-            /* Main loop. */
-            while ( finger_global < nr_rigids ) {
+        #ifdef HAVE_OPENMP
 
-                /* Get a finger on the bonds list. */
-                #pragma omp critical
-                {
-                    if ( finger_global < nr_rigids ) {
-                        finger = finger_global;
-                        count = engine_rigids_chunk;
-                        if ( finger + count > nr_rigids )
-                            count = nr_rigids - finger;
-                        finger_global += count;
+            /* Is it worth parallelizing? */
+            #pragma omp parallel private(finger,count)
+            if ( omp_get_num_threads() > 1 && nr_local > engine_rigids_chunk ) {
+
+                /* Main loop. */
+                while ( finger_global < nr_local ) {
+
+                    /* Get a finger on the bonds list. */
+                    #pragma omp critical
+                    {
+                        if ( finger_global < nr_local ) {
+                            finger = finger_global;
+                            count = engine_rigids_chunk;
+                            if ( finger + count > nr_local )
+                                count = nr_local - finger;
+                            finger_global += count;
+                            }
+                        else
+                            count = 0;
                         }
-                    else
-                        count = 0;
-                    }
 
-                /* Compute the bonded interactions. */
-                if ( count > 0 )
-                    rigid_eval_shake( &e->rigids[finger] , count , e );
+                    /* Compute the bonded interactions. */
+                    if ( count > 0 )
+                        rigid_eval_shake( &e->rigids[finger] , count , e );
 
-                } /* main loop. */
+                    } /* main loop. */
+
+                }
+
+            /* Otherwise, evaluate directly. */
+            else if ( omp_get_thread_num() == 0 )
+                rigid_eval_shake( e->rigids , nr_local , e );
                 
-            }
-            
-        /* Otherwise, evaluate directly. */
-        else if ( omp_get_thread_num() == 0 )
-            rigid_eval_shake( e->rigids , nr_rigids , e );
-    #else
-        if ( rigid_eval_shake( e->rigids , nr_rigids , e ) < 0 )
-            return error(engine_err_rigid);
-    #endif
+                
+            /* Wait for the async data to come in. */
+            if ( engine_exchange_wait( e ) < 0 )
+                return error(engine_err);
+                
+                
+            /* Is it worth parallelizing? */
+            #pragma omp parallel private(finger,count)
+            if ( omp_get_num_threads() > 1 && nr_rigids-nr_local > engine_rigids_chunk ) {
+
+                /* Main loop. */
+                while ( finger_global < nr_rigids ) {
+
+                    /* Get a finger on the bonds list. */
+                    #pragma omp critical
+                    {
+                        if ( finger_global < nr_rigids ) {
+                            finger = finger_global;
+                            count = engine_rigids_chunk;
+                            if ( finger + count > nr_rigids )
+                                count = nr_rigids - finger;
+                            finger_global += count;
+                            }
+                        else
+                            count = 0;
+                        }
+
+                    /* Compute the bonded interactions. */
+                    if ( count > 0 )
+                        rigid_eval_shake( &e->rigids[finger] , count , e );
+
+                    } /* main loop. */
+
+                }
+
+            /* Otherwise, evaluate directly. */
+            else if ( omp_get_thread_num() == 0 )
+                rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e );
+                
+        #else
+            if ( rigid_eval_shake( e->rigids , nr_local , e ) < 0 )
+                return error(engine_err_rigid);
+            if ( engine_exchange_wait( e ) < 0 )
+                return error(engine_err);
+            if ( rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e ) < 0 )
+                return error(engine_err_rigid);
+        #endif
+    
+        }
+        
+    /* No async, do it all at once. */
+    else {
+    
+        #ifdef HAVE_OPENMP
+
+            /* Is it worth parallelizing? */
+            #pragma omp parallel private(finger,count)
+            if ( omp_get_num_threads() > 1 && nr_rigids > engine_rigids_chunk ) {
+
+                /* Main loop. */
+                while ( finger_global < nr_rigids ) {
+
+                    /* Get a finger on the bonds list. */
+                    #pragma omp critical
+                    {
+                        if ( finger_global < nr_rigids ) {
+                            finger = finger_global;
+                            count = engine_rigids_chunk;
+                            if ( finger + count > nr_rigids )
+                                count = nr_rigids - finger;
+                            finger_global += count;
+                            }
+                        else
+                            count = 0;
+                        }
+
+                    /* Compute the bonded interactions. */
+                    if ( count > 0 )
+                        rigid_eval_shake( &e->rigids[finger] , count , e );
+
+                    } /* main loop. */
+
+                }
+
+            /* Otherwise, evaluate directly. */
+            else if ( omp_get_thread_num() == 0 )
+                rigid_eval_shake( e->rigids , nr_rigids , e );
+                
+        #else
+        
+            if ( rigid_eval_shake( e->rigids , nr_rigids , e ) < 0 )
+                return error(engine_err_rigid);
+                
+        #endif
+    
+        }
         
     /* I'll be back... */
     return engine_err_ok;
@@ -2907,8 +3185,300 @@ int engine_angle_addpot ( struct engine *e , struct potential *p ) {
     return e->nr_anglepots - 1;
 
     }
+    
+    
+/** 
+ * @brief Wait for an asynchronous data exchange to finalize.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+#ifdef HAVE_MPI
+int engine_exchange_wait ( struct engine *e ) {
+
+    /* Try to grab the xchg_mutex, which will only be free while
+       the async routine is waiting on a condition. */
+    if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* If the async exchange was started but is not running,
+       wait for a signal. */
+    while ( e->xchg_started && ~e->xchg_running )
+        if ( pthread_cond_wait( &e->xchg_cond , &e->xchg_mutex ) != 0 )
+            return error(engine_err_pthread);
+        
+    /* We don't actually need this, so release it again. */
+    if ( pthread_mutex_unlock( &e->xchg_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* The end of the tunnel. */
+    return engine_err_ok;
+
+    }
+#endif
 
 
+/**
+ * @brief Exchange data with other nodes asynchronously.
+ *
+ * @param e The #engine to work with.
+ * @param comm The @c MPI_Comm over which to exchange data.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Starts a new thread which handles the particle exchange. At the
+ * start of the exchange, ghost cells are marked in the taboo-list
+ * and only freed once their data has been received.
+ *
+ * The function #engine_exchange_wait can be used to wait for
+ * the asynchronous communication to finish.
+ */
+
+#ifdef HAVE_MPI 
+int engine_exchange_async_run ( struct engine *e ) {
+
+    int i, k, ind, res, cid;
+    int *counts_in[ e->nr_nodes ], *counts_out[ e->nr_nodes ];
+    int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
+    MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
+    struct part *buff_send[ e->nr_nodes ], *buff_recv[ e->nr_nodes ], *finger;
+    struct cell *c;
+    struct space *s;
+    FPTYPE h[3];
+
+    /* Check the input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+
+    /* Get local copies of some data. */
+    s = &e->s;
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+        
+    /* Start by acquiring the xchg_mutex. */
+    if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
+        return error(engine_err_pthread);
+
+    /* Main loop... */
+    while ( 1 ) {
+
+        /* Wait for a signal to start. */
+        e->xchg_running = 0;
+        if ( pthread_cond_wait( &e->xchg_cond , &e->xchg_mutex ) != 0 )
+            return error(engine_err_pthread);
+            
+        /* Tell the world I'm alive! */
+        e->xchg_started = 0; e->xchg_running = 1;
+        if ( pthread_cond_signal( &e->xchg_cond ) != 0 )
+            return error(engine_err_pthread);
+        
+        /* Start by packing and sending/receiving a counts array for each send queue. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+
+            /* Do we have anything to send? */
+            if ( e->send[i].count > 0 ) {
+
+                /* Allocate a new lengths array. */
+                if ( ( counts_out[i] = (int *)malloc( sizeof(int) * e->send[i].count ) ) == NULL )
+                    return error(engine_err_malloc);
+
+                /* Pack the array with the counts. */
+                totals_send[i] = 0;
+                for ( k = 0 ; k < e->send[i].count ; k++ )
+                    totals_send[i] += ( counts_out[i][k] = s->cells[ e->send[i].cellid[k] ].count );
+                /* printf( "engine_exchange[%i]: totals_send[%i]=%i.\n" , e->nodeID , i , totals_send[i] ); */
+
+                /* Ship it off to the correct node. */
+                if ( ( res = MPI_Isend( counts_out[i] , e->send[i].count , MPI_INT , i , e->nodeID , e->comm , &reqs_send[i] ) ) != MPI_SUCCESS )
+                    return error(engine_err_mpi);
+                /* printf( "engine_exchange[%i]: sending %i counts to node %i.\n" , e->nodeID , e->send[i].count , i ); */
+
+                }
+            else
+                reqs_send[i] = MPI_REQUEST_NULL;
+
+            /* Are we expecting any parts? */
+            if ( e->recv[i].count > 0 ) {
+
+                /* Allocate a new lengths array for the incomming data. */
+                if ( ( counts_in[i] = (int *)malloc( sizeof(int) * e->recv[i].count ) ) == NULL )
+                    return error(engine_err_malloc);
+
+                /* Dispatch a recv request. */
+                if ( ( res = MPI_Irecv( counts_in[i] , e->recv[i].count , MPI_INT , i , i , e->comm , &reqs_recv[i] ) ) != MPI_SUCCESS )
+                    return error(engine_err_mpi);
+                /* printf( "engine_exchange[%i]: recving %i counts from node %i.\n" , e->nodeID , e->recv[i].count , i ); */
+
+                }
+            else
+                reqs_recv[i] = MPI_REQUEST_NULL;
+
+            }
+
+        /* Wait for the counts to come in. */
+        if ( ( res = MPI_Waitall( e->nr_nodes , reqs_send , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+            return error(engine_err_mpi);
+        if ( ( res = MPI_Waitall( e->nr_nodes , reqs_recv , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+            return error(engine_err_mpi);
+        /* printf( "engine_exchange[%i]: successfully exchanged counts.\n" , e->nodeID ); */
+
+        /* Send and receive data. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+
+            /* Do we have anything to send? */
+            if ( e->send[i].count > 0 ) {
+
+                /* Allocate a buffer for the send queue. */
+                if ( ( buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] ) ) == NULL )
+                    return error(engine_err_malloc);
+
+                /* Fill the send buffer. */
+                finger = buff_send[i];
+                for ( k = 0 ; k < e->send[i].count ; k++ ) {
+                    c = &( s->cells[e->send[i].cellid[k]] );
+                    memcpy( finger , c->parts , sizeof(struct part) * c->count );
+                    finger = &( finger[ c->count ] );
+                    }
+
+                /* File a send. */
+                if ( ( res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send[i] ) ) != MPI_SUCCESS )
+                    return error(engine_err_mpi);
+                /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
+
+                }
+
+            /* Are we expecting any parts? */
+            if ( e->recv[i].count > 0 ) {
+
+                /* Count the nr of parts to recv. */
+                totals_recv[i] = 0;
+                for ( k = 0 ; k < e->recv[i].count ; k++ )
+                    totals_recv[i] += counts_in[i][k];
+
+                /* Allocate a buffer for the send and recv queues. */
+                if ( ( buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] ) ) == NULL )
+                    return error(engine_err_malloc);
+
+                /* File a recv. */
+                if ( ( res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv[i] ) ) != MPI_SUCCESS )
+                    return error(engine_err_mpi);
+                /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
+
+                }
+
+            }
+
+        /* Wait for all the recvs to come in. */
+        /* if ( ( res = MPI_Waitall( e->nr_nodes , reqs_recv , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+            return error(engine_err_mpi); */
+
+        /* Unpack the received data. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+
+            /* Wait for this recv to come in. */
+            /* if ( ( res = MPI_Wait( &reqs_recv[i] , MPI_STATUS_IGNORE ) ) != MPI_SUCCESS )
+                return error(engine_err_mpi); */
+            res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE );
+
+            /* Did we get a propper index? */
+            if ( ind != MPI_UNDEFINED ) {
+
+                /* Loop over the data and pass it to the cells. */
+                finger = buff_recv[ind];
+                for ( k = 0 ; k < e->recv[ind].count ; k++ ) {
+                    cid = e->recv[ind].cellid[k];
+                    c = &( s->cells[cid] );
+                    cell_load( c , finger , counts_in[ind][k] , s->partlist , s->celllist );
+                    space_releasepair( &e->s , cid , cid );
+                    finger = &( finger[ counts_in[ind][k] ] );
+                    }
+
+                }
+
+            }
+
+        /* Wait for all the sends to come in. */
+        if ( ( res = MPI_Waitall( e->nr_nodes , reqs_send , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+            return error(engine_err_mpi);
+        /* printf( "engine_exchange[%i]: all send/recv completed.\n" , e->nodeID ); */
+
+        /* Free the send and recv buffers. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+            if ( e->send[i].count > 0 ) {
+                free( buff_send[i] );
+                free( counts_out[i] );
+                }
+            if ( e->recv[i].count > 0 ) {
+                free( buff_recv[i] );
+                free( counts_in[i] );
+                }
+            }
+
+        } /* main loop. */
+        
+    }
+#endif
+        
+        
+/**
+ * @brief Exchange data with other nodes asynchronously.
+ *
+ * @param e The #engine to work with.
+ * @param comm The @c MPI_Comm over which to exchange data.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Starts a new thread which handles the particle exchange. At the
+ * start of the exchange, ghost cells are marked in the taboo-list
+ * and only freed once their data has been received.
+ *
+ * The function #engine_exchange_wait can be used to wait for
+ * the asynchronous communication to finish.
+ */
+
+#ifdef HAVE_MPI 
+int engine_exchange_async ( struct engine *e ) {
+
+    int k;
+
+    /* Check the input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+
+    /* Bail if not in parallel. */
+    if ( !(e->flags & engine_flag_mpi) || e->nr_nodes <= 1 )
+        return engine_err_ok;
+        
+    /* Mark all the ghost cells as taboo and flush them. */
+    for ( k = 0 ; k < e->s.nr_cells ; k++ )
+        if ( e->s.cells[k].flags & cell_flag_ghost ) {
+            e->s.cells_taboo[ k ] += 2;
+            if ( cell_flush( &e->s.cells[k] , e->s.partlist , e->s.celllist ) < 0 )
+                return error(engine_err_cell);
+            }
+            
+    /* Get a hold of the exchange mutex. */
+    if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* Tell the async thread to get to work. */
+    e->xchg_started = 1;
+    if ( pthread_cond_signal( &e->xchg_cond ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* Release the exchange mutex and let the async run. */
+    if ( pthread_mutex_unlock( &e->xchg_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* Done (for now). */
+    return engine_err_ok;
+        
+    }
+#endif
+    
+    
 /**
  * @brief Exchange data with other nodes.
  *
@@ -2919,7 +3489,7 @@ int engine_angle_addpot ( struct engine *e , struct potential *p ) {
  */
 
 #ifdef HAVE_MPI 
-int engine_exchange ( struct engine *e , MPI_Comm comm ) {
+int engine_exchange ( struct engine *e ) {
 
     int i, k, ind, res, pid, cid, delta[3];
     int *counts_in[ e->nr_nodes ], *counts_out[ e->nr_nodes ];
@@ -2930,16 +3500,24 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
     struct part *p;
     struct space *s;
     FPTYPE h[3];
-    pthread_mutex_t mpi_mutex = PTHREAD_MUTEX_INITIALIZER;
     
     /* Check the input. */
     if ( e == NULL )
         return error(engine_err_null);
         
+    /* Bail if not in parallel. */
+    if ( !(e->flags & engine_flag_mpi) || e->nr_nodes <= 1 )
+        return engine_err_ok;
+        
     /* Get local copies of some data. */
     s = &e->s;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
+        
+    /* Wait for any asynchronous calls to finish. */
+    if ( e->flags & engine_flag_async )
+        if ( engine_exchange_wait( e ) < 0 )
+            return error(engine_err);
         
     /* Start by packing and sending/receiving a counts array for each send queue. */
     #pragma omp parallel for schedule(static), private(i,k,res)
@@ -2949,8 +3527,6 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
         if ( e->send[i].count > 0 ) {
         
             /* Allocate a new lengths array. */
-            /* if ( ( counts[i] = (int *)alloca( sizeof(int) * e->send[i].count ) ) == NULL )
-                return error(engine_err_malloc); */
             counts_out[i] = (int *)malloc( sizeof(int) * e->send[i].count );
 
             /* Pack the array with the counts. */
@@ -2960,12 +3536,9 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
             /* printf( "engine_exchange[%i]: totals_send[%i]=%i.\n" , e->nodeID , i , totals_send[i] ); */
 
             /* Ship it off to the correct node. */
-            /* if ( ( res = MPI_Isend( counts[i] , e->send[i].count , MPI_INT , i , e->nodeID , comm , &reqs_send[i] ) ) != MPI_SUCCESS )
-                return error(engine_err_mpi); */
             /* printf( "engine_exchange[%i]: sending %i counts to node %i.\n" , e->nodeID , e->send[i].count , i ); */
-            pthread_mutex_lock( &mpi_mutex );
-            res = MPI_Isend( counts_out[i] , e->send[i].count , MPI_INT , i , e->nodeID , comm , &reqs_send[i] );
-            pthread_mutex_unlock( &mpi_mutex );
+            #pragma omp critical
+            { res = MPI_Isend( counts_out[i] , e->send[i].count , MPI_INT , i , e->nodeID , e->comm , &reqs_send[i] ); }
             
             }
         else
@@ -2975,17 +3548,12 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
         if ( e->recv[i].count > 0 ) {
     
             /* Allocate a new lengths array for the incomming data. */
-            /* if ( ( counts[i] = (int *)alloca( sizeof(int) * e->recv[i].count ) ) == NULL )
-                return error(engine_err_malloc); */
             counts_in[i] = (int *)malloc( sizeof(int) * e->recv[i].count );
 
             /* Dispatch a recv request. */
-            /* if ( ( res = MPI_Irecv( counts[i] , e->recv[i].count , MPI_INT , i , i , comm , &reqs_recv[i] ) ) != MPI_SUCCESS )
-                return error(engine_err_mpi); */
             /* printf( "engine_exchange[%i]: recving %i counts from node %i.\n" , e->nodeID , e->recv[i].count , i ); */
-            pthread_mutex_lock( &mpi_mutex );
-            res = MPI_Irecv( counts_in[i] , e->recv[i].count , MPI_INT , i , i , comm , &reqs_recv[i] );
-            pthread_mutex_unlock( &mpi_mutex );
+            #pragma omp critical
+            { res = MPI_Irecv( counts_in[i] , e->recv[i].count , MPI_INT , i , i , e->comm , &reqs_recv[i] ); }
             
             }
         else
@@ -3008,8 +3576,6 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
         if ( e->send[i].count > 0 ) {
             
             /* Allocate a buffer for the send queue. */
-            /* if ( ( buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] ) ) == NULL )
-                return error(engine_err_malloc); */
             buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] );
 
             /* Fill the send buffer. */
@@ -3021,12 +3587,9 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
                 }
 
             /* File a send. */
-            /* if ( ( res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , comm , &reqs_send[i] ) ) != MPI_SUCCESS )
-                return error(engine_err_mpi); */
             /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
-            pthread_mutex_lock( &mpi_mutex );
-            res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , comm , &reqs_send[i] );
-            pthread_mutex_unlock( &mpi_mutex );
+            #pragma omp critical
+            { res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send[i] ); }
             
             }
             
@@ -3039,17 +3602,12 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
                 totals_recv[i] += counts_in[i][k];
 
             /* Allocate a buffer for the send and recv queues. */
-            /* if ( ( buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] ) ) == NULL )
-                return error(engine_err_malloc); */
             buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] );
 
             /* File a recv. */
-            /* if ( ( res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , comm , &reqs_recv[i] ) ) != MPI_SUCCESS )
-                return error(engine_err_mpi); */
             /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
-            pthread_mutex_lock( &mpi_mutex );
-            res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , comm , &reqs_recv[i] );
-            pthread_mutex_unlock( &mpi_mutex );
+            #pragma omp critical
+            { res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv[i] ); }
             
             }
             
@@ -3064,11 +3622,8 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
     for ( i = 0 ; i < e->nr_nodes ; i++ ) {
     
         /* Wait for this recv to come in. */
-        /* if ( ( res = MPI_Wait( &reqs_recv[i] , MPI_STATUS_IGNORE ) ) != MPI_SUCCESS )
-            return error(engine_err_mpi); */
-        pthread_mutex_lock( &mpi_mutex );
-        res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE );
-        pthread_mutex_unlock( &mpi_mutex );
+        #pragma omp critical
+        { res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE ); }
         
         /* Did we get a propper index? */
         if ( ind != MPI_UNDEFINED ) {
@@ -3077,11 +3632,7 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
             finger = buff_recv[ind];
             for ( k = 0 ; k < e->recv[ind].count ; k++ ) {
                 c = &( s->cells[e->recv[ind].cellid[k]] );
-                /* if ( cell_flush( c , s->partlist , s->celllist ) < 0 )
-                    return error(engine_err_cell); */
                 cell_flush( c , s->partlist , s->celllist );
-                /* if ( cell_load( c , finger , counts[i][k] , s->partlist , s->celllist ) < 0 )
-                    return error(engine_err_cell); */
                 cell_load( c , finger , counts_in[ind][k] , s->partlist , s->celllist );
                 finger = &( finger[ counts_in[ind][k] ] );
                 }
@@ -3162,6 +3713,194 @@ int engine_exchange ( struct engine *e , MPI_Comm comm ) {
                 cell_welcome( c , s->partlist );
             }
             
+        }
+        
+    /* Call it a day. */
+    return engine_err_ok;
+        
+    }
+#endif
+
+
+/**
+ * @brief Exchange incomming particle data with other nodes.
+ *
+ * @param e The #engine to work with.
+ * @param comm The @c MPI_Comm over which to exchange data.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+
+#ifdef HAVE_MPI 
+int engine_exchange_incomming ( struct engine *e ) {
+
+    int i, j, k, ind, res;
+    int *counts_in[ e->nr_nodes ], *counts_out[ e->nr_nodes ];
+    int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
+    MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
+    struct part *buff_send[ e->nr_nodes ], *buff_recv[ e->nr_nodes ], *finger;
+    struct cell *c;
+    struct space *s;
+    FPTYPE h[3];
+    
+    /* Check the input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Bail if not in parallel. */
+    if ( !(e->flags & engine_flag_mpi) || e->nr_nodes <= 1 )
+        return engine_err_ok;
+        
+    /* Get local copies of some data. */
+    s = &e->s;
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+        
+    /* As opposed to #engine_exchange, we are going to send the incomming
+       particles on ghost cells that do not belong to us. We therefore invert
+       the send/recv queues, i.e. we send the incommings for the cells
+       from which we usually receive data. */
+        
+    /* Start by packing and sending/receiving a counts array for each send queue. */
+    #pragma omp parallel for schedule(static), private(i,k,res)
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+    
+        /* Do we have anything to send? */
+        if ( e->recv[i].count > 0 ) {
+        
+            /* Allocate a new lengths array. */
+            counts_out[i] = (int *)malloc( sizeof(int) * e->recv[i].count );
+
+            /* Pack the array with the counts. */
+            totals_send[i] = 0;
+            for ( k = 0 ; k < e->send[i].count ; k++ )
+                totals_send[i] += ( counts_out[i][k] = s->cells[ e->recv[i].cellid[k] ].incomming_count );
+            /* printf( "engine_exchange[%i]: totals_send[%i]=%i.\n" , e->nodeID , i , totals_send[i] ); */
+
+            /* Ship it off to the correct node. */
+            /* printf( "engine_exchange[%i]: sending %i counts to node %i.\n" , e->nodeID , e->send[i].count , i ); */
+            #pragma omp critical
+            { res = MPI_Isend( counts_out[i] , e->recv[i].count , MPI_INT , i , e->nodeID , e->comm , &reqs_send[i] ); }
+            
+            }
+        else
+            reqs_send[i] = MPI_REQUEST_NULL;
+            
+        /* Are we expecting any parts? */
+        if ( e->send[i].count > 0 ) {
+    
+            /* Allocate a new lengths array for the incomming data. */
+            counts_in[i] = (int *)malloc( sizeof(int) * e->send[i].count );
+
+            /* Dispatch a recv request. */
+            /* printf( "engine_exchange[%i]: recving %i counts from node %i.\n" , e->nodeID , e->recv[i].count , i ); */
+            #pragma omp critical
+            { res = MPI_Irecv( counts_in[i] , e->send[i].count , MPI_INT , i , i , e->comm , &reqs_recv[i] ); }
+            
+            }
+        else
+            reqs_recv[i] = MPI_REQUEST_NULL;
+    
+        }
+        
+    /* Wait for the counts to come in. */
+    if ( ( res = MPI_Waitall( e->nr_nodes , reqs_send , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+        return error(engine_err_mpi);
+    if ( ( res = MPI_Waitall( e->nr_nodes , reqs_recv , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+        return error(engine_err_mpi);
+    /* printf( "engine_exchange[%i]: successfully exchanged counts.\n" , e->nodeID ); */
+        
+    /* Send and receive data. */
+    #pragma omp parallel for schedule(static), private(i,finger,k,c,res)
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+    
+        /* Do we have anything to send? */
+        if ( e->recv[i].count > 0 ) {
+            
+            /* Allocate a buffer for the send queue. */
+            buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] );
+
+            /* Fill the send buffer. */
+            finger = buff_send[i];
+            for ( k = 0 ; k < e->recv[i].count ; k++ ) {
+                c = &( s->cells[e->recv[i].cellid[k]] );
+                memcpy( finger , c->incomming , sizeof(struct part) * c->incomming_count );
+                finger = &( finger[ c->incomming_count ] );
+                }
+
+            /* File a send. */
+            /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
+            #pragma omp critical
+            { res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send[i] ); }
+            
+            }
+            
+        /* Are we expecting any parts? */
+        if ( e->send[i].count > 0 ) {
+    
+            /* Count the nr of parts to recv. */
+            totals_recv[i] = 0;
+            for ( k = 0 ; k < e->send[i].count ; k++ )
+                totals_recv[i] += counts_in[i][k];
+
+            /* Allocate a buffer for the send and recv queues. */
+            buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] );
+
+            /* File a recv. */
+            /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
+            #pragma omp critical
+            { res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv[i] ); }
+            
+            }
+            
+        }
+
+    /* Wait for all the recvs to come in. */
+    /* if ( ( res = MPI_Waitall( e->nr_nodes , reqs_recv , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+        return error(engine_err_mpi); */
+        
+    /* Unpack the received data. */
+    #pragma omp parallel for schedule(static), private(i,j,ind,res,finger,k,c)
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+    
+        /* Wait for this recv to come in. */
+        #pragma omp critical
+        { res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE ); }
+        
+        /* Did we get a propper index? */
+        if ( ind != MPI_UNDEFINED ) {
+
+            /* Loop over the data and pass it to the cells. */
+            finger = buff_recv[ind];
+            for ( k = 0 ; k < e->send[ind].count ; k++ ) {
+                c = &( s->cells[e->send[ind].cellid[k]] );
+                pthread_mutex_lock( &c->cell_mutex );
+                cell_add_incomming_multiple( c , finger , counts_in[ind][k] );
+                pthread_mutex_unlock( &c->cell_mutex );
+                for ( j = 0 ; j < counts_in[ind][k] ; j++ )
+                    e->s.celllist[ finger[j].id ] = c;
+                finger = &( finger[ counts_in[ind][k] ] );
+                }
+                
+            }
+                
+        }
+        
+    /* Wait for all the sends to come in. */
+    if ( ( res = MPI_Waitall( e->nr_nodes , reqs_send , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+        return error(engine_err_mpi);
+    /* printf( "engine_exchange[%i]: all send/recv completed.\n" , e->nodeID ); */
+        
+    /* Free the send and recv buffers. */
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+        if ( e->send[i].count > 0 ) {
+            free( buff_send[i] );
+            free( counts_out[i] );
+            }
+        if ( e->recv[i].count > 0 ) {
+            free( buff_recv[i] );
+            free( counts_in[i] );
+            }
         }
         
     /* Call it a day. */
@@ -4065,6 +4804,24 @@ int engine_start ( struct engine *e , int nr_runners ) {
     struct space *s = &e->s;
     struct runner *temp;
     
+    /* Set up async communication? */
+    if ( e->flags & engine_flag_async ) {
+    
+        /* Init the mutex and condition variable for the asynchronous communication. */
+	    if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
+             pthread_cond_init( &e->xchg_cond , NULL ) != 0 )
+            return error(engine_err_pthread);
+            
+        /* Set the exchange flags. */
+        e->xchg_started = 0;
+        e->xchg_running = 0;
+            
+        /* Start a thread with the async exchange. */
+        if ( pthread_create( &e->thread_exchg , NULL , (void *(*)(void *))engine_exchange_async_run , e ) != 0 )
+            return error(engine_err_pthread);
+            
+        }
+        
     /* Fill-in the Verlet lists if needed. */
     if ( e->flags & engine_flag_verlet ) {
     
@@ -4144,6 +4901,24 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
     int i;
     struct runner *temp;
 
+    /* Set up async communication? */
+    if ( e->flags & engine_flag_async ) {
+    
+        /* Init the mutex and condition variable for the asynchronous communication. */
+	    if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
+             pthread_cond_init( &e->xchg_cond , NULL ) != 0 )
+            return error(engine_err_pthread);
+            
+        /* Set the exchange flags. */
+        e->xchg_started = 0;
+        e->xchg_running = 0;
+            
+        /* Start a thread with the async exchange. */
+        if ( pthread_create( &e->thread_exchg , NULL , (void *(*)(void *))engine_exchange_async_run , e ) != 0 )
+            return error(engine_err_pthread);
+            
+        }
+        
     /* (re)allocate the runners */
     if ( e->nr_runners == 0 ) {
         if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
@@ -4193,21 +4968,8 @@ int engine_nonbond_eval ( struct engine *e ) {
     /* Get a grip on the space. */
     s = &(e->s);
 
-    /* increase the time stepper */
-    e->time += 1;
-    /* printf("engine_step: running time step %i...\n",e->time); */
-    
-    /* prepare the space */
-    if ( space_prepare( s ) != space_err_ok )
-        return error(engine_err_space);
-
-    /* Do we need to set up a Verlet list? */
-    if ( e->flags & engine_flag_verlet )
-        if ( space_verlet_init( s , !(e->flags & engine_flag_verlet_pairwise) ) != space_err_ok )
-            return error(engine_err_space);
-    
     /* open the door for the runners */
-    e->barrier_count *= -1;
+    e->barrier_count = -e->barrier_count;
     if (pthread_cond_broadcast(&e->barrier_cond) != 0)
         return error(engine_err_pthread);
 
@@ -4241,13 +5003,14 @@ int engine_advance ( struct engine *e ) {
     
     /* Get a grip on the space. */
     s = &(e->s);
+    dt = e->dt;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
         
     /* update the particle velocities and positions */
-    dt = e->dt;
-    if ( e->flags & engine_flag_verlet || e->flags & engine_flag_mpi )
-        #pragma omp parallel for schedule(static), private(cid,c,pid,p,w), reduction(+:epot)
+    if ( e->flags & engine_flag_verlet || e->flags & engine_flag_mpi ) {
+    
+        #pragma omp parallel for schedule(static), private(cid,c,pid,p,w,k), reduction(+:epot)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
             epot += c->epot;
@@ -4262,12 +5025,13 @@ int engine_advance ( struct engine *e ) {
                     }
                 }
             }
+            
+        }
     else {
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,w,k,delta,c_dest), reduction(+:epot)
         for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
             c = &(s->cells[cid]);
             epot += c->epot;
-            c->epot = 0.0;
             if ( c->flags & cell_flag_ghost )
                 continue;
             pid = 0;
@@ -4341,22 +5105,112 @@ int engine_advance ( struct engine *e ) {
 
 int engine_step ( struct engine *e ) {
 
-    /* Take a step */
-    if ( engine_nonbond_eval( e ) < 0 )
-        return error(engine_err);
-            
-    /* Do bonded interactions. */
-    if ( engine_bonded_eval( e ) < 0 )
-        return error(engine_err);
+    ticks tic, tic_step = getticks();
 
-    /* update the particle velocities and positions. */
-    if ( engine_advance( e ) < 0 )
-        return error(engine_err);
-            
+    /* increase the time stepper */
+    e->time += 1;
+    
+    /* prepare the space */
+    tic = getticks();
+    if ( space_prepare( &e->s ) != space_err_ok )
+        return error(engine_err_space);
+    e->timers[engine_timer_prepare] += getticks() - tic;
+
     /* Make sure the verlet lists are up to date. */
-    if ( e->flags & engine_flag_verlet )
+    if ( e->flags & engine_flag_verlet ) {
+    
+        /* Start the clock. */
+        tic = getticks();
+        
+        /* Prepare the Verlet data. */
+        if ( space_verlet_init( &(e->s) , !(e->flags & engine_flag_verlet_pairwise) ) != space_err_ok )
+            return error(engine_err_space);
+    
+        /* Check particle movement and update cells if necessary. */
         if ( engine_verlet_update( e ) < 0 )
             return error(engine_err);
+            
+        /* Store the timing. */
+        e->timers[engine_timer_prepare] += getticks() - tic;
+            
+        }
+            
+    /* Re-distribute the particles to the processors. */
+    if ( e->flags & engine_flag_mpi ) {
+        
+        /* Start the clock. */
+        tic = getticks();
+    
+        if ( e->flags & engine_flag_async ) {
+            if ( engine_exchange_async( e ) != 0 )
+                return error(engine_err);
+            }
+        else {
+            if ( engine_exchange( e ) != 0 )
+                return error(engine_err);
+            }
+            
+        /* Store the timing. */
+        e->timers[engine_timer_exchange1] += getticks() - tic;
+            
+        }
+            
+    /* Compute the non-bonded interactions. */
+    tic = getticks();
+    if ( engine_nonbond_eval( e ) < 0 )
+        return error(engine_err);
+    e->timers[engine_timer_nonbond] += getticks() - tic;
+            
+    /* Do bonded interactions. */
+    tic = getticks();
+    if ( engine_bonded_eval( e ) < 0 )
+        return error(engine_err);
+    e->timers[engine_timer_bonded] += getticks() - tic;
+
+    /* update the particle velocities and positions. */
+    tic = getticks();
+    if ( engine_advance( e ) < 0 )
+        return error(engine_err);
+    e->timers[engine_timer_advance] += getticks() - tic;
+            
+    /* Shake the particle positions? */
+    if ( e->nr_rigids > 0 ) {
+    
+        /* Sort the constraints. */
+        tic = getticks();
+        if ( engine_rigid_sort( e ) != 0 )
+            return error(engine_err);
+        e->timers[engine_timer_rigid] += getticks() - tic;
+    
+        if ( e->flags & engine_flag_mpi ) {
+        
+            /* Start the clock. */
+            tic = getticks();
+    
+            if ( e->flags & engine_flag_async ) {
+                if ( engine_exchange_async( e ) != 0 )
+                    return error(engine_err);
+                }
+            else {
+                if ( engine_exchange( e ) != 0 )
+                    return error(engine_err);
+                }
+                
+            /* Store the timing. */
+            e->timers[engine_timer_exchange2] += getticks() - tic;
+            
+            }
+            
+        /* Resolve the constraints. */
+        tic = getticks();
+        if ( engine_rigid_eval( e ) != 0 )
+            return error(engine_err);
+        e->timers[engine_timer_rigid] += getticks() - tic;
+    
+        }
+        
+    /* Stop the clock. */
+    e->timers[engine_timer_step] += getticks() - tic_step;
             
     /* return quietly */
     return engine_err_ok;
@@ -4414,12 +5268,51 @@ int engine_barrier ( struct engine *e ) {
 	
 	
 /**
+ * @brief Initialize an #engine with the given data and MPI enabled.
+ *
+ * @param e The #engine to initialize.
+ * @param origin An array of three doubles containing the cartesian origin
+ *      of the space.
+ * @param dim An array of three doubles containing the size of the space.
+ * @param L The minimum cell edge length, should be at least @c cutoff.
+ * @param cutoff The maximum interaction cutoff to use.
+ * @param period A bitmask describing the periodicity of the domain
+ *      (see #space_periodic_full).
+ * @param max_type The maximum number of particle types that will be used
+ *      by this engine.
+ * @param flags Bit-mask containing the flags for this engine.
+ * @param comm The MPI comm to use.
+ * @param rank The ID of this node.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+
+#ifdef HAVE_MPI
+int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank ) {
+
+    /* Init the engine. */
+    if ( engine_init( e , origin , dim , L , cutoff , period , max_type , flags | engine_flag_mpi ) < 0 )
+        return error(engine_err);
+     
+    /* Store the MPI Comm and rank. */
+    e->comm = comm;
+    e->nodeID = rank;
+    
+    /* Bail. */
+    return engine_err_ok;
+    
+    }
+#endif
+
+
+/**
  * @brief Initialize an #engine with the given data.
  *
  * @param e The #engine to initialize.
  * @param origin An array of three doubles containing the cartesian origin
  *      of the space.
  * @param dim An array of three doubles containing the size of the space.
+ * @param L The minimum cell edge length, should be at least @c cutoff.
  * @param cutoff The maximum interaction cutoff to use.
  * @param period A bitmask describing the periodicity of the domain
  *      (see #space_periodic_full).
@@ -4430,14 +5323,14 @@ int engine_barrier ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags ) {
+int engine_init ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags ) {
 
     /* make sure the inputs are ok */
     if ( e == NULL || origin == NULL || dim == NULL )
         return error(engine_err_null);
         
     /* init the space with the given parameters */
-    if ( space_init( &(e->s) , origin , dim , cutoff , period ) < 0 )
+    if ( space_init( &(e->s) , origin , dim , L , cutoff , period ) < 0 )
         return error(engine_err_space);
         
     /* Set some flag implications. */
@@ -4450,6 +5343,13 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         
     /* Set the flags. */
     e->flags = flags;
+    
+    /* By default there is only one node. */
+    e->nr_nodes = 1;
+    
+    /* Init the timers. */
+    if ( engine_timers_reset( e ) < 0 )
+        return error(engine_err);
     
     /* Init the runners to 0. */
     e->runners = NULL;
@@ -4474,6 +5374,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     e->nr_rigids = 0;
     e->tol_rigid = 1e-6;
     e->nr_constr = 0;
+    e->part2rigid = NULL;
     
     /* Init the angles array. */
     e->angles_size = 100;

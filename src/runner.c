@@ -47,6 +47,7 @@
 #endif
 
 /* Include local headers */
+#include "cycle.h"
 #include "errs.h"
 #include "fptype.h"
 #include "part.h"
@@ -1006,7 +1007,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     else {
 
         /* Do we need to re-compute the pairwise Verlet list? */
-        if ( s->verlet_rebuild ) {
+        if ( s->verlet_rebuild || cp->pairs == NULL ) {
 
             /* Has sufficient memory for the Verlet list been allocated? */
             if ( cp->pairs == NULL || cp->size < count_i * count_j ) {
@@ -1635,7 +1636,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
             return error(runner_err_malloc);
 
         /* Do we need to re-compute the pairwise Verlet list? */
-        if ( s->verlet_rebuild ) {
+        if ( s->verlet_rebuild || cp->pairs == NULL ) {
 
             /* Has sufficient memory for the Verlet list been allocated? */
             if ( cp->pairs == NULL || cp->size < count_i + count_j ) {

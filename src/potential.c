@@ -2066,8 +2066,8 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
  * @param f6p A pointer to the sixth derivative of @c f.
  * @param a The smallest radius for which the potential will be constructed.
  * @param b The largest radius for which the potential will be constructed.
- * @param tol The absolute tolerance to which the interpolation should match
- *      the exact potential.
+ * @param tol The piecewise relative tolerance to which the interpolation
+ *      should match the exact potential.
  *
  * @return #potential_err_ok or <0 on error (see #potential_err).
  *
@@ -2385,7 +2385,8 @@ int potential_getfp ( double (*f)( double ) , int n , FPTYPE *x , double *fp ) {
  * @param c Pointer to an array in which to store the interpolation
  *      coefficients.
  * @param err Pointer to a floating-point value in which an approximation of
- *      the interpolation error is stored.
+ *      the interpolation error, relative to the maximum of f in each interval,
+ *      is stored.
  *
  * @return #potential_err_ok or < 0 on error (see #potential_err).
  *

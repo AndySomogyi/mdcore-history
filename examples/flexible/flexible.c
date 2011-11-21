@@ -17,33 +17,36 @@
  * 
  ******************************************************************************/
 
-// include some standard headers
+/* Include some standard headers */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <math.h>
 #include <float.h>
+#include <string.h>
 #include <pthread.h>
 #include <time.h>
-#include <fenv.h>
 #include "cycle.h"
+#include "../config.h"
 
-/* What to do if ENGINE_FLAGS was not defined? */
-#ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS engine_flag_tuples
-#endif
+/* MPI headers. */
+#include <mpi.h>
+
+/* OpenMP headers. */
+#include <omp.h>
+
+/* Include mdcore. */
+#include "mdcore.h"
+
+/* Ticks Per Second. */
 #ifndef CPU_TPS
     #define CPU_TPS 2.67e+9
 #endif
 
-// include local headers
-#include "errs.h"
-#include "fptype.h"
-#include "part.h"
-#include "potential.h"
-#include "cell.h"
-#include "space.h"
-#include "engine.h"
+/* Engine flags? */
+#ifndef ENGINE_FLAGS
+    #define ENGINE_FLAGS (engine_flag_tuples | engine_flag_parbonded)
+#endif
 
 
 int main ( int argc , char *argv[] ) {
@@ -72,7 +75,7 @@ int main ( int argc , char *argv[] ) {
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     int nx, ny, nz;
     double hx, hy, hz;
-    double vtot[3] = { 0.0 , 0.0 , 0.0 }, w, mass_tot, x_O[3], x_H1[3], x_H2[3];
+    double vtot[3] = { 0.0 , 0.0 , 0.0 }, w, mass_tot;
     // struct cellpair cp;
     FILE *psf, *pdb;
     char fname[100];
@@ -84,7 +87,6 @@ int main ( int argc , char *argv[] ) {
     
     /* Trap on all floating-point problems. */
     // feenableexcept( FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW );
-    feenableexcept( FE_DIVBYZERO | FE_OVERFLOW );
     
     // did the user supply a cutoff?
     if ( argc > 4 ) {
@@ -99,7 +101,7 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cellwidth , space_periodic_full , 3 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 3 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -107,8 +109,6 @@ int main ( int argc , char *argv[] ) {
     printf("done.\n"); fflush(stdout);
     
     // set the interaction cutoff
-    e.s.cutoff = cutoff;
-    e.s.cutoff2 = cutoff * cutoff;
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     printf("main: cutoff set to %22.16e.\n", cutoff);
@@ -239,7 +239,7 @@ int main ( int argc , char *argv[] ) {
                 pO.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.1 / sqrt( pO.v[0]*pO.v[0] + pO.v[1]*pO.v[1] + pO.v[2]*pO.v[2] );
+                temp = 1.1 / sqrt( pO.v[0]*pO.v[0] + pO.v[1]*pO.v[1] + pO.v[2]*pO.v[2] );
                 pO.v[0] *= temp; pO.v[1] *= temp; pO.v[2] *= temp;
                 vtot[0] += pO.v[0]*16; vtot[1] += pO.v[1]*16; vtot[2] += pO.v[2]*16;
                 if ( space_addpart( &(e.s) , &pO , x ) != 0 ) {
@@ -251,7 +251,7 @@ int main ( int argc , char *argv[] ) {
                 pH.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pH.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pH.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.1 / sqrt( pH.v[0]*pH.v[0] + pH.v[1]*pH.v[1] + pH.v[2]*pH.v[2] );
+                temp = 1.1 / sqrt( pH.v[0]*pH.v[0] + pH.v[1]*pH.v[1] + pH.v[2]*pH.v[2] );
                 pH.v[0] *= temp; pH.v[1] *= temp; pH.v[2] *= temp;
                 vtot[0] += pH.v[0]; vtot[1] += pH.v[1]; vtot[2] += pH.v[2];
                 pH.vid = pO.vid; pH.id = pO.id+1; pH.type = 1;
@@ -265,7 +265,7 @@ int main ( int argc , char *argv[] ) {
                 pH.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pH.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pH.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.1 / sqrt( pH.v[0]*pH.v[0] + pH.v[1]*pH.v[1] + pH.v[2]*pH.v[2] );
+                temp = 1.1 / sqrt( pH.v[0]*pH.v[0] + pH.v[1]*pH.v[1] + pH.v[2]*pH.v[2] );
                 pH.v[0] *= temp; pH.v[1] *= temp; pH.v[2] *= temp;
                 vtot[0] += pH.v[0]; vtot[1] += pH.v[1]; vtot[2] += pH.v[2];
                 pH.vid = pO.vid; pH.id = pO.id+2; pH.type = 2;
@@ -292,28 +292,40 @@ int main ( int argc , char *argv[] ) {
     
     /* Add the bonds and angles. */
     for ( i = 0 ; i < nr_mols ; i++ ) {
-        /* if ( engine_bond_add( &e , 3*i , 3*i+1 ) < 0 ||
+        if ( engine_bond_add( &e , 3*i , 3*i+1 ) < 0 ||
              engine_bond_add( &e , 3*i , 3*i+2 ) < 0 ) {
             printf("main: space_addbond failed with space_err=%i.\n",space_err);
             errs_dump(stdout);
             return 1;
-            } */
-        if ( engine_rigid_add( &e , 3*i , 3*i+1 , 0.1 ) < 0 ||
+            }
+        /* if ( engine_rigid_add( &e , 3*i , 3*i+1 , 0.1 ) < 0 ||
              engine_rigid_add( &e , 3*i , 3*i+2 , 0.1 ) < 0 ) {
             printf("main: engine_rigid_add failed with space_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
-            }
+            } */
         if ( engine_angle_add( &e , 3*i+1 , 3*i , 3*i+2 , 0 ) < 0 ) {
             printf("main: engine_addangle failed with space_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
+            }
+        if ( engine_exclusion_add( &e , 3*i , 3*i+1 ) < 0 ||
+             engine_exclusion_add( &e , 3*i , 3*i+2 ) < 0 ||
+             engine_exclusion_add( &e , 3*i+1 , 3*i+2 ) < 0 ) {
+            printf("main: engine_exclusion_add failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
             }
         /* if ( engine_rigid_add( &e , 3*i , 3*i+2 , 0.1633 ) < 0 ) {
             printf("main: engine_rigid_add failed with space_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
             } */
+        }
+    if ( engine_exclusion_shrink( &e ) < 0 ) {
+        printf("main: engine_exclusion_shrink failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        return -1;
         }
     printf( "main: have %i angles.\n" , e.nr_angles );
                     
@@ -323,7 +335,7 @@ int main ( int argc , char *argv[] ) {
     if ( argc > 3 )
         e.dt = atof( argv[3] );
     else
-        e.dt = 0.001;
+        e.dt = 0.00025;
     printf("main: dt set to %f fs.\n", e.dt*1000 );
     
     
@@ -381,14 +393,6 @@ int main ( int argc , char *argv[] ) {
         toc_step = getticks();
         toc_bonded = getticks();
         
-
-        /* Shake the particle positions. */
-        if ( engine_rigid_eval( &e ) != 0 ) {
-            printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-            
 
         // get the total COM-velocities and ekin
         epot = e.s.epot; ekin = 0.0;

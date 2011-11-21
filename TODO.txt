@@ -8,6 +8,7 @@ Things to do with useability:
 * 2011/01/03: Make a single header file "mdcore.h".
 * 2011/01/03: Add functions to set the engine time and dt in a more elegant way.
 * 2011/01/03: Add a function engine_map to call a function on each particle.
+* 2011/11/14: Make adding rigids more flexible.
 
 
 Things to do with documentaiton:
@@ -29,8 +30,6 @@ Things to do with functionality:
               inside the engine.
 * 2010/12/03: Somehow add bonded interactions to cell pairs or some
               mechanism to treat bonds, angles and torsions in parallel
-* 2010/12/03: Keep track of particles that wander into a ghost layer
-              or out of the domain (is this really needed?).
 * 2010/12/22: Add one-sided potentials for grid point pseudo-particles.
 * 2010/12/22: Add explicit electrostatics to the SPU code.
 * 2011/01/17: Add potential functions using automatic vectorization for gcc,
@@ -70,15 +69,13 @@ Things to do with speed:
 * 2011/02/04: Make the struct potential and its data share the same chunk of
               memory (watch out for alignment!)?
 * 2011/02/04: More refined use of __builtin_prefetch on cell particle lists?
+* 2011/11/21: Check for sum of fastest and second fastest instead of twice
+              fastest on engine_verlet_update (how do we do this with MPI?).
 
 
-Things to do with hybrid simulation:
+Things to do with hybrid parallel simulation:
 
 * 2011/03/28: Make sure particles in ghost cells are not moved.
 * 2011/03/28: Somehow assign ghost layers.
-* 2011/03/28: Are interactions between ghost cells computed?
-* 2011/03/29: Make engine_load and engine_unload work cell-wise so that
-              they can be parallelized with OpenMP?
-* 2011/03/29: Scale potential energy when interacting ghost/non-ghost cells.
 
 

@@ -763,14 +763,85 @@ int space_shuffle ( struct space *s ) {
             }
         }
 
-    /* Welcome the new particles in each cell. */
-    #pragma omp parallel for schedule(static), private(c)
+    /* If we've got a Verlet list, reset the counts. */
+    if ( s->verlet_nrpairs != NULL )
+        bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
+    
+    /* all is well... */
+    return space_err_ok;
+
+    }
+
+
+/**
+ * @brief Run through the non-ghost cells of a #space and make sure every
+ * particle is in its place.
+ *
+ * @param s The #space on which to operate.
+ *
+ * @returns #space_err_ok or < 0 on error.
+ *
+ * Runs through the cells of @c s and if a particle has stepped outside the
+ * cell bounds, moves it to the correct cell.
+ */
+/* TODO: Check non-periodicity and ghost cells. */
+
+int space_shuffle_local ( struct space *s ) {
+
+    int k, cid, pid, delta[3];
+    FPTYPE h[3];
+    struct cell *c, *c_dest;
+    struct part *p;
+    
+    /* Get a local copy of h. */
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+
+    #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
     for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
         c = &(s->cells[cid]);
-        if ( c->flags & cell_flag_marked )
-            cell_welcome( c , s->partlist );
+        if ( !(c->flags & cell_flag_marked) )
+            continue;
+        pid = 0;
+        while ( pid < c->count ) {
+
+            p = &( c->parts[pid] );
+            for ( k = 0 ; k < 3 ; k++ )
+                delta[k] = __builtin_isgreaterequal( p->x[k] , h[k] ) - __builtin_isless( p->x[k] , 0.0 );
+
+            /* do we have to move this particle? */
+            if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
+            
+                for ( k = 0 ; k < 3 ; k++ )
+                    p->x[k] -= delta[k] * h[k];
+                c_dest = &( s->cells[ space_cellid( s ,
+                    (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
+                    (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
+                    (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
+
+	            if ( c_dest->flags & cell_flag_marked ) {
+                    pthread_mutex_lock(&c_dest->cell_mutex);
+                    cell_add_incomming( c_dest , p );
+	                pthread_mutex_unlock(&c_dest->cell_mutex);
+                    s->celllist[ p->id ] = c_dest;
+                    }
+                else {
+                    s->partlist[ p->id ] = NULL;
+                    s->celllist[ p->id ] = NULL;
+                    }
+                s->celllist[ p->id ] = c_dest;
+                
+                c->count -= 1;
+                if ( pid < c->count ) {
+                    c->parts[pid] = c->parts[c->count];
+                    s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
+                    }
+                }
+            else
+                pid += 1;
+            }
         }
-        
+
     /* If we've got a Verlet list, reset the counts. */
     if ( s->verlet_nrpairs != NULL )
         bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
@@ -1077,6 +1148,7 @@ struct cellpair *space_getpair ( struct space *s , int owner , int count , struc
  *      of the rectangular domain.
  * @param dim Pointer to an array of three doubles specifying the length
  *      of the rectangular domain along each dimension.
+ * @param L The minimum cell edge length, should be at least @c cutoff.
  * @param cutoff A double-precision value containing the maximum cutoff lenght
  *      that will be used in the potentials.
  * @param period Unsigned integer containing the flags #space_periodic_x,
@@ -1088,7 +1160,7 @@ struct cellpair *space_getpair ( struct space *s , int owner , int count , struc
  * generates the cell-pair list.
  */
 
-int space_init ( struct space *s , const double *origin , const double *dim , double cutoff , unsigned int period ) {
+int space_init ( struct space *s , const double *origin , const double *dim , double L , double cutoff , unsigned int period ) {
 
     int i, j, k, l[3], ii, jj, kk;
     int id1, id2;
@@ -1106,7 +1178,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     for ( i = 0 ; i < 3 ; i++ ) {
         s->origin[i] = origin[i];
         s->dim[i] = dim[i];
-        s->cdim[i] = floor( dim[i] / cutoff );
+        s->cdim[i] = floor( dim[i] / L );
         }
         
     /* remember the cutoff */

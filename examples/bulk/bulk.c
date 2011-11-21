@@ -31,6 +31,13 @@
 #else
     #include "cycle.h"
 #endif
+#include "../config.h"
+
+/* MPI headers. */
+#include <mpi.h>
+
+/* OpenMP headers. */
+#include <omp.h>
 
 /* What to do if ENGINE_FLAGS was not defined? */
 #ifndef ENGINE_FLAGS
@@ -41,13 +48,7 @@
 #endif
 
 // include local headers
-#include "errs.h"
-#include "fptype.h"
-#include "part.h"
-#include "potential.h"
-#include "cell.h"
-#include "space.h"
-#include "engine.h"
+#include "mdcore.h"
 
 int main ( int argc , char *argv[] ) {
 
@@ -63,28 +64,26 @@ int main ( int argc , char *argv[] ) {
     // double dim[3] = { 16.0 , 16.0 , 16.0 };
     // int nr_mols = 129024;
     double Temp = 300.0;
+    double cutoff = 1.0;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
-    double epot, ekin, temp, cutoff = 1.0, cellwidth;
+    double epot, ekin, temp, cellwidth;
     // FPTYPE ee, eff;
     struct engine e;
-    struct part pO, pH, *p_O, *p_H1, *p_H2;
+    struct part pO, pH;
     struct potential *pot_OO, *pot_OH, *pot_HH;
-    struct cell *c_O, *c_H1, *c_H2;
     // struct potential *pot_ee;
     int i, j, k, cid, pid, nr_runners = 1, nr_steps = 1000;
     int nx, ny, nz;
     double hx, hy, hz;
-    double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
-    double v_OH1[3], v_OH2[3], v_HH[3];
-    double d_OH1, d_OH2, d_HH, lambda;
     double vcom[3], vcom_tot[3], w;
     // struct cellpair cp;
     #ifdef CELL
-        unsigned long long tic, toc, toc_step, toc_shake, toc_temp;
+        unsigned long long tic, toc, toc_step, toc_temp;
     #else
-        ticks tic, toc, toc_step, toc_shake, toc_temp;
+        ticks tic, toc, toc_step, toc_temp;
     #endif
+    double itpms = 1000.0 / CPU_TPS;
     
     #ifdef CELL
         tic = __mftb();
@@ -100,12 +99,12 @@ int main ( int argc , char *argv[] ) {
             dim[k] *= cellwidth * (1.0 + DBL_EPSILON);
         }
     else
-        cellwidth = 1.0;
+        cellwidth = cutoff;
     printf("main: cell width set to %22.16e.\n", cellwidth);
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cellwidth , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cellwidth , cutoff , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -113,8 +112,6 @@ int main ( int argc , char *argv[] ) {
     printf("done.\n"); fflush(stdout);
     
     // set the interaction cutoff
-    e.s.cutoff = cutoff;
-    e.s.cutoff2 = cutoff * cutoff;
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     printf("main: cutoff set to %22.16e.\n", cutoff);
@@ -243,6 +240,7 @@ int main ( int argc , char *argv[] ) {
             x[1] = 0.05 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_mols ; k++ ) {
                 pO.vid = k + nz * ( j + ny * i );
+                pO.id = pO.vid * 3;
                 x[2] = 0.05 + k * hz;
                 pO.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pO.v[1] = ((double)rand()) / RAND_MAX - 0.5;
@@ -257,6 +255,7 @@ int main ( int argc , char *argv[] ) {
                     }
                 x[0] += 0.1;
                 pH.vid = pO.vid;
+                pH.id = pO.id + 1;
                 pH.v[0] = pO.v[0]; pH.v[1] = pO.v[1]; pH.v[2] = pO.v[2];
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
@@ -266,6 +265,7 @@ int main ( int argc , char *argv[] ) {
                 x[0] -= 0.13333;
                 x[1] += 0.09428;
                 pH.vid = pO.vid;
+                pH.id = pO.id + 2;
                 if ( space_addpart( &(e.s) , &pH , x ) != 0 ) {
                     printf("main: space_addpart failed with space_err=%i.\n",space_err);
                     errs_dump(stdout);
@@ -284,6 +284,30 @@ int main ( int argc , char *argv[] ) {
     printf("main: inserted %i particles.\n", e.s.nr_parts);
     
 
+    /* Make the constrained bonds and angles for water. */
+    for ( k = 0 ; k < nr_mols ; k++ ) {
+        if ( engine_rigid_add( &e , 3*k , 3*k+1 , 0.1 ) < 0 ||
+             engine_rigid_add( &e , 3*k , 3*k+2 , 0.1 ) < 0 ||
+             engine_rigid_add( &e , 3*k+1 , 3*k+2 , 0.163298 ) < 0 ) {
+            printf("main: engine_rigid_add failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+        if ( engine_exclusion_add( &e , 3*k , 3*k+1 ) < 0 ||
+             engine_exclusion_add( &e , 3*k , 3*k+2 ) < 0 ||
+             engine_exclusion_add( &e , 3*k+1 , 3*k+2 ) < 0 ) {
+            printf("main: engine_exclusion_add failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+        }
+    if ( engine_exclusion_shrink( &e ) < 0 ) {
+        printf("main: engine_exclusion_shrink failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        return -1;
+        }
+        
+        
     // set the time and time-step by hand
     e.time = 0;
     if ( argc > 3 )
@@ -300,8 +324,10 @@ int main ( int argc , char *argv[] ) {
     printf("main: setup took %.3f ms.\n",(double)(toc-tic) * 1000 / CPU_TPS);
     
     // did the user specify a number of runners?
-    if ( argc > 1 )
+    if ( argc > 1 ) {
         nr_runners = atoi( argv[1] );
+        omp_set_num_threads( nr_runners );
+        }
         
     // start the engine
     #ifdef CELL
@@ -347,141 +373,6 @@ int main ( int argc , char *argv[] ) {
             toc_step = getticks();
         #endif
         
-        /* Check virtual/local ids. */
-        /* for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
-            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ )
-                if ( e.s.cells[cid].parts[pid].id != e.s.cells[cid].parts[pid].vid )
-                    printf( "main: inconsistent particle id/vid (%i/%i)!\n",
-                        e.s.cells[cid].parts[pid].id, e.s.cells[cid].parts[pid].vid ); */
-
-        /* Verify integrity of partlist. */
-        /* for ( k = 0 ; k < nr_mols*3 ; k++ )
-            if ( e.s.partlist[k]->id != k )
-                printf( "main: inconsistent particle id/partlist (%i/%i)!\n", e.s.partlist[k]->id, k );
-        fflush(stdout); */
-        
-        /* printf( "main: position of part %i is [ %23.16e , %23.16e , %23.16e ].\n" ,
-            41140, e.s.partlist[41140]->x[0], e.s.partlist[41140]->x[1], e.s.partlist[41140]->x[2] );
-        printf( "main: velocity of part %i is [ %23.16e , %23.16e , %23.16e ].\n" ,
-            41140, e.s.partlist[41140]->v[0], e.s.partlist[41140]->v[1], e.s.partlist[41140]->v[2] );
-        printf( "main: force on part %i is [ %23.16e , %23.16e , %23.16e ].\n" ,
-            41140, e.s.partlist[41140]->f[0], e.s.partlist[41140]->f[1], e.s.partlist[41140]->f[2] ); */
-            
-        /* Check the max verlet_nrpairs. */
-        /* if ( e.s.verlet_nrpairs != NULL ) {
-            j = 0;
-            for ( k = 0 ; k < e.s.nr_parts ; k++ )
-                if ( e.s.verlet_nrpairs[k] > j )
-                    j = e.s.verlet_nrpairs[k];
-            printf( "main: max nr_pairs is %i.\n" , j );
-            } */
-            
-        // shake the water molecules
-        #pragma omp parallel for schedule(dynamic,100), private(k,p_O,p_H1,p_H2,c_O,c_H1,c_H2,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-        
-            // unwrap the data
-            p_O = e.s.partlist[j*3]; c_O = e.s.celllist[j*3];
-            p_H1 = e.s.partlist[j*3+1]; c_H1 = e.s.celllist[j*3+1];
-            p_H2 = e.s.partlist[j*3+2]; c_H2 = e.s.celllist[j*3+2];
-            for ( k = 0 ; k < 3 ; k++ ) {
-                new_O[k] = p_O->x[k] + c_O->origin[k];
-                new_H1[k] = p_H1->x[k] + c_H1->origin[k];
-                new_H2[k] = p_H2->x[k] + c_H2->origin[k];
-                old_O[k] = new_O[k] - e.dt * p_O->v[k];
-                if ( new_H1[k] - new_O[k] > e.s.dim[k] * 0.5 )
-                    new_H1[k] -= e.s.dim[k];
-                else if ( new_H1[k] - new_O[k] < -e.s.dim[k] * 0.5 )
-                    new_H1[k] += e.s.dim[k];
-                old_H1[k] = new_H1[k] - e.dt * p_H1->v[k];
-                if ( new_H2[k] - new_O[k] > e.s.dim[k] * 0.5 )
-                    new_H2[k] -= e.s.dim[k];
-                else if ( new_H2[k] - new_O[k] < -e.s.dim[k] * 0.5 )
-                    new_H2[k] += e.s.dim[k];
-                old_H2[k] = new_H2[k] - e.dt * p_H2->v[k];
-                v_OH1[k] = old_O[k] - old_H1[k];
-                v_OH2[k] = old_O[k] - old_H2[k];
-                v_HH[k] = old_H1[k] - old_H2[k];
-                }
-                
-            // main loop
-            while ( 1 ) {
-            
-                // correct for the OH1 constraint
-                for ( d_OH1 = 0.0 , k = 0 ; k < 3 ; k++ )
-                    d_OH1 += (new_O[k] - new_H1[k]) * (new_O[k] - new_H1[k]);
-                lambda = 0.5 * ( 0.1*0.1 - d_OH1 ) /
-                    ( (new_O[0] - new_H1[0]) * v_OH1[0] + (new_O[1] - new_H1[1]) * v_OH1[1] + (new_O[2] - new_H1[2]) * v_OH1[2] );
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH1[k];
-                    new_H1[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH1[k];
-                    }
-                    
-                // correct for the OH2 constraint
-                for ( d_OH2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                    d_OH2 += (new_O[k] - new_H2[k]) * (new_O[k] - new_H2[k]);
-                lambda = 0.5 * ( 0.1*0.1 - d_OH2 ) /
-                    ( (new_O[0] - new_H2[0]) * v_OH2[0] + (new_O[1] - new_H2[1]) * v_OH2[1] + (new_O[2] - new_H2[2]) * v_OH2[2] );
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH2[k];
-                    new_H2[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH2[k];
-                    }
-                    
-                // correct for the HH constraint
-                for ( d_HH = 0.0 , k = 0 ; k < 3 ; k++ )
-                    d_HH += (new_H1[k] - new_H2[k]) * (new_H1[k] - new_H2[k]);
-                lambda = 0.5 * ( 0.1633*0.1633 - d_HH ) /
-                    ( (new_H1[0] - new_H2[0]) * v_HH[0] + (new_H1[1] - new_H2[1]) * v_HH[1] + (new_H1[2] - new_H2[2]) * v_HH[2] );
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    new_H1[k] += lambda * 0.5 * v_HH[k];
-                    new_H2[k] -= lambda * 0.5 * v_HH[k];
-                    }
-                    
-                // check the tolerances
-                if ( fabs( d_OH1 - 0.1*0.1 ) < 10*FPTYPE_EPSILON &&
-                    fabs( d_OH2 - 0.1*0.1 ) < 10*FPTYPE_EPSILON &&  
-                    fabs( d_HH - 0.1633*0.1633 ) < 10*FPTYPE_EPSILON )
-                    break;
-                    
-                // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));
-                // getchar();
-                    
-                }
-                
-            // wrap the positions back
-            for ( k = 0 ; k < 3 ; k++ ) {
-            
-                // write O
-                p_O->x[k] = new_O[k] - c_O->origin[k];
-                p_O->v[k] = (new_O[k] - old_O[k]) / e.dt;
-                
-                // write H1
-                p_H1->x[k] -= e.dt * p_H1->v[k];
-                p_H1->v[k] = (new_H1[k] - old_H1[k]) / e.dt;
-                p_H1->x[k] += e.dt * p_H1->v[k];
-                
-                // write H2
-                p_H2->x[k] -= e.dt * p_H2->v[k];
-                p_H2->v[k] = (new_H2[k] - old_H2[k]) / e.dt;
-                p_H2->x[k] += e.dt * p_H2->v[k];
-                
-                }
-                
-            } // shake molecules
-            
-        // re-shuffle the space just to be sure (only if not verlet)...
-        if ( !( e.flags & engine_flag_verlet ) )
-            if ( space_shuffle( &e.s ) < 0 ) {
-                printf("main: space_shuffle failed with space_err=%i.\n",space_err);
-                errs_dump(stdout);
-                return 1;
-                }
-        #ifdef CELL
-            toc_shake = __mftb();
-        #else
-            toc_shake = getticks();
-        #endif
-            
             
         // get the total COM-velocities, ekin and epot
         vcom_tot[0] = 0.0; vcom_tot[1] = 0.0; vcom_tot[2] = 0.0;
@@ -522,28 +413,24 @@ int main ( int argc , char *argv[] ) {
                 
             } // apply molecular thermostat
             
-        // re-compute the potential energy.
-        /* ekin = 0.0;
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
-                for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                    v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];
-                ekin += 0.5 * e.types[ e.s.cells[cid].parts[pid].type ].mass * v2;
-                }
-            } */
-            
+
         #ifdef CELL
             toc_temp = __mftb();
         #else
             toc_temp = getticks();
         #endif
-        printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f ms\n",
-            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,
-                (double)(toc_temp-tic) * 1000 / CPU_TPS,
-                (double)(toc_step-tic) * 1000 / CPU_TPS,
-                (double)(toc_shake-toc_step) * 1000 / CPU_TPS,
-                (double)(toc_temp-toc_shake) * 1000 / CPU_TPS);
+        printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+            e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms, e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+            (toc_temp-toc_step)*itpms ); fflush(stdout);
         fflush(stdout);
+        
+        /* Re-set the timers. */
+        if ( engine_timers_reset( &e ) < 0 ) {
+            printf("main: engine_timers_reset failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
+            }
         
         // print some particle data
         // printf("main: part 13322 is at [ %e , %e , %e ].\n",

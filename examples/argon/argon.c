@@ -31,6 +31,13 @@
 #else
     #include "cycle.h"
 #endif
+#include "../config.h"
+
+/* MPI headers. */
+#include <mpi.h>
+
+/* OpenMP headers. */
+#include <omp.h>
 
 /* What to do if ENGINE_FLAGS was not defined? */
 #ifndef ENGINE_FLAGS
@@ -41,13 +48,7 @@
 #endif
 
 // include local headers
-#include "errs.h"
-#include "fptype.h"
-#include "part.h"
-#include "potential.h"
-#include "cell.h"
-#include "space.h"
-#include "engine.h"
+#include "mdcore.h"
 
 int main ( int argc , char *argv[] ) {
 
@@ -84,8 +85,6 @@ int main ( int argc , char *argv[] ) {
         tic = getticks();
     #endif
     
-    printf("main: sizeof(struct celltuple) is %i.\n", sizeof(struct celltuple));
-    
     // did the user supply a cutoff?
     if ( argc > 4 ) {
         cellwidth = atof( argv[4] );
@@ -99,7 +98,7 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cellwidth , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cellwidth , cutoff , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -107,8 +106,6 @@ int main ( int argc , char *argv[] ) {
     printf("done.\n"); fflush(stdout);
     
     // set the interaction cutoff
-    e.s.cutoff = cutoff;
-    e.s.cutoff2 = cutoff * cutoff;
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     printf("main: cutoff set to %22.16e.\n", cutoff);
@@ -173,12 +170,12 @@ int main ( int argc , char *argv[] ) {
         for ( j = 0 ; j < ny ; j++ ) {
             x[1] = 0.05 + j * hy;
             for ( k = 0 ; k < nz && k + nz * ( j + ny * i ) < nr_parts ; k++ ) {
-                pAr.vid = k + nz * ( j + ny * i );
+                pAr.id = k + nz * ( j + ny * i );
                 x[2] = 0.05 + k * hz;
                 pAr.v[0] = ((double)rand()) / RAND_MAX - 0.5;
                 pAr.v[1] = ((double)rand()) / RAND_MAX - 0.5;
                 pAr.v[2] = ((double)rand()) / RAND_MAX - 0.5;
-                temp = 0.4 / sqrt( pAr.v[0]*pAr.v[0] + pAr.v[1]*pAr.v[1] + pAr.v[2]*pAr.v[2] );
+                temp = 0.275 / sqrt( pAr.v[0]*pAr.v[0] + pAr.v[1]*pAr.v[1] + pAr.v[2]*pAr.v[2] );
                 pAr.v[0] *= temp; pAr.v[1] *= temp; pAr.v[2] *= temp;
                 vtot[0] += pAr.v[0]; vtot[1] += pAr.v[1]; vtot[2] += pAr.v[2];
                 if ( space_addpart( &(e.s) , &pAr , x ) != 0 ) {
@@ -213,8 +210,10 @@ int main ( int argc , char *argv[] ) {
     printf("main: setup took %.3f ms.\n",(double)(toc-tic) * 1000 / CPU_TPS);
     
     // did the user specify a number of runners?
-    if ( argc > 1 )
+    if ( argc > 1 ) {
         nr_runners = atoi( argv[1] );
+        omp_set_num_threads( nr_runners );
+        }
         
     // start the engine
     #ifdef CELL
@@ -278,7 +277,6 @@ int main ( int argc , char *argv[] ) {
         epot = e.s.epot; ekin = 0.0;
         #pragma omp parallel for schedule(static,100), private(cid,pid,k,v2), reduction(+:epot,ekin)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            epot += e.s.cells[cid].epot;
             for ( pid = 0 ; pid < e.s.cells[cid].count ; pid++ ) {
                 for ( v2 = 0.0 , k = 0 ; k < 3 ; k++ )
                     v2 += e.s.cells[cid].parts[pid].v[k] * e.s.cells[cid].parts[pid].v[k];

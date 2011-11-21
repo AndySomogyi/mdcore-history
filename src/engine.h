@@ -60,6 +60,7 @@
 #define engine_flag_unsorted             2048
 #define engine_flag_mpi                  4096
 #define engine_flag_parbonded            8192
+#define engine_flag_async                16384
 
 #define engine_bonds_chunk               100
 #define engine_angles_chunk              100
@@ -69,6 +70,21 @@
 
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
+
+#define engine_nr_timers                 10
+
+/** Timer IDs. */
+enum {
+    engine_timer_step = 0,
+    engine_timer_prepare,
+    engine_timer_verlet,
+    engine_timer_exchange1,
+    engine_timer_nonbond,
+    engine_timer_bonded,
+    engine_timer_advance,
+    engine_timer_rigid,
+    engine_timer_exchange2
+    };
 
 
 /** ID of the last error. */
@@ -137,8 +153,11 @@ struct engine {
     /** List of rigid bodies. */
     struct rigid *rigids;
     
+    /** List linking parts to rigids. */
+    int *part2rigid;
+    
     /** Nr. of rigids. */
-    int nr_rigids, rigids_size, nr_constr;
+    int nr_rigids, rigids_size, nr_constr, rigids_local, rigids_semilocal;
     
     /** Rigid solver tolerance. */
     double tol_rigid;
@@ -154,6 +173,18 @@ struct engine {
     
     /** Nr. of dihedrals. */
     int nr_dihedrals, dihedrals_size, nr_dihedralpots, dihedralpots_size;
+    
+    /** The Comm object for mpi. */
+    #ifdef HAVE_MPI
+        pthread_mutex_t xchg_mutex;
+        pthread_cond_t xchg_cond;
+        short int xchg_started, xchg_running;
+        MPI_Comm comm;
+        pthread_t thread_exchg;
+    #endif
+    
+    /** Timers. */
+    ticks timers[engine_nr_timers];
     
     };
     
@@ -194,7 +225,7 @@ int engine_flush_ghosts ( struct engine *e );
 int engine_flush ( struct engine *e );
 int engine_gettype ( struct engine *e , char *name );
 int engine_gettype2 ( struct engine *e , char *name2 );
-int engine_init ( struct engine *e , const double *origin , const double *dim , double cutoff , unsigned int period , int max_type , unsigned int flags );
+int engine_init ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags );
 int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , int N );
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , int N );
 int engine_nonbond_eval ( struct engine *e );
@@ -203,16 +234,23 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb );
 int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double tol , int rigidH );
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d );
 int engine_rigid_eval ( struct engine *e );
+int engine_rigid_sort ( struct engine *e );
 int engine_setexplepot ( struct engine *e , struct potential *ep );
 int engine_split_bisect ( struct engine *e , int N );
 int engine_split ( struct engine *e );
 int engine_start_SPU ( struct engine *e , int nr_runners );
 int engine_start ( struct engine *e , int nr_runners );
 int engine_step ( struct engine *e );
+int engine_timers_reset ( struct engine *e );
 int engine_unload_marked ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , double *epot , int N );
 int engine_unload_strays ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , double *epot , int N );
 int engine_unload ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , double *epot , int N );
 int engine_verlet_update ( struct engine *e );
 #ifdef HAVE_MPI
-    int engine_exchange ( struct engine *e , MPI_Comm comm );
+    int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank );
+    int engine_exchange ( struct engine *e );
+    int engine_exchange_async ( struct engine *e );
+    int engine_exchange_async_run ( struct engine *e );
+    int engine_exchange_incomming ( struct engine *e );
+    int engine_exchange_wait ( struct engine *e );
 #endif

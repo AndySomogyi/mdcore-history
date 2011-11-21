@@ -32,6 +32,9 @@
 /* MPI headers. */
 #include <mpi.h>
 
+/* OpenMP headers. */
+#include <omp.h>
+
 /* Include mdcore. */
 #include "mdcore.h"
 
@@ -42,12 +45,14 @@
 
 /* Engine flags? */
 #ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS engine_flag_tuples
+    #define ENGINE_FLAGS (engine_flag_tuples | engine_flag_parbonded)
 #endif
 
 /* Enumeration for the different timers */
 enum {
-    tid_step = 0,
+    tid_nonbond = 0,
+    tid_bonded,
+    tid_advance,
     tid_shake,
     tid_exchange,
     tid_temp
@@ -65,25 +70,25 @@ int main ( int argc , char *argv[] ) {
     int nr_mols = 129024, nr_parts = nr_mols*3;
     // double dim[3] = { 8.0 , 8.0 , 8.0 };
     // int nr_mols = 16128, nr_parts = nr_mols*3;
-    double cutoff = 1.0;
+    double cutoff = 0.9;
     double Temp = 300.0;
     double pekin_max = 100.0;
-    int pekin_max_time = 100;
+    int pekin_max_time = 0;
 
 
     /* Local variables. */
-    int res = 0, myrank;
+    int res = 0, myrank, prov;
     int step, i, j, k, cid;
     FPTYPE ee, eff;
     double temp, v[3];
     FILE *dump, *psf, *pdb, *cpf;
     char fname[100];
-    double es[2], ekin, epot, vcom[3], vcom_x , vcom_y , vcom_z , mass_tot, w, v2;
+    double es[6], ekin, epot, vcom[3], vcom_x , vcom_y , vcom_z , mass_tot, w, v2;
     ticks tic, toc, tic_step, toc_step, timers[10];
     double itpms = 1000.0 / CPU_TPS;
     int nr_nodes = 1;
     int verbose = 0;
-    double maxpekin;
+    double A, B, q;
     int maxpekin_id;
     
     
@@ -96,19 +101,28 @@ int main ( int argc , char *argv[] ) {
     
     
     /* Start the clock. */
-    for ( k = 0 ; k < 4 ; k++ )
+    for ( k = 0 ; k < 10 ; k++ )
         timers[k] = 0;
     tic = getticks();
     
     
     /* Start by initializing MPI. */
-    if ( ( res = MPI_Init( &argc , &argv ) ) != MPI_SUCCESS ) {
+    if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Init failed with error %i.\n" , res );
-        return -1;
+        abort();
+        }
+    if ( prov != MPI_THREAD_MULTIPLE ) {
+        printf( "main: MPI does not provide the level of threading required (MPI_THREAD_MULTIPLE).\n" );
+        abort();
+        }
+    if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
+        printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
+        errs_dump(stdout);
+        abort();
         }
     if ( ( res = MPI_Comm_rank( MPI_COMM_WORLD , &myrank ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Comm_rank failed with error %i.\n" , res );
-        return -1;
+        abort();
         }
     if ( myrank == 0 ) {
         printf( "main[%i]: MPI is up and running...\n" , myrank );
@@ -125,17 +139,23 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_mpi ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    // if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
-        return -1;
+        abort();
         }
-    e.dt = 0.001;
+    e.dt = 0.0025;
     e.time = 0;
     e.tol_rigid = 1.0e-6;
+    e.nodeID = myrank;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
         printf( "main[%i]: space has %i pairs and %i tuples.\n" , myrank , e.s.nr_pairs , e.s.nr_tuples );
+    if ( myrank == 0 )
+        printf( "main[%i]: cell size is [ %e , %e , %e ] nm.\n" , myrank , e.s.h[0] , e.s.h[1] , e.s.h[2] );
+    if ( myrank == 0 )
+        printf( "main[%i]: space is [ %i , %i , %i ] cells.\n" , myrank , e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     fflush(stdout);
     
     
@@ -143,16 +163,16 @@ int main ( int argc , char *argv[] ) {
     printf( "main[%i]: reading psf/pdb files....\n" , myrank ); fflush(stdout);
     if ( ( psf = fopen( argv[1] , "r" ) ) == NULL ) {
         printf("main[%i]: could not fopen the file \"%s\".\n",myrank,argv[1]);
-        return -1;
+        abort();
         }
     if ( ( pdb = fopen( argv[2] , "r" ) ) == NULL ) {
         printf("main[%i]: could not fopen the file \"%s\".\n",myrank,argv[2]);
-        return -1;
+        abort();
         }
     if ( engine_read_psf( &e , psf , pdb ) < 0 ) {
         printf("main[%i]: engine_read_psf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     fclose( psf ); fclose( pdb );
     printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
@@ -168,12 +188,12 @@ int main ( int argc , char *argv[] ) {
     printf( "main[%i]: reading parameter file....\n" , myrank ); fflush(stdout);
     if ( ( cpf = fopen( "par_all22_prot.inp" , "r" ) ) == NULL ) {
         printf("main[%i]: could not fopen the file \"par_all22_prot.inp\".\n",myrank);
-        return -1;
+        abort();
         }
-    if ( engine_read_cpf( &e , cpf , 3.0 , 1e-4 , 1 ) < 0 ) {
+    if ( engine_read_cpf( &e , cpf , 3.0 , 1e-3 , 1 ) < 0 ) {
         printf("main[%i]: engine_read_cpf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     printf( "main[%i]: done reading parameters.\n" , myrank );
     printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
@@ -218,6 +238,38 @@ int main ( int argc , char *argv[] ) {
                     myrank , e.types[j].name2 , e.types[k].name2 , pot->n ); */
     
             
+    /* Add exclusions. */
+    for ( k = 0 ; k < e.nr_bonds ; k++ )
+        if ( engine_exclusion_add( &e , e.bonds[k].i , e.bonds[k].j ) < 0 ) {
+            printf("main[%i]: engine_exclusion_add failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+    for ( k = 0 ; k < e.nr_angles ; k++ )
+        if ( engine_exclusion_add( &e , e.angles[k].i , e.angles[k].k ) < 0 ) {
+            printf("main[%i]: engine_exclusion_add failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+    for ( k = 0 ; k < e.nr_dihedrals ; k++ )
+        if ( engine_exclusion_add( &e , e.dihedrals[k].i , e.dihedrals[k].l ) < 0 ) {
+            printf("main[%i]: engine_exclusion_add failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+    for ( k = 0 ; k < e.nr_rigids ; k++ )
+        for ( j = 0 ; j < e.rigids[k].nr_constr ; j++ )
+            if ( engine_exclusion_add( &e , e.rigids[k].parts[e.rigids[k].constr[j].i] , e.rigids[k].parts[e.rigids[k].constr[j].j] ) < 0 ) {
+                printf("main[%i]: engine_exclusion_add failed with engine_err=%i.\n",myrank,engine_err);
+                errs_dump(stdout);
+                abort();
+                }
+    if ( engine_exclusion_shrink( &e ) < 0 ) {
+        printf("main[%i]: engine_exclusion_shrink failed with engine_err=%i.\n",myrank,engine_err);
+        errs_dump(stdout);
+        abort();
+        }
+    
     /* Correct the water vids. */
     for ( typeOT = 0 ; typeOT < e.nr_types && strcmp( e.types[typeOT].name , "OT" ) != 0 ; typeOT++ );
     for ( nr_mols = 0 , k = 0 ; k < e.s.nr_parts ; k++ )
@@ -260,38 +312,43 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Ignore angles for now. */
+    // e.nr_bonds = 0;
     // e.nr_angles = 0;
+    // e.nr_rigids = 0;
     // e.nr_dihedrals = 0;
+    // e.nr_exclusions = 0;
     
     /* Dump a potential to make sure its ok... */
-    /* pot = e.p_angle[ e.angles[1257].pid ];
-    for ( i = 0 ; i < 1000 ; i++ ) {
-        temp = pot->a + (double)i/1000 * (pot->b - pot->a);
+    /* pot = e.p[0];
+    for ( k = 0 ; k < e.nr_types ; k++ ) {
+        for ( j = k ; j < e.nr_types ; j++ )
+            if ( e.p[ j*e.max_type + k ] != NULL && pot->n < e.p[ j*e.max_type + k ]->n )
+                pot = e.p[ j*e.max_type + k ];
+        }
+    A = 4.184 * 0.046000 * pow(2*0.0224500,12);
+    B = 2 * 4.184 * 0.046000 * pow(2*0.0224500,6);
+    q = e.types[k].charge * e.types[j].charge;
+    printf( "main: dumping potential for %s-%s (%i-%i, n=%i).\n" , e.types[k].name , e.types[j].name , k , j , pot->n );
+    for ( i = 0 ; i <= 10000 ; i++ ) {
+        temp = pot->a + (double)i/10000 * (pot->b - pot->a);
         potential_eval_r( pot , temp , &ee , &eff );
-        printf("%23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 36.00*4.184*(acos(temp)-M_PI/180*115)*(acos(temp)-M_PI/180*115) , 0.0 );
+        printf("%23.16e %23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
+            potential_LJ126(temp,A,B) + q*potential_Ewald(temp,3.0) , 
+            potential_LJ126_p(temp,A,B) + q*potential_Ewald_p(temp,3.0) ,
+            pot->alpha[0] + temp*(pot->alpha[1] + temp*(pot->alpha[2] + temp*pot->alpha[3])) );
         }
     return 0; */
     
     /* Split the engine over the processors. */
-    if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
-        printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
-        errs_dump(stdout);
-        return -1;
-        }
-    if ( ( res = MPI_Comm_rank( MPI_COMM_WORLD , &e.nodeID ) != MPI_SUCCESS ) ) {
-        printf("main[%i]: MPI_Comm_rank failed with error %i.\n",myrank,res);
-        errs_dump(stdout);
-        return -1;
-        }
     if ( engine_split_bisect( &e , nr_nodes ) < 0 ) {
         printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     if ( engine_split( &e ) < 0 ) {
-        printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
+        printf("main[%i]: engine_split failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     /* for ( k = 0 ; k < e.nr_nodes ; k++ ) {
         printf( "main[%i]: %i cells to send to node %i: [ " , myrank , e.send[k].count , k );
@@ -311,28 +368,36 @@ int main ( int argc , char *argv[] ) {
     if ( engine_start( &e , nr_runners ) != 0 ) {
         printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
+        
+    /* Set the number of OpenMP threads to the number of runners. */
+    omp_set_num_threads( nr_runners );
         
         
     /* Give the system a quick shake before going anywhere. */
+    if ( engine_rigid_sort( &e ) != 0 ) {
+        printf("main: engine_rigid_sortl failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        abort();
+        }
     if ( engine_rigid_eval( &e ) != 0 ) {
         printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
-    if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
+    if ( engine_exchange( &e ) != 0 ) {
         printf("main: engine_step failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
         
-            
+        
     /* Timing. */    
     toc = getticks();
     if ( myrank == 0 ) {
         printf("main[%i]: setup took %.3f ms.\n",myrank,(double)(toc-tic) * itpms);
-        printf("# step e_pot e_kin swaps stalls ms_tot ms_step ms_shake ms_xchg ms_temp\n");
+        printf("# step e_pot e_kin swaps stalls ms_tot ms_nonbond ms_bonded ms_advance ms_shake ms_xchg ms_temp\n");
         fflush(stdout);
         }
         
@@ -343,100 +408,26 @@ int main ( int argc , char *argv[] ) {
         /* Start the clock. */
         tic_step = getticks();
         
-
         /* Compute a step. */
-        tic = getticks();
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_step] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_step took %.3f ms.\n",myrank,(double)timers[tid_step] * itpms); fflush(stdout);
+            abort();
             }
             
-            
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = 0 ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Re-distribute the particles to the processors. */
-        tic = getticks();
-        if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
-            printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_exchange] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_exchange took %.3f ms.\n",myrank,(double)timers[tid_exchange] * itpms); fflush(stdout);
-            }
-    
-
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = nr_parts ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Shake the particle positions. */
-        tic = getticks();
-        if ( engine_rigid_eval( &e ) != 0 ) {
-            printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_shake] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: SHAKE took %.3f ms.\n",myrank,(double)timers[tid_shake] * itpms); fflush(stdout);
-            }
-        
-        
-        /* Re-distribute the particles to the processors. */
-        tic = getticks();
-        if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
-            printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_exchange] += getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_exchange took %.3f ms.\n",myrank,(double)timers[tid_exchange] * itpms); fflush(stdout);
-            }
-    
-
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = 0 ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
+                    
         /* Compute the system temperature. */
         tic = getticks();
         
         /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
         ekin = 0.0; epot = e.s.epot;
-        vcom_x = 0.0; vcom_y = 0.0; vcom_z = 0.0; maxpekin = 0.0;
+        vcom_x = 0.0; vcom_y = 0.0; vcom_z = 0.0;
         #pragma omp parallel for schedule(static), private(cid,p,j,k,v2), reduction(+:epot,ekin,vcom_x,vcom_y,vcom_z)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            epot += e.s.cells[cid].epot;
             if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
                 for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
                     p = &( e.s.cells[cid].parts[j] );
                     v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
-                    if ( 0.5*v2*e.types[p->type].mass > maxpekin ) {
-                        maxpekin = 0.5*v2*e.types[p->type].mass;
-                        maxpekin_id = p->id;
-                        }
                     if ( e.time < pekin_max_time && 0.5*v2*e.types[p->type].mass > pekin_max ) {
                         /* printf( "main[%i]: particle %i (%s) was caught speeding (v2=%e).\n" ,
                             myrank , p->id , e.types[p->type].name , v2 ); */
@@ -450,18 +441,23 @@ int main ( int argc , char *argv[] ) {
                     ekin += v2 * e.types[p->type].mass * 0.5;
                     }
             }
-        vcom[0] = vcom_x/mass_tot; vcom[1] = vcom_y/mass_tot; vcom[2] = vcom_z/mass_tot;
-        printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
+        vcom[0] = vcom_x; vcom[1] = vcom_y; vcom[2] = vcom_z;
+        // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
             
         /* Collect vcom and ekin from all procs. */
-        if ( nr_nodes > 1 ) {
-            es[0] = epot; es[1] = ekin; es[2] = vcom[0]; es[3] = vcom[1]; es[4] = vcom[2];
-            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , es , 2 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
+        if ( e.nr_nodes > 1 ) {
+            es[0] = epot; es[1] = ekin;
+            es[2] = vcom[0]; es[3] = vcom[1]; es[4] = vcom[2];
+            es[5] = mass_tot;
+            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , es , 6 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
                 printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
-                return -1;
+                abort();
                 }
-            ekin = es[1]; epot = es[0]; vcom[0] = es[2]; vcom[1] = es[3]; vcom[2] = es[4];
+            ekin = es[1]; epot = es[0];
+            vcom[0] = es[2]; vcom[1] = es[3]; vcom[2] = es[4];
+            mass_tot = es[5];
             }
+        vcom[0] /= mass_tot; vcom[1] /= mass_tot; vcom[2] /= mass_tot;
             
         /* Compute the temperature. */
         // printf( "main[%i]: vcom is [ %e , %e , %e ].\n" , myrank , vcom[0] , vcom[1] , vcom[2] );
@@ -470,18 +466,19 @@ int main ( int argc , char *argv[] ) {
         // printf( "main[%i]: ekin=%e, temp=%e, w=%e, nr_parts=%i.\n" , myrank , ekin , temp , w , e.s.nr_parts );
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
             
-        if ( step < 10000 ) {
+        if ( step < 5000 ) {
         
             /* Scale the particle velocities. */
             #pragma omp parallel for schedule(static), private(cid,j,p,k)
             for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
-                for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
-                    p = &( e.s.cells[cid].parts[j] );
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        p->v[k] -= vcom[k];
-                        p->v[k] *= w;
+                if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
+                    for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                        p = &( e.s.cells[cid].parts[j] );
+                        for ( k = 0 ; k < 3 ; k++ ) {
+                            p->v[k] -= vcom[k];
+                            p->v[k] *= w;
+                            }
                         }
-                    }
                     
             }
         timers[tid_temp] = getticks() - tic;
@@ -495,18 +492,28 @@ int main ( int argc , char *argv[] ) {
         if ( myrank == 0 ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
-            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f ms\n",
+            /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
-                timers[tid_step]*itpms, timers[tid_shake]*itpms, timers[tid_exchange]*itpms, timers[tid_temp]*itpms ); fflush(stdout);
+                timers[tid_nonbond]*itpms, timers[tid_bonded]*itpms, timers[tid_advance]*itpms, timers[tid_shake]*itpms, timers[tid_exchange]*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
+            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms, e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout);
             }
         
+        /* Re-set the timers. */
+        if ( engine_timers_reset( &e ) < 0 ) {
+            printf("main: engine_timers_reset failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
+            }
         
-        if ( e.time % 100 == 0 ) {
+        if ( myrank == 0 && e.time % 100 == 0 ) {
             sprintf( fname , "jac_%08i.pdb" , e.time ); pdb = fopen( fname , "w" );
             if ( engine_dump_PSF( &e , NULL , pdb , excl , 2 ) < 0 ) {
                 printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
                 errs_dump(stdout);
-                return 1;
+                abort();
                 }
             fclose(pdb);
             }
@@ -517,7 +524,7 @@ int main ( int argc , char *argv[] ) {
     /* Exit gracefuly. */
     if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
         printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
-        return -1;
+        abort();
         }
     fflush(stdout);
     printf( "main[%i]: exiting.\n" , myrank );

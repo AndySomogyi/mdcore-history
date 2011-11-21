@@ -330,7 +330,7 @@ int main ( int argc , char *argv[] ) {
         
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine... " , myrank ); fflush(stdout);
-    if ( engine_init( &e , ppm_minphys , ppm_dim , cutoff , space_periodic_ghost_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , ppm_minphys , ppm_dim , cutoff , cutoff , space_periodic_ghost_full , 2 , ENGINE_FLAGS ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         return -1;

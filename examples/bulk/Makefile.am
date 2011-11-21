@@ -25,62 +25,62 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = test test_single test_verlet test_single_verlet test_pwverlet test_single_pwverlet test_pwverlet2 test_single_pwverlet2
+bin_PROGRAMS = bulk bulk_single bulk_verlet bulk_single_verlet bulk_pwverlet bulk_single_pwverlet bulk_pwverlet2 bulk_single_pwverlet2
 
-# Plain old tests
-# Sources for test
-test_SOURCES = test.c
-test_LDADD = ../../src/.libs/libmdcore.a
+# Plain old bulks
+# Sources for bulk
+bulk_SOURCES = bulk.c
+bulk_LDADD = ../../src/.libs/libmdcore.a
 
-# Sources for test_single
-test_single_SOURCES = test.c
-test_single_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples" -DFPTYPE_SINGLE $(AM_CFLAGS)
-test_single_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for bulk_single
+bulk_single_SOURCES = bulk.c
+bulk_single_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples" -DFPTYPE_SINGLE $(AM_CFLAGS)
+bulk_single_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using Verlet lists
-# Sources for test_verlet
-test_verlet_SOURCES = test.c
-test_verlet_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-test_verlet_LDADD = ../../src/.libs/libmdcore.a
+# Sources for bulk_verlet
+bulk_verlet_SOURCES = bulk.c
+bulk_verlet_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
+bulk_verlet_LDADD = ../../src/.libs/libmdcore.a
 
-# Sources for test_single_verlet
-test_single_verlet_SOURCES = test.c
-test_single_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-test_single_verlet_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for bulk_single_verlet
+bulk_single_verlet_SOURCES = bulk.c
+bulk_single_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
+bulk_single_verlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists
-# Sources for test_pwverlet
-test_pwverlet_SOURCES = test.c
-test_pwverlet_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-test_pwverlet_LDADD = ../../src/.libs/libmdcore.a
+# Sources for bulk_pwverlet
+bulk_pwverlet_SOURCES = bulk.c
+bulk_pwverlet_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
+bulk_pwverlet_LDADD = ../../src/.libs/libmdcore.a
 
-# Sources for test_single_verlet
-test_single_pwverlet_SOURCES = test.c
-test_single_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-test_single_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for bulk_single_verlet
+bulk_single_pwverlet_SOURCES = bulk.c
+bulk_single_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
+bulk_single_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind
-# Sources for test_pwverlet2
-test_pwverlet2_SOURCES = test.c
-test_pwverlet2_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
-test_pwverlet2_LDADD = ../../src/.libs/libmdcore.a
+# Sources for bulk_pwverlet2
+bulk_pwverlet2_SOURCES = bulk.c
+bulk_pwverlet2_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+bulk_pwverlet2_LDADD = ../../src/.libs/libmdcore.a
 
-# Sources for test_single_verlet2
-test_single_pwverlet2_SOURCES = test.c
-test_single_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
-test_single_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for bulk_single_verlet2
+bulk_single_pwverlet2_SOURCES = bulk.c
+bulk_single_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+bulk_single_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
 
 # Dummy target to make the Cell/BE version
 if HAVECELL
-test_cell: test.c ../../src/.libs/libmdcore_cell.a
+bulk_cell: bulk.c ../../src/.libs/libmdcore_cell.a
 	make -f Makefile_cell
 clean_cell:
 	make -f Makefile_cell clean
-	rm -f test_cell
+	rm -f bulk_cell
 clean-recursive: clean_cell
-all: test_cell
+all: bulk_cell
 endif
 

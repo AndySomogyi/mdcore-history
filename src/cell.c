@@ -236,6 +236,48 @@ struct part *cell_add_incomming ( struct cell *c , struct part *p ) {
 
 
 /**
+ * @brief Add one or more particles to the incomming array of a cell.
+ *
+ * @param c The #cell to which the particle should be added.
+ * @param p The #particle to add to the cell
+ *
+ * @return The number of incomming parts or < 0 on error (see #cell_err).
+ *
+ * This routine assumes the particle position have already been adjusted
+ * to the cell @c c.
+ */
+
+int cell_add_incomming_multiple ( struct cell *c , struct part *p , int count ) {
+
+    struct part *temp;
+    int incr = cell_incr;
+
+    /* check inputs */
+    if ( c == NULL || p == NULL )
+        return error(cell_err_null);
+        
+    /* is there room for this particle? */
+    if ( c->incomming_count + count > c->incomming_size ) {
+        if ( c->incomming_size + incr < c->incomming_count + count )
+            incr = c->incomming_count + count - c->incomming_size;
+        if ( posix_memalign( (void **)&temp , cell_partalign , align_ceil( sizeof(struct part) * ( c->incomming_size + incr ) ) ) != 0 )
+            return error(cell_err_malloc);
+        memcpy( temp , c->incomming , sizeof(struct part) * c->incomming_count );
+        free( c->incomming );
+        c->incomming = temp;
+        c->incomming_size += incr;
+        }
+        
+    /* store this particle */
+    memcpy( &c->incomming[c->incomming_count] , p , sizeof(struct part) * count );
+        
+    /* all is well */
+    return ( c->incomming_count += count );
+
+    }
+
+
+/**
  * @brief Add a particle to a cell.
  *
  * @param c The #cell to which the particle should be added.

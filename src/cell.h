@@ -26,7 +26,7 @@
 
 
 /* some constants */
-#define cell_default_size               100
+#define cell_default_size               64
 #define cell_incr                       10
 
 /** Alignment when allocating parts. */
@@ -97,6 +97,7 @@ struct cell {
 int cell_init ( struct cell *c , int *loc , double *origin , double *dim );
 struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist );
 struct part *cell_add_incomming ( struct cell *c , struct part *p );
+int cell_add_incomming_multiple ( struct cell *c , struct part *p , int count );
 int cell_welcome ( struct cell *c , struct part **partlist );
 int cell_load ( struct cell *c , struct part *parts , int nr_parts , struct part **partlist , struct cell **celllist );
 int cell_flush ( struct cell *c , struct part **partlist , struct cell **celllist );

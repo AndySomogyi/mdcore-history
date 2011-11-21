@@ -45,13 +45,11 @@
     #define ENGINE_FLAGS engine_flag_tuples
 #endif
 
-/* Enumeration for the different timers */
-enum {
-    tid_step = 0,
-    tid_shake,
-    tid_exchange,
-    tid_temp
-    };
+/* OpenMP headers. */
+#ifdef HAVE_OPENMP
+    #include <omp.h>
+#endif
+
 
 
 /* The main routine -- this is where it all happens. */
@@ -69,7 +67,7 @@ int main ( int argc , char *argv[] ) {
 
 
     /* Local variables. */
-    int res = 0, myrank;
+    int res = 0, prov, myrank = 0;
     double *xp = NULL, *vp = NULL, x[3], v[3];
     int *pid = NULL, *vid = NULL, *ptype = NULL;
     int step, i, j, k, nx, ny, nz, id, cid;
@@ -77,16 +75,11 @@ int main ( int argc , char *argv[] ) {
     double vtot[3] = { 0.0 , 0.0 , 0.0 };
     FILE *dump;
     char fname[100];
-    double old_O[3], old_H1[3], old_H2[3], new_O[3], new_H1[3], new_H2[3];
-    double v_OH1[3], v_OH2[3], v_HH[3], vp_O[3], vp_H1[3], vp_H2[3];
-    double d_OH1, d_OH2, d_HH, lambda;
-    double vcom_tot[6], vcom_tot_x, vcom_tot_y, vcom_tot_z, ekin, epot, vcom[3], w, v2;
-    ticks tic, toc, tic_step, toc_step, timers[10];
+    double vcom_tot[7], vcom_tot_x, vcom_tot_y, vcom_tot_z, ekin, epot, vcom[3], w, v2;
+    ticks tic, toc;
     double itpms = 1000.0 / CPU_TPS;
-    struct part *p_O, *p_H1, *p_H2, *p;
-    struct cell *c_O, *c_H1, *c_H2;
-    int nr_nodes = 1;
-    int verbose = 0;
+    struct part *p_O, *p_H1, *p_H2;
+    int nr_nodes = 1, count = 0;
     
     
     /* mdcore stuff. */
@@ -96,19 +89,26 @@ int main ( int argc , char *argv[] ) {
     
     
     /* Start the clock. */
-    for ( k = 0 ; k < 4 ; k++ )
-        timers[k] = 0;
     tic = getticks();
     
     
     /* Start by initializing MPI. */
-    if ( ( res = MPI_Init( &argc , &argv ) ) != MPI_SUCCESS ) {
+    if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Init failed with error %i.\n" , res );
-        return -1;
+        abort();
+        }
+    if ( prov != MPI_THREAD_MULTIPLE ) {
+        printf( "main: MPI does not provide the level of threading required (MPI_THREAD_MULTIPLE).\n" );
+        abort();
+        }
+    if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
+        printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
+        errs_dump(stdout);
+        abort();
         }
     if ( ( res = MPI_Comm_rank( MPI_COMM_WORLD , &myrank ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Comm_rank failed with error %i.\n" , res );
-        return -1;
+        abort();
         }
     if ( myrank == 0 ) {
         printf( "main[%i]: MPI is up and running...\n" , myrank );
@@ -130,7 +130,7 @@ int main ( int argc , char *argv[] ) {
          ( pid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ||
          ( vid = (int *)malloc( sizeof(int) * nr_parts ) ) == NULL ) {
          printf( "main[%i]: allocation of particle data failed!\n" , myrank );
-         return -1;
+         abort();
          }
     printf("main[%i]: initializing particles... \n" , myrank); fflush(stdout);
     nx = ceil( pow( nr_mols , 1.0/3 ) ); hx = dim[0] / nx;
@@ -188,11 +188,8 @@ int main ( int argc , char *argv[] ) {
     fclose(dump);*/
     if ( ( res = MPI_Barrier( MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
         printf( "main[%i]: call to MPI_Barrier failed with error %i.\n" , myrank , res );
-        return -1;
+        abort();
         }
-    
-    
-    /* Distribute the particle data over all processors. */
     
     
     /* Dump the particles. */
@@ -205,52 +202,57 @@ int main ( int argc , char *argv[] ) {
         
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_mpi ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    // if ( engine_init( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     e.dt = 0.002;
     e.time = 0;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
         printf( "main[%i]: space has %i pairs and %i tuples.\n" , myrank , e.s.nr_pairs , e.s.nr_tuples );
+    if ( myrank == 0 )
+        printf( "main[%i]: cell size is [ %e , %e , %e ] nm.\n" , myrank , e.s.h[0] , e.s.h[1] , e.s.h[2] );
+    if ( myrank == 0 )
+        printf( "main[%i]: space is [ %i , %i , %i ] cells.\n" , myrank , e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     fflush(stdout);
         
     
     /* Register the particle types. */
-    if ( engine_addtype( &e , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
-         engine_addtype( &e , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
+    if ( engine_addtype( &e , 15.9994 , -0.8476 , "OH2" , NULL ) < 0 ||
+         engine_addtype( &e , 1.00794 , 0.4238 , "H1" , NULL ) < 0 ) {
         printf("main[%i]: call to engine_addtype failed.\n",myrank);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
         
     /* Initialize the O-H potential. */
-    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main[%i]: potential_create_Ewald failed with potential_err=%i.\n",myrank,potential_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     if ( myrank == 0 ) {
         printf("main[%i]: constructed OH-potential with %i intervals.\n",myrank,pot_OH->n); fflush(stdout);
         }
 
     /* Initialize the H-H potential. */
-    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main[%i]: potential_create_Ewald failed with potential_err=%i.\n",myrank,potential_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     if ( myrank == 0 ) {
         printf("main[%i]: constructed HH-potential with %i intervals.\n",myrank,pot_HH->n); fflush(stdout);
         }
 
     /* Initialize the O-O potential. */
-    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main[%i]: potential_create_LJ126_Ewald failed with potential_err=%i.\n",myrank,potential_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     if ( myrank == 0 ) {
         printf("main[%i]: constructed OO-potential with %i intervals.\n",myrank,pot_OO->n); fflush(stdout);
@@ -262,44 +264,57 @@ int main ( int argc , char *argv[] ) {
          engine_addpot( &e , pot_OH , 0 , 1 ) < 0 ) {
         printf("main[%i]: call to engine_addpot failed.\n",myrank);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
         
     /* Load the engine with the initial set of particles. */
     free( ptype );
     if ( ( ptype = (int *)malloc( sizeof(double) * nr_parts ) ) == NULL ) {
         printf("main[%i]: failed to re-allocate ptype.\n",myrank);
-        return -1;
+        abort();
         }
     for ( k = 0 ; k < nr_parts ; k++ )
         ptype[k] = ( k % 3 != 0 );
     if ( ( res = engine_load( &e , xp , vp , ptype , pid , vid , NULL , NULL , nr_parts ) ) < 0 ) {
         printf("main[%i]: engine_load failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
+        abort();
+        }
+        
+    /* Make the constrained bonds and angles for water. */
+    for ( k = 0 ; k < nr_mols ; k++ ) {
+        if ( engine_rigid_add( &e , 3*k , 3*k+1 , 0.1 ) < 0 ||
+             engine_rigid_add( &e , 3*k , 3*k+2 , 0.1 ) < 0 ||
+             engine_rigid_add( &e , 3*k+1 , 3*k+2 , 0.163298 ) < 0 ) {
+            printf("main[%i]: engine_rigid_add failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+        if ( engine_exclusion_add( &e , 3*k , 3*k+1 ) < 0 ||
+             engine_exclusion_add( &e , 3*k , 3*k+2 ) < 0 ||
+             engine_exclusion_add( &e , 3*k+1 , 3*k+2 ) < 0 ) {
+            printf("main[%i]: engine_exclusion_add failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+        }
+    if ( engine_exclusion_shrink( &e ) < 0 ) {
+        printf("main[%i]: engine_exclusion_shrink failed with engine_err=%i.\n",myrank,engine_err);
+        errs_dump(stdout);
         return -1;
         }
         
         
     /* Split the engine over the processors. */
-    if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
-        printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
-        errs_dump(stdout);
-        return -1;
-        }
-    if ( ( res = MPI_Comm_rank( MPI_COMM_WORLD , &e.nodeID ) != MPI_SUCCESS ) ) {
-        printf("main[%i]: MPI_Comm_rank failed with error %i.\n",myrank,res);
-        errs_dump(stdout);
-        return -1;
-        }
     if ( engine_split_bisect( &e , nr_nodes ) < 0 ) {
         printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     if ( engine_split( &e ) < 0 ) {
-        printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
+        printf("main[%i]: engine_split failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
     /* for ( k = 0 ; k < e.nr_nodes ; k++ ) {
         printf( "main[%i]: %i cells to send to node %i: [ " , myrank , e.send[k].count , k );
@@ -319,8 +334,11 @@ int main ( int argc , char *argv[] ) {
     if ( engine_start( &e , nr_runners ) != 0 ) {
         printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
-        return -1;
+        abort();
         }
+        
+    /* Set the number of OpenMP threads to the number of runners. */
+    omp_set_num_threads( nr_runners );
         
         
     /* Timing. */    
@@ -335,253 +353,37 @@ int main ( int argc , char *argv[] ) {
     /* Main time-stepping loop. */
     for ( step = 0 ; step < nr_steps ; step++ ) {
     
-        /* Start the clock. */
-        tic_step = getticks();
-        
 
         /* Compute a step. */
-        tic = getticks();
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_step] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_step took %.3f ms.\n",myrank,(double)timers[tid_step] * itpms); fflush(stdout);
+            abort();
             }
             
-            
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = 0 ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Re-distribute the particles to the processors. */
-        tic = getticks();
-        if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
-            printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_exchange] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_exchange took %.3f ms.\n",myrank,(double)timers[tid_exchange] * itpms); fflush(stdout);
-            }
-    
-
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = nr_parts ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Resolve particle global/local IDs. */
-        /* tic = getticks();
-        bzero( globloc , sizeof(void *) * 2 * nr_parts );
-        #pragma omp parallel for schedule(static,100), private(cid,k,p)
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
-            if ( !(e.s.cells[cid].flags & cell_flag_ghost) )
-                for ( k = 0 ; k < e.s.cells[cid].count ; k++ ) {
-                    p = &e.s.cells[cid].parts[k];
-                    globloc[p->vid].p = p;
-                    globloc[p->vid].c = &e.s.cells[cid];
-                    }
-        #pragma omp parallel for schedule(static,100), private(cid,k,p)
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
-            if ( e.s.cells[cid].flags & cell_flag_ghost )
-                for ( k = 0 ; k < e.s.cells[cid].count ; k++ ) {
-                    p = &e.s.cells[cid].parts[k];
-                    if ( globloc[p->vid].p == NULL ) {
-                        globloc[p->vid].p = p;
-                        globloc[p->vid].c = &e.s.cells[cid];
-                        }
-                    }
-        timers[tid_resolv] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: resolving global/local IDs took %.3f ms.\n",myrank,(double)timers[tid_resolv] * itpms); fflush(stdout);
-            } */
-            
-        
-        /* Shake the particle positions. */
-        tic = getticks();
-        #pragma omp parallel for schedule(dynamic), private(cid,j,p_O,p_H1,p_H2,c_O,c_H1,c_H2,vp_O,vp_H1,vp_H2,k,new_O,new_H1,new_H2,old_O,old_H1,old_H2,v_OH1,v_OH2,v_HH,d_OH1,lambda,d_OH2,d_HH)
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
-            
-                /* Grab a part and check if it's an oxygen. */
-                p_O = &e.s.cells[cid].parts[j];
-                if ( p_O->type != 0 )
-                    continue;
-                
-                /* Do we even own part of this molecule? */
-                c_O = &e.s.cells[cid]; 
-                p_H1 = e.s.partlist[p_O->id+1]; c_H1 = e.s.celllist[p_O->id+1]; 
-                p_H2 = e.s.partlist[p_O->id+2]; c_H2 = e.s.celllist[p_O->id+2];
-                if ( p_O == NULL || p_H1 == NULL || p_H2 == NULL ||
-                    ( c_O->flags & cell_flag_ghost && c_H1->flags & cell_flag_ghost && c_H2->flags & cell_flag_ghost ) )
-                    continue;
-
-                // unwrap the data
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    new_O[k] = p_O->x[k] + c_O->origin[k];
-                    vp_O[k] = p_O->v[k];
-                    new_H1[k] = p_H1->x[k] + c_H1->origin[k];
-                    vp_H1[k] = p_H1->v[k];
-                    new_H2[k] = p_H2->x[k] + c_H2->origin[k];
-                    vp_H2[k] = p_H2->v[k];
-                    }
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    old_O[k] = new_O[k] - e.dt * vp_O[k];
-                    if ( new_H1[k] - new_O[k] > dim[k] * 0.5 )
-                        new_H1[k] -= dim[k];
-                    else if ( new_H1[k] - new_O[k] < -dim[k] * 0.5 )
-                        new_H1[k] += dim[k];
-                    old_H1[k] = new_H1[k] - e.dt * vp_H1[k];
-                    if ( new_H2[k] - new_O[k] > dim[k] * 0.5 )
-                        new_H2[k] -= dim[k];
-                    else if ( new_H2[k] - new_O[k] < -dim[k] * 0.5 )
-                        new_H2[k] += dim[k];
-                    old_H2[k] = new_H2[k] - e.dt * vp_H2[k];
-                    v_OH1[k] = old_O[k] - old_H1[k];
-                    v_OH2[k] = old_O[k] - old_H2[k];
-                    v_HH[k] = old_H1[k] - old_H2[k];
-                    }
-
-                // main loop
-                while ( 1 ) {
-
-                    // correct for the OH1 constraint
-                    for ( d_OH1 = 0.0 , k = 0 ; k < 3 ; k++ )
-                        d_OH1 += (new_O[k] - new_H1[k]) * (new_O[k] - new_H1[k]);
-                    lambda = 0.5 * ( 0.1*0.1 - d_OH1 ) /
-                        ( (new_O[0] - new_H1[0]) * v_OH1[0] + (new_O[1] - new_H1[1]) * v_OH1[1] + (new_O[2] - new_H1[2]) * v_OH1[2] );
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH1[k];
-                        new_H1[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH1[k];
-                        }
-
-                    // correct for the OH2 constraint
-                    for ( d_OH2 = 0.0 , k = 0 ; k < 3 ; k++ )
-                        d_OH2 += (new_O[k] - new_H2[k]) * (new_O[k] - new_H2[k]);
-                    lambda = 0.5 * ( 0.1*0.1 - d_OH2 ) /
-                        ( (new_O[0] - new_H2[0]) * v_OH2[0] + (new_O[1] - new_H2[1]) * v_OH2[1] + (new_O[2] - new_H2[2]) * v_OH2[2] );
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        new_O[k] += lambda * 1.00794 / ( 1.00794 + 15.9994 ) * v_OH2[k];
-                        new_H2[k] -= lambda * 15.9994 / ( 1.00794 + 15.9994 ) * v_OH2[k];
-                        }
-
-                    // correct for the HH constraint
-                    for ( d_HH = 0.0 , k = 0 ; k < 3 ; k++ )
-                        d_HH += (new_H1[k] - new_H2[k]) * (new_H1[k] - new_H2[k]);
-                    lambda = 0.5 * ( 0.1633*0.1633 - d_HH ) /
-                        ( (new_H1[0] - new_H2[0]) * v_HH[0] + (new_H1[1] - new_H2[1]) * v_HH[1] + (new_H1[2] - new_H2[2]) * v_HH[2] );
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        new_H1[k] += lambda * 0.5 * v_HH[k];
-                        new_H2[k] -= lambda * 0.5 * v_HH[k];
-                        }
-
-                    // check the tolerances
-                    if ( fabs( d_OH1 - 0.1*0.1 ) < 1e-6 &&
-                        fabs( d_OH2 - 0.1*0.1 ) < 1e-6 &&  
-                        fabs( d_HH - 0.1633*0.1633 ) < 1e-6 )
-                        break;
-
-                    // printf("main: mol %i: d_OH1=%e, d_OH2=%e, d_HH=%e.\n",j,sqrt(d_OH1),sqrt(d_OH2),sqrt(d_HH));
-                    // getchar();
-
-                    }
-
-                // wrap the positions back
-                for ( k = 0 ; k < 3 ; k++ ) {
-
-                    // write O
-                    p_O->x[k] = new_O[k] - c_O->origin[k];
-                    p_O->v[k] = (new_O[k] - old_O[k]) / e.dt;
-
-                    // write H1
-                    p_H1->x[k] -= e.dt * p_H1->v[k];
-                    p_H1->v[k] = (new_H1[k] - old_H1[k]) / e.dt;
-                    p_H1->x[k] += e.dt * p_H1->v[k];
-
-                    // write H2
-                    p_H2->x[k] -= e.dt * p_H2->v[k];
-                    p_H2->v[k] = (new_H2[k] - old_H2[k]) / e.dt;
-                    p_H2->x[k] += e.dt * p_H2->v[k];
-
-                    }
                     
-                }
-                
-            } // shake molecules
-        timers[tid_shake] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: SHAKE took %.3f ms.\n",myrank,(double)timers[tid_shake] * itpms); fflush(stdout);
-            }
-        
-        
-        /* Re-distribute the particles to the processors. */
-        tic = getticks();
-        if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
-            printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_exchange] += getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_exchange took %.3f ms.\n",myrank,(double)timers[tid_exchange] * itpms); fflush(stdout);
-            }
-    
-
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = 0 ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Resolve particle global/local IDs. */
-        /* tic = getticks();
-        for ( k = 0 ; k < nr_parts ; k++ )
-            globloc[k] = -1;
-        for ( k = 0 ; k < nr_parts ; k++ )
-            globloc[ pid[k] ] = k;
-        for ( k = nr_parts ; k < ppm_mpart ; k++ )
-            if ( globloc[ pid[k] ] < 0 )
-                globloc[ pid[k] ] = k;
-        toc = getticks();
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: resolving global/local IDs took %.3f ms.\n",myrank,(double)(toc-tic) * itpms); fflush(stdout);
-            } */
-            
-        
         /* Compute the system temperature. */
         tic = getticks();
         
         /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
-        ekin = 0.0; epot = 0.0;
+        ekin = 0.0; epot = e.s.epot;
         vcom_tot_x = 0.0; vcom_tot_y = 0.0; vcom_tot_z = 0.0;
-        temp = 0.0;
-        #pragma omp parallel for schedule(static), private(p,p_O,p_H1,p_H2,j,k,vcom,v2), reduction(+:ekin,epot,vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
+        temp = 0.0; count = 0;
+        #pragma omp parallel for schedule(static), private(cid,p_O,p_H1,p_H2,j,k,vcom,v2), reduction(+:count,ekin,epot,vcom_tot_x,vcom_tot_y,vcom_tot_z,temp)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            epot += e.s.cells[cid].epot;
             if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
                 for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
-                    p = &( e.s.cells[cid].parts[j] );
-                    v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
-                    if ( p->type == 0 )
+                    p_O = &( e.s.cells[cid].parts[j] );
+                    v2 = p_O->v[0]*p_O->v[0] + p_O->v[1]*p_O->v[1] + p_O->v[2]*p_O->v[2];
+                    if ( p_O->type == 0 )
                         ekin += v2 * 15.9994 * 0.5;
                     else
                         ekin += v2 * 1.00794 * 0.5;
-                    if ( p->type != 0 )
+                    if ( ( p_O->type != 0 ) ||
+                         ( p_H1 = e.s.partlist[ p_O->id + 1 ] ) == NULL ||
+                         ( p_H2 = e.s.partlist[ p_O->id + 2 ] ) == NULL )
                         continue;
-                    p_O = p; p_H1 = e.s.partlist[ p_O->id + 1 ]; p_H2 = e.s.partlist[ p_O->id + 2 ];
+                    count += 1;
                     for ( k = 0 ; k < 3 ; k++ )
                         vcom[k] = ( p_O->v[k] * 15.9994 +
                             p_H1->v[k] * 1.00794 +
@@ -594,18 +396,20 @@ int main ( int argc , char *argv[] ) {
         vcom_tot[3] = temp;
             
         /* Collect vcom and ekin from all procs and compute the temp. */
-        vcom_tot[4] = epot; vcom_tot[5] = ekin;
+        vcom_tot[4] = epot; vcom_tot[5] = ekin; vcom_tot[6] = count;
         if ( nr_nodes > 1 )
-            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , vcom_tot , 6 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
+            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , vcom_tot , 7 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
                 printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
-                return -1;
+                abort();
                 }
-        ekin = vcom_tot[5]; epot = vcom_tot[4];
+        count = vcom_tot[6]; ekin = vcom_tot[5]; epot = vcom_tot[4];
         for ( k = 0 ; k < 3 ; k++ )
             vcom_tot[k] /= nr_mols * 1.801528e+1;
         temp = vcom_tot[3] / ( 1.5 * 6.022045E23 * 1.380662E-26 * nr_mols );
         w = sqrt( 1.0 + 0.1 * ( 300.0 / temp - 1.0 ) );
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
+        /* if ( myrank == 0 )
+            printf( "main[%i]: have %i molecules.\n" , myrank , count ); */
             
         /* Subtract the vcom from the molecules on this proc. */
         #pragma omp parallel for schedule(static), private(j,p_O,p_H1,p_H2,k,vcom)
@@ -627,30 +431,44 @@ int main ( int argc , char *argv[] ) {
                     p_H2->v[k] += vcom[k];
                     }
                 }
-        timers[tid_temp] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: thermostat took %.3f ms.\n",myrank,(double)timers[tid_temp] * itpms); fflush(stdout);
-            }
+        toc = getticks() - tic;
                         
         
         /* Drop a line. */
-        toc_step = getticks();
         if ( myrank == 0 ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
             printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
-                timers[tid_step]*itpms, timers[tid_shake]*itpms, timers[tid_exchange]*itpms, timers[tid_temp]*itpms ); fflush(stdout);
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_rigid]*itpms,
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, toc*itpms ); fflush(stdout);
             }
         
+        /* Re-set the timers. */
+        if ( engine_timers_reset( &e ) < 0 ) {
+            printf("main: engine_timers_reset failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
+            }
         
+        /* Dump the output to a pdb-file. */
+        if ( myrank == 0 && e.time % 100 == 0 ) {
+            sprintf( fname , "hybrid_%08i.pdb" , e.time ); dump = fopen( fname , "w" );
+            if ( engine_dump_PSF( &e , NULL , dump , NULL , 0 ) < 0 ) {
+                printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
+                errs_dump(stdout);
+                abort();
+                }
+            fclose(dump);
+            }
+    
         } /* main loop. */
         
     
     /* Exit gracefuly. */
     if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
         printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
-        return -1;
+        abort();
         }
     fflush(stdout);
     printf( "main[%i]: exiting.\n" , myrank );

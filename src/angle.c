@@ -39,6 +39,7 @@
 #endif
 
 /* Include local headers */
+#include "cycle.h"
 #include "errs.h"
 #include "fptype.h"
 #include "part.h"

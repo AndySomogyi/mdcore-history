@@ -1,6 +1,6 @@
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2011 Pedro Gonnet (gonnet@maths.ox.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published
@@ -47,50 +47,50 @@
 #include "cell.h"
 #include "space.h"
 #include "engine.h"
-#include "bond.h"
+#include "exclusion.h"
 
 
 /* Global variables. */
 /** The ID of the last error. */
-int bond_err = bond_err_ok;
-unsigned int bond_rcount = 0;
+int exclusion_err = exclusion_err_ok;
+unsigned int exclusion_rcount = 0;
 
 /* the error macro. */
-#define error(id)				( bond_err = errs_register( id , bond_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+#define error(id)				( exclusion_err = errs_register( id , exclusion_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *bond_err_msg[2] = {
+char *exclusion_err_msg[2] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered."
 	};
     
 
 /**
- * @brief Evaluate a list of bonded interactoins
+ * @brief Evaluate a list of exclusioned interactoins
  *
- * @param b Pointer to an array of #bond.
- * @param N Nr of bonds in @c b.
+ * @param b Pointer to an array of #exclusion.
+ * @param N Nr of exclusions in @c b.
  * @param nr_threads Number of computational threads.
- * @param cid_mod #cell id modulus.
- * @param e Pointer to the #engine in which these bonds are evaluated.
+ * @param cid_div #cell id modulus.
+ * @param e Pointer to the #engine in which these exclusions are evaluated.
  * @param epot_out Pointer to a double in which to aggregate the potential energy.
  * 
- * @return #bond_err_ok or <0 on error (see #bond_err)
+ * @return #exclusion_err_ok or <0 on error (see #exclusion_err)
  *
  * Computes only the interactions on particles inside cells @c c where
- * @c c->id % nr_threads == cid_mod.
+ * @c c->id % nr_threads == cid_div.
  *
  */
  
-int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , struct engine *e , double *epot_out ) {
+int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_div , struct engine *e , double *epot_out ) {
 
     int bid, pid, pjd, cid, cjd = 0, k, *loci, *locj, shift[3], ld_pots;
-    double h[3], epot = 0.0;
+    double h[3], epot = 0.0, incr;
     struct space *s;
     struct part *pi, *pj, **partlist;
     struct cell **celllist, *ci, *cj;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w, incr;
+    FPTYPE dx[3], r2, w;
 #if defined(VECTORIZE)
     struct potential *potq[4];
     int icount = 0, l;
@@ -106,19 +106,19 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
     
     /* Check inputs. */
     if ( b == NULL || e == NULL )
-        return error(bond_err_null);
+        return error(exclusion_err_null);
         
     /* Get local copies of some variables. */
     s = &e->s;
     incr = ((double)nr_threads) / s->nr_cells_real;
-    pots = e->p_bond;
+    pots = e->p;
     partlist = s->partlist;
     celllist = s->celllist;
     ld_pots = e->max_type;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
         
-    /* Loop over the bonds. */
+    /* Loop over the exclusions. */
     for ( bid = 0 ; bid < N ; bid++ ) {
     
         /* Do we own this bond? */
@@ -153,14 +153,12 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
             r2 += dx[k] * dx[k];
             }
         
-        if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
-            printf( "bond_eval: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
-                bid , e->types[pi->type].name , e->types[pj->type].name , pot->a , pot->b , sqrt(r2) );
-            r2 = fmax( pot->a*pot->a , fmin( pot->b*pot->b , r2 ) );
-            }
+        /* Out of range? */
+        if ( r2 > pot->b*pot->b )
+            continue;
 
         #ifdef VECTORIZE
-            /* add this bond to the interaction queue. */
+            /* add this exclusion to the interaction queue. */
             r2q[icount] = r2;
             dxq[icount*3] = dx[0];
             dxq[icount*3+1] = dx[1];
@@ -171,18 +169,18 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
             icount += 1;
 
             #if defined(FPTYPE_SINGLE)
-                /* evaluate the bonds if the queue is full. */
+                /* evaluate the exclusions if the queue is full. */
                 if ( icount == 4 ) {
 
                     potential_eval_vec_4single( potq , r2q , ee , eff );
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
+                        epot -= ee[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = eff[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
+                            effi[l][k] += w;
+                            effj[l][k] -= w;
                             }
                         }
 
@@ -191,18 +189,18 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
 
                     }
             #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the bonds if the queue is full. */
+                /* evaluate the exclusions if the queue is full. */
                 if ( icount == 4 ) {
 
                     potential_eval_vec_4double( potq , r2q , ee , eff );
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
+                        epot -= ee[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = eff[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
+                            effi[l][k] += w;
+                            effj[l][k] -= w;
                             }
                         }
 
@@ -212,7 +210,7 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
                     }
             #endif
         #else
-            /* evaluate the bond */
+            /* evaluate the exclusion */
             #ifdef EXPLICIT_POTENTIALS
                 potential_eval_expl( pot , r2 , &ee , &eff );
             #else
@@ -223,16 +221,16 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
             for ( k = 0 ; k < 3 ; k++ ) {
                 w = eff * dx[k];
                 if ( cid == cid_div )
-                    pi->f[k] -= w;
+                    pi->f[k] += w;
                 if ( cjd == cid_div )
-                    pj->f[k] += w;
+                    pj->f[k] -= w;
                 }
 
             /* tabulate the energy */
-            epot += ee;
+            epot -= ee;
         #endif
 
-        } /* loop over bonds. */
+        } /* loop over exclusions. */
         
     #if defined(VEC_SINGLE)
         /* are there any leftovers? */
@@ -249,11 +247,11 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
+                epot -= ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
@@ -273,11 +271,11 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
+                epot -= ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
@@ -289,23 +287,252 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
         *epot_out += epot;
     
     /* We're done here. */
-    return bond_err_ok;
+    return exclusion_err_ok;
     
     }
 
 
 /**
- * @brief Evaluate a list of bonded interactoins
+ * @brief Evaluate a list of exclusioned interactoins
  *
- * @param b Pointer to an array of #bond.
- * @param N Nr of bonds in @c b.
- * @param e Pointer to the #engine in which these bonds are evaluated.
+ * @param b Pointer to an array of #exclusion.
+ * @param N Nr of exclusions in @c b.
+ * @param nr_threads Number of computational threads.
+ * @param cid_mod #cell id modulus.
+ * @param e Pointer to the #engine in which these exclusions are evaluated.
  * @param epot_out Pointer to a double in which to aggregate the potential energy.
  * 
- * @return #bond_err_ok or <0 on error (see #bond_err)
+ * @return #exclusion_err_ok or <0 on error (see #exclusion_err)
+ *
+ * Computes only the interactions on particles inside cells @c c where
+ * @c c->id % nr_threads == cid_mod.
+ *
  */
  
-int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
+int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_mod , struct engine *e , double *epot_out ) {
+
+    int bid, pid, pjd, cid, cjd, k, *loci, *locj, shift[3], ld_pots;
+    double h[3], epot = 0.0;
+    struct space *s;
+    struct part *pi, *pj, **partlist;
+    struct cell **celllist;
+    struct potential *pot, **pots;
+    FPTYPE dx[3], r2, w;
+#if defined(VECTORIZE)
+    struct potential *potq[4];
+    int icount = 0, l;
+    FPTYPE dummy = 0.0;
+    FPTYPE *effi[4], *effj[4];
+    FPTYPE r2q[4] __attribute__ ((aligned (16)));
+    FPTYPE ee[4] __attribute__ ((aligned (16)));
+    FPTYPE eff[4] __attribute__ ((aligned (16)));
+    FPTYPE dxq[12];
+#else
+    FPTYPE ee, eff;
+#endif
+    
+    /* Check inputs. */
+    if ( b == NULL || e == NULL )
+        return error(exclusion_err_null);
+        
+    /* Get local copies of some variables. */
+    s = &e->s;
+    pots = e->p;
+    partlist = s->partlist;
+    celllist = s->celllist;
+    ld_pots = e->max_type;
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+        
+    /* Loop over the exclusions. */
+    for ( bid = 0 ; bid < N ; bid++ ) {
+    
+        /* Get the particles involved. */
+        pid = b[bid].i; pjd = b[bid].j;
+        if ( ( pi = partlist[ pid ] ) == NULL )
+            continue;
+        if ( ( pj = partlist[ pjd ] ) == NULL )
+            continue;
+        
+        /* Skip if both ghosts. */
+        if ( ( pi->flags & part_flag_ghost ) && 
+             ( pj->flags & part_flag_ghost ) )
+            continue;
+            
+        /* Skip if both in the wrong cell. */
+        cid = celllist[ pid ]->id % nr_threads;
+        cjd = celllist[ pjd ]->id % nr_threads;
+        if ( ( cid != cid_mod ) && ( cjd != cid_mod ) )
+            continue;
+            
+        /* Get the potential. */
+        if ( ( pot = pots[ pj->type*ld_pots + pi->type ] ) == NULL )
+            continue;
+    
+        /* get the distance between both particles */
+        loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
+        for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+            shift[k] = loci[k] - locj[k];
+            if ( shift[k] > 1 )
+                shift[k] = -1;
+            else if ( shift[k] < -1 )
+                shift[k] = 1;
+            dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
+            r2 += dx[k] * dx[k];
+            }
+        
+        /* Out of range? */
+        if ( r2 > pot->b*pot->b )
+            continue;
+
+        #ifdef VECTORIZE
+            /* add this exclusion to the interaction queue. */
+            r2q[icount] = r2;
+            dxq[icount*3] = dx[0];
+            dxq[icount*3+1] = dx[1];
+            dxq[icount*3+2] = dx[2];
+            effi[icount] = ( cid == cid_mod ? pi->f : &dummy );
+            effj[icount] = ( cjd == cid_mod ? pj->f : &dummy );
+            potq[icount] = pot;
+            icount += 1;
+
+            #if defined(FPTYPE_SINGLE)
+                /* evaluate the exclusions if the queue is full. */
+                if ( icount == 4 ) {
+
+                    potential_eval_vec_4single( potq , r2q , ee , eff );
+
+                    /* update the forces and the energy */
+                    for ( l = 0 ; l < 4 ; l++ ) {
+                        epot -= ee[l];
+                        for ( k = 0 ; k < 3 ; k++ ) {
+                            w = eff[l] * dxq[l*3+k];
+                            effi[l][k] += w;
+                            effj[l][k] -= w;
+                            }
+                        }
+
+                    /* re-set the counter. */
+                    icount = 0;
+
+                    }
+            #elif defined(FPTYPE_DOUBLE)
+                /* evaluate the exclusions if the queue is full. */
+                if ( icount == 4 ) {
+
+                    potential_eval_vec_4double( potq , r2q , ee , eff );
+
+                    /* update the forces and the energy */
+                    for ( l = 0 ; l < 4 ; l++ ) {
+                        epot -= ee[l];
+                        for ( k = 0 ; k < 3 ; k++ ) {
+                            w = eff[l] * dxq[l*3+k];
+                            effi[l][k] += w;
+                            effj[l][k] -= w;
+                            }
+                        }
+
+                    /* re-set the counter. */
+                    icount = 0;
+
+                    }
+            #endif
+        #else
+            /* evaluate the exclusion */
+            #ifdef EXPLICIT_POTENTIALS
+                potential_eval_expl( pot , r2 , &ee , &eff );
+            #else
+                potential_eval( pot , r2 , &ee , &eff );
+            #endif
+
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                w = eff * dx[k];
+                if ( cid == cid_mod )
+                    pi->f[k] += w;
+                if ( cjd == cid_mod )
+                    pj->f[k] -= w;
+                }
+
+            /* tabulate the energy */
+            epot -= ee;
+        #endif
+
+        } /* loop over exclusions. */
+        
+    #if defined(VEC_SINGLE)
+        /* are there any leftovers? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entries */
+            for ( k = icount ; k < 4 ; k++ ) {
+                potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
+
+            /* evaluate the potentials */
+            potential_eval_vec_4single( potq , r2q , ee , eff );
+
+            /* for each entry, update the forces and energy */
+            for ( l = 0 ; l < icount ; l++ ) {
+                epot -= ee[l];
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w = eff[l] * dxq[l*3+k];
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
+                    }
+                }
+
+            }
+    #elif defined(VEC_DOUBLE)
+        /* are there any leftovers (single entry)? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entries */
+            for ( k = icount ; k < 4 ; k++ ) {
+                potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
+
+            /* evaluate the potentials */
+            potential_eval_vec_4double( potq , r2q , ee , eff );
+
+            /* for each entry, update the forces and energy */
+            for ( l = 0 ; l < icount ; l++ ) {
+                epot -= ee[l];
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w = eff[l] * dxq[l*3+k];
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
+                    }
+                }
+
+            }
+    #endif
+    
+    /* Store the potential energy. */
+    if ( epot_out != NULL )
+        *epot_out += epot;
+    
+    /* We're done here. */
+    return exclusion_err_ok;
+    
+    }
+
+
+
+/**
+ * @brief Evaluate a list of exclusioned interactoins
+ *
+ * @param b Pointer to an array of #exclusion.
+ * @param N Nr of exclusions in @c b.
+ * @param e Pointer to the #engine in which these exclusions are evaluated.
+ * @param epot_out Pointer to a double in which to aggregate the potential energy.
+ * 
+ * @return #exclusion_err_ok or <0 on error (see #exclusion_err)
+ */
+ 
+int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *epot_out ) {
 
     int bid, pid, pjd, k, *loci, *locj, shift[3], ld_pots;
     double h[3], epot = 0.0;
@@ -328,25 +555,24 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
     
     /* Check inputs. */
     if ( b == NULL || e == NULL )
-        return error(bond_err_null);
+        return error(exclusion_err_null);
         
     /* Get local copies of some variables. */
     s = &e->s;
-    pots = e->p_bond;
+    pots = e->p;
     partlist = s->partlist;
     celllist = s->celllist;
     ld_pots = e->max_type;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
         
-    /* Loop over the bonds. */
+    /* Loop over the exclusions. */
     for ( bid = 0 ; bid < N ; bid++ ) {
     
         /* Get the particles involved. */
         pid = b[bid].i; pjd = b[bid].j;
-        if ( ( pi = partlist[ pid ] ) == NULL )
-            continue;
-        if ( ( pj = partlist[ pjd ] ) == NULL )
+        if ( ( pi = partlist[ pid ] ) == NULL ||
+             ( pj = partlist[ pjd ] ) == NULL )
             continue;
         
         /* Skip if both ghosts. */
@@ -370,14 +596,12 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
             r2 += dx[k] * dx[k];
             }
         
-        if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
-            printf( "bond_eval: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
-                bid , e->types[pi->type].name , e->types[pj->type].name , pot->a , pot->b , sqrt(r2) );
-            r2 = fmax( pot->a*pot->a , fmin( pot->b*pot->b , r2 ) );
-            }
+        /* Out of range? */
+        if ( r2 > pot->b*pot->b )
+            continue;
 
         #ifdef VECTORIZE
-            /* add this bond to the interaction queue. */
+            /* add this exclusion to the interaction queue. */
             r2q[icount] = r2;
             dxq[icount*3] = dx[0];
             dxq[icount*3+1] = dx[1];
@@ -388,18 +612,18 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
             icount += 1;
 
             #if defined(FPTYPE_SINGLE)
-                /* evaluate the bonds if the queue is full. */
+                /* evaluate the exclusions if the queue is full. */
                 if ( icount == 4 ) {
 
                     potential_eval_vec_4single( potq , r2q , ee , eff );
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
+                        epot -= ee[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = eff[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
+                            effi[l][k] += w;
+                            effj[l][k] -= w;
                             }
                         }
 
@@ -408,18 +632,18 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
 
                     }
             #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the bonds if the queue is full. */
+                /* evaluate the exclusions if the queue is full. */
                 if ( icount == 4 ) {
 
                     potential_eval_vec_4double( potq , r2q , ee , eff );
 
                     /* update the forces and the energy */
                     for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
+                        epot -= ee[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = eff[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
+                            effi[l][k] += w;
+                            effj[l][k] -= w;
                             }
                         }
 
@@ -429,7 +653,7 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
                     }
             #endif
         #else
-            /* evaluate the bond */
+            /* evaluate the exclusion */
             #ifdef EXPLICIT_POTENTIALS
                 potential_eval_expl( pot , r2 , &ee , &eff );
             #else
@@ -439,15 +663,15 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
             /* update the forces */
             for ( k = 0 ; k < 3 ; k++ ) {
                 w = eff * dx[k];
-                pi->f[k] -= w;
-                pj->f[k] += w;
+                pi->f[k] += w;
+                pj->f[k] -= w;
                 }
 
             /* tabulate the energy */
-            epot += ee;
+            epot -= ee;
         #endif
 
-        } /* loop over bonds. */
+        } /* loop over exclusions. */
         
     #if defined(VEC_SINGLE)
         /* are there any leftovers? */
@@ -464,11 +688,11 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
+                epot -= ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
@@ -488,11 +712,11 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
+                epot -= ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
@@ -504,226 +728,7 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
         *epot_out += epot;
     
     /* We're done here. */
-    return bond_err_ok;
-    
-    }
-
-
-
-/**
- * @brief Evaluate a list of bonded interactoins
- *
- * @param b Pointer to an array of #bond.
- * @param N Nr of bonds in @c b.
- * @param e Pointer to the #engine in which these bonds are evaluated.
- * @param f An array of @c FPTYPE in which to aggregate the resulting forces.
- * @param epot_out Pointer to a double in which to aggregate the potential energy.
- * 
- * This function differs from #bond_eval in that the forces are added to
- * the array @c f instead of directly in the particle data.
- * 
- * @return #bond_err_ok or <0 on error (see #bond_err)
- */
- 
-int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double *epot_out ) {
-
-    int bid, pid, pjd, k, *loci, *locj, shift[3], ld_pots;
-    double h[3], epot = 0.0;
-    struct space *s;
-    struct part *pi, *pj, **partlist;
-    struct cell **celllist;
-    struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w;
-#if defined(VECTORIZE)
-    struct potential *potq[4];
-    int icount = 0, l;
-    FPTYPE *effi[4], *effj[4];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE dxq[12];
-#else
-    FPTYPE ee, eff;
-#endif
-    
-    /* Check inputs. */
-    if ( b == NULL || e == NULL || f == NULL )
-        return error(bond_err_null);
-        
-    /* Get local copies of some variables. */
-    s = &e->s;
-    pots = e->p_bond;
-    partlist = s->partlist;
-    celllist = s->celllist;
-    ld_pots = e->max_type;
-    for ( k = 0 ; k < 3 ; k++ )
-        h[k] = s->h[k];
-        
-    /* Loop over the bonds. */
-    for ( bid = 0 ; bid < N ; bid++ ) {
-    
-        /* Get the particles involved. */
-        pid = b[bid].i; pjd = b[bid].j;
-        if ( ( pi = partlist[ pid ] ) == NULL )
-            continue;
-        if ( ( pj = partlist[ pjd ] ) == NULL )
-            continue;
-        
-        /* Skip if both ghosts. */
-        if ( pi->flags & part_flag_ghost && pj->flags & part_flag_ghost )
-            continue;
-            
-        /* Get the potential. */
-        if ( ( pot = pots[ pj->type*ld_pots + pi->type ] ) == NULL )
-            continue;
-    
-        /* get the distance between both particles */
-        loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
-        for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-            shift[k] = loci[k] - locj[k];
-            if ( shift[k] > 1 )
-                shift[k] = -1;
-            else if ( shift[k] < -1 )
-                shift[k] = 1;
-            dx[k] = pi->x[k] - pj->x[k] + shift[k]*h[k];
-            r2 += dx[k] * dx[k];
-            }
-
-        if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
-            printf( "bond_evalf: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
-                bid , e->types[pi->type].name , e->types[pj->type].name , pot->a , pot->b , sqrt(r2) );
-            r2 = fmax( pot->a*pot->a , fmin( pot->b*pot->b , r2 ) );
-            }
-
-        #ifdef VECTORIZE
-            /* add this bond to the interaction queue. */
-            r2q[icount] = r2;
-            dxq[icount*3] = dx[0];
-            dxq[icount*3+1] = dx[1];
-            dxq[icount*3+2] = dx[2];
-            effi[icount] = &( f[ 4*pid ] );
-            effj[icount] = &( f[ 4*pjd ] );
-            potq[icount] = pot;
-            icount += 1;
-
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the bonds if the queue is full. */
-                if ( icount == 4 ) {
-
-                    potential_eval_vec_4single( potq , r2q , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the bonds if the queue is full. */
-                if ( icount == 4 ) {
-
-                    potential_eval_vec_4double( potq , r2q , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #endif
-        #else
-            /* evaluate the bond */
-            #ifdef EXPLICIT_POTENTIALS
-                potential_eval_expl( pot , r2 , &ee , &eff );
-            #else
-                potential_eval( pot , r2 , &ee , &eff );
-            #endif
-
-            /* update the forces */
-            for ( k = 0 ; k < 3 ; k++ ) {
-                w = eff * dx[k];
-                f[ 4*pid + k ] -= w;
-                f[ 4*pjd + k ] += w;
-                }
-
-            /* tabulate the energy */
-            epot += ee;
-        #endif
-
-        } /* loop over bonds. */
-        
-    #if defined(VEC_SINGLE)
-        /* are there any leftovers? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4single( potq , r2q , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double( potq , r2q , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
-                    }
-                }
-
-            }
-    #endif
-    
-    /* Store the potential energy. */
-    if ( epot_out != NULL )
-        *epot_out += epot;
-    
-    /* We're done here. */
-    return bond_err_ok;
+    return exclusion_err_ok;
     
     }
 

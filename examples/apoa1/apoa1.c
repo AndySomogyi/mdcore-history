@@ -135,7 +135,7 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init( &e , origin , dim , 1.25 , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_mpi | engine_flag_verlet_pairwise ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , 1.25 , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         return -1;
@@ -143,8 +143,6 @@ int main ( int argc , char *argv[] ) {
     e.dt = 0.0025;
     e.time = 0;
     e.tol_rigid = 1.0e-6;
-    e.s.cutoff = 1.20; e.s.cutoff2 = 1.2*1.2;
-    e.nodeID = myrank;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
         printf( "main[%i]: space has %i pairs and %i tuples.\n" , myrank , e.s.nr_pairs , e.s.nr_tuples );
@@ -381,12 +379,17 @@ int main ( int argc , char *argv[] ) {
         
         
     /* Give the system a quick shake before going anywhere. */
+    if ( engine_rigid_sort( &e ) != 0 ) {
+        printf("main: engine_rigid_sortl failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        abort();
+        }
     if ( engine_rigid_eval( &e ) != 0 ) {
         printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return -1;
         }
-    if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
+    if ( engine_exchange( &e ) != 0 ) {
         printf("main: engine_step failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return -1;
@@ -408,132 +411,13 @@ int main ( int argc , char *argv[] ) {
         /* Start the clock. */
         tic_step = getticks();
         
-        /* Check for ghost parts/cells. */
-        /* for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
-            if ( e.s.cells[cid].flags & cell_flag_ghost ) {
-                for ( k = 0 ; k < e.s.cells[cid].count ; k++ )
-                    if ( !( e.s.cells[cid].parts[k].flags & part_flag_ghost ) )
-                        printf( "main[%i]: non-ghost part %i in ghost cell %i.\n" , myrank , e.s.cells[cid].parts[k].id , cid );
-                }
-            else {
-                for ( k = 0 ; k < e.s.cells[cid].count ; k++ )
-                    if ( e.s.cells[cid].parts[k].flags & part_flag_ghost )
-                        printf( "main[%i]: ghost part %i in non-ghost cell %i.\n" , myrank , e.s.cells[cid].parts[k].id , cid );
-                } */
         
-
-        /* Compute the non-bonded interactions. */
-        tic = getticks();
-        if ( engine_nonbond_eval( &e ) != 0 ) {
-            printf("main: engine_nonbond_eval failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_nonbond] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_step took %.3f ms.\n",myrank,(double)timers[tid_nonbond] * itpms); fflush(stdout);
-            }
-            
-        /* Compute bonded interactions. */
-        tic = getticks();
-        if ( engine_bonded_eval( &e ) != 0 ) {
-            printf("main: engine_bonded_eval failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_bonded] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_step took %.3f ms.\n",myrank,(double)timers[tid_bonded] * itpms); fflush(stdout);
-            }
-             
-        /* Advance the particles. */
-        tic = getticks();
-        if ( engine_advance( &e ) != 0 ) {
-            printf("main: engine_advance failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_advance] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_step took %.3f ms.\n",myrank,(double)timers[tid_advance] * itpms); fflush(stdout);
-            }
-            
-            
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = 0 ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Re-distribute the particles to the processors. */
-        tic = getticks();
-        if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
+        /* Compute a step. */
+        if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
-            return -1;
+            abort();
             }
-        timers[tid_exchange] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_exchange took %.3f ms.\n",myrank,(double)timers[tid_exchange] * itpms); fflush(stdout);
-            }
-    
-
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = nr_parts ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
-        
-        /* Update the Verlet lists. */
-        tic = getticks();
-        if ( engine_verlet_update( &e ) != 0 ) {
-            printf("main: engine_verlet_update failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_advance] += getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_verlet_update took %.3f ms.\n",myrank,(double)timers[tid_advance] * itpms); fflush(stdout);
-            }
-            
-
-        /* Shake the particle positions. */
-        tic = getticks();
-        if ( engine_rigid_eval( &e ) != 0 ) {
-            printf("main: engine_rigid_eval failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_shake] = getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: SHAKE took %.3f ms.\n",myrank,(double)timers[tid_shake] * itpms); fflush(stdout);
-            }
-        
-        
-        /* Re-distribute the particles to the processors. */
-        tic = getticks();
-        if ( engine_exchange( &e , MPI_COMM_WORLD ) != 0 ) {
-            printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-            errs_dump(stdout);
-            return -1;
-            }
-        timers[tid_exchange] += getticks() - tic;
-        if ( verbose && myrank == 0 ) {
-            printf("main[%i]: engine_exchange took %.3f ms.\n",myrank,(double)timers[tid_exchange] * itpms); fflush(stdout);
-            }
-    
-    
-        /* Dump the particles. */
-        /* sprintf(fname,"parts_%03i.dump",myrank);
-        dump = fopen(fname,"w");
-        for ( k = 0 ; k < ppm_mpart ; k++ )
-            fprintf(dump,"%e %e %e\n",xp[3*k+0],xp[3*k+1],xp[3*k+2]);
-        fclose(dump); */
-        
         
         /* Compute the system temperature. */
         tic = getticks();
@@ -543,7 +427,6 @@ int main ( int argc , char *argv[] ) {
         vcom_x = 0.0; vcom_y = 0.0; vcom_z = 0.0; maxpekin = 0.0;
         #pragma omp parallel for schedule(static), private(cid,p,j,k,v2), reduction(+:epot,ekin,vcom_x,vcom_y,vcom_z)
         for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            epot += e.s.cells[cid].epot;
             if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
                 for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
                     p = &( e.s.cells[cid].parts[j] );
@@ -616,9 +499,20 @@ int main ( int argc , char *argv[] ) {
         if ( myrank == 0 ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
-            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+            /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
-                timers[tid_nonbond]*itpms, timers[tid_bonded]*itpms, timers[tid_advance]*itpms, timers[tid_shake]*itpms, timers[tid_exchange]*itpms, timers[tid_temp]*itpms ); fflush(stdout);
+                timers[tid_nonbond]*itpms, timers[tid_bonded]*itpms, timers[tid_advance]*itpms, timers[tid_shake]*itpms, timers[tid_exchange]*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
+            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms, e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout);
+            }
+        
+        /* Re-set the timers. */
+        if ( engine_timers_reset( &e ) < 0 ) {
+            printf("main: engine_timers_reset failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            abort();
             }
         
         
