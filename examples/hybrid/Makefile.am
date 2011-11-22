@@ -26,7 +26,7 @@ AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
 
 # Set-up the library
 if HAVEMPI
-bin_PROGRAMS = hybrid ppm_test
+bin_PROGRAMS = hybrid #ppm_test
 else
 bin_PROGRAMS =
 endif
