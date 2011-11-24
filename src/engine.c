@@ -104,7 +104,7 @@ int engine_timers_reset ( struct engine *e ) {
         return error(engine_err_null);
         
     /* Run through the timers and set them to 0. */
-    for ( k = 0 ; k < engine_nr_timers ; k++ )
+    for ( k = 0 ; k < engine_timer_last ; k++ )
         e->timers[k] = 0;
         
     /* What, that's it? */
@@ -2306,6 +2306,7 @@ int engine_bonded_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
         int nr_threads, thread_id;
     #endif
+    ticks tic;
     
     /* Bail if there are no bonded interaction. */
     if ( nr_bonds == 0 && nr_angles == 0 && nr_dihedrals == 0 && nr_exclusions == 0 )
@@ -2316,6 +2317,8 @@ int engine_bonded_eval ( struct engine *e ) {
 
     /* If in parallel... */
     if ( e->nr_nodes > 1 ) {
+    
+        tic = getticks();
     
         #pragma omp parallel for schedule(static), private(i,j,dtemp,atemp,btemp,etemp)
         for ( k = 0 ; k < 4 ; k++ ) {
@@ -2411,6 +2414,9 @@ int engine_bonded_eval ( struct engine *e ) {
                 }
         
             }
+            
+        /* Stop the clock. */
+        e->timers[engine_timer_bonded_sort] += getticks() - tic;
         
         }
         
@@ -2442,21 +2448,55 @@ int engine_bonded_eval ( struct engine *e ) {
             
         /* Otherwise, evaluate directly. */
         else if ( omp_get_thread_num() == 0 ) {
+        
+            /* Do bonds. */
+            tic = getticks();
             bond_eval( e->bonds , nr_bonds , e , &epot );
+            e->timers[engine_timer_bonds] += getticks() - tic;
+            
+            /* Do angles. */
+            tic = getticks();
             angle_eval( e->angles , nr_angles , e , &epot );
+            e->timers[engine_timer_angles] += getticks() - tic;
+            
+            /* Do dihedrals. */
+            tic = getticks();
             dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot );
+            e->timers[engine_timer_dihedrals] += getticks() - tic;
+            
+            /* Do exclusions. */
+            tic = getticks();
             exclusion_eval( e->exclusions , nr_exclusions , e , &epot );
+            e->timers[engine_timer_exclusions] += getticks() - tic;
+            
             }
             
     #else
+    
+        /* Do bonds. */
+        tic = getticks();
         if ( bond_eval( e->bonds , nr_bonds , e , &epot ) < 0 )
             return error(engine_err_bond);
+        e->timers[engine_timer_bonds] += getticks() - tic;
+            
+        /* Do angles. */
+        tic = getticks();
         if ( angle_eval( e->angles , nr_angles , e , &epot ) < 0 )
             return error(engine_err_angle);
+        e->timers[engine_timer_angles] += getticks() - tic;
+            
+        /* Do dihedrals. */
+        tic = getticks();
         if ( dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot ) < 0 )
             return error(engine_err_dihedral);
+        e->timers[engine_timer_dihedrals] += getticks() - tic;
+            
+        /* Do exclusions. */
+        tic = getticks();
         if ( exclusion_eval( e->exclusions , nr_exclusions , e , &epot ) < 0 )
             return error(engine_err_exclusion);
+        e->timers[engine_timer_exclusions] += getticks() - tic;
+            
     #endif
         
     /* Store the potential energy. */
@@ -3773,7 +3813,7 @@ int engine_exchange_incomming ( struct engine *e ) {
 
             /* Pack the array with the counts. */
             totals_send[i] = 0;
-            for ( k = 0 ; k < e->send[i].count ; k++ )
+            for ( k = 0 ; k < e->recv[i].count ; k++ )
                 totals_send[i] += ( counts_out[i][k] = s->cells[ e->recv[i].cellid[k] ].incomming_count );
             /* printf( "engine_exchange[%i]: totals_send[%i]=%i.\n" , e->nodeID , i , totals_send[i] ); */
 
