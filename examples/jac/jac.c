@@ -139,15 +139,15 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
-    // if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
+    // if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         abort();
         }
     e.dt = 0.0025;
     e.time = 0;
-    e.tol_rigid = 1.0e-6;
+    e.tol_rigid = 1.0e-5;
     e.nodeID = myrank;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
@@ -423,23 +423,23 @@ int main ( int argc , char *argv[] ) {
         ekin = 0.0; epot = e.s.epot;
         vcom_x = 0.0; vcom_y = 0.0; vcom_z = 0.0;
         #pragma omp parallel for schedule(static), private(cid,p,j,k,v2), reduction(+:epot,ekin,vcom_x,vcom_y,vcom_z)
-        for ( cid = 0 ; cid < e.s.nr_cells ; cid++ ) {
-            if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
-                for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
-                    p = &( e.s.cells[cid].parts[j] );
-                    v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
-                    if ( e.time < pekin_max_time && 0.5*v2*e.types[p->type].mass > pekin_max ) {
-                        /* printf( "main[%i]: particle %i (%s) was caught speeding (v2=%e).\n" ,
-                            myrank , p->id , e.types[p->type].name , v2 ); */
-                        p->v[0] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
-                        p->v[1] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
-                        p->v[2] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
-                        }
-                    vcom_x += p->v[0] * e.types[p->type].mass;
-                    vcom_y += p->v[1] * e.types[p->type].mass;
-                    vcom_z += p->v[2] * e.types[p->type].mass;
-                    ekin += v2 * e.types[p->type].mass * 0.5;
+        for ( k = 0 ; k < e.s.nr_real ; k++ ) {
+            cid = e.s.cid_real[k];
+            for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                p = &( e.s.cells[cid].parts[j] );
+                v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
+                if ( e.time < pekin_max_time && 0.5*v2*e.types[p->type].mass > pekin_max ) {
+                    /* printf( "main[%i]: particle %i (%s) was caught speeding (v2=%e).\n" ,
+                        myrank , p->id , e.types[p->type].name , v2 ); */
+                    p->v[0] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
+                    p->v[1] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
+                    p->v[2] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
                     }
+                vcom_x += p->v[0] * e.types[p->type].mass;
+                vcom_y += p->v[1] * e.types[p->type].mass;
+                vcom_z += p->v[2] * e.types[p->type].mass;
+                ekin += v2 * e.types[p->type].mass * 0.5;
+                }
             }
         vcom[0] = vcom_x; vcom[1] = vcom_y; vcom[2] = vcom_z;
         // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
@@ -469,16 +469,17 @@ int main ( int argc , char *argv[] ) {
         if ( step < 5000 ) {
         
             /* Scale the particle velocities. */
-            #pragma omp parallel for schedule(static), private(cid,j,p,k)
-            for ( cid = 0 ; cid < e.s.nr_cells ; cid++ )
-                if ( !(e.s.cells[cid].flags & cell_flag_ghost ) )
-                    for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
-                        p = &( e.s.cells[cid].parts[j] );
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            p->v[k] -= vcom[k];
-                            p->v[k] *= w;
-                            }
+            #pragma omp parallel for schedule(static), private(cid,i,j,p,k)
+            for ( i = 0 ; i < e.s.nr_cells ; i++ ) {
+                cid = e.s.cid_real[i];
+                for ( j = 0 ; j < e.s.cells[cid].count ; j++ ) {
+                    p = &( e.s.cells[cid].parts[j] );
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        p->v[k] -= vcom[k];
+                        p->v[k] *= w;
                         }
+                    }
+                }
                     
             }
         timers[tid_temp] = getticks() - tic;
@@ -495,9 +496,11 @@ int main ( int argc , char *argv[] ) {
             /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
                 timers[tid_nonbond]*itpms, timers[tid_bonded]*itpms, timers[tid_advance]*itpms, timers[tid_shake]*itpms, timers[tid_exchange]*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
-            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
-                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms, e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
+                e.timers[engine_timer_bonds]*itpms, e.timers[engine_timer_angles]*itpms, e.timers[engine_timer_dihedrals]*itpms, e.timers[engine_timer_exclusions]*itpms, 
+                e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
                 (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout);
             }
         
