@@ -110,7 +110,7 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
         
     /* Get local copies of some variables. */
     s = &e->s;
-    incr = ((double)nr_threads) / s->nr_cells_real;
+    incr = ((double)nr_threads) / s->nr_real;
     pots = e->p;
     partlist = s->partlist;
     celllist = s->celllist;

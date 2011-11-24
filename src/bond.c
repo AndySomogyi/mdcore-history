@@ -110,7 +110,7 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
         
     /* Get local copies of some variables. */
     s = &e->s;
-    incr = ((double)nr_threads) / s->nr_cells_real;
+    incr = ((double)nr_threads) / s->nr_real;
     pots = e->p_bond;
     partlist = s->partlist;
     celllist = s->celllist;

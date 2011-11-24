@@ -84,7 +84,11 @@ struct space {
     unsigned int period;
     
     /** Total nr of cells in this space. */
-    int nr_cells, nr_cells_real;
+    int nr_cells;
+    
+    /** IDs of real, ghost and marked cells. */
+    int *cid_real, *cid_ghost, *cid_marked;
+    int nr_real, nr_ghost, nr_marked;
     
     /** Array of cells spanning the space. */
     struct cell *cells;

@@ -145,33 +145,31 @@ int engine_verlet_update ( struct engine *e ) {
         #pragma omp parallel private(c,cid,pid,p,dx,k,w,step,lmaxdx)
         {
             lmaxdx = 0.0; step = omp_get_num_threads();
-            for ( cid = omp_get_thread_num() ; cid < s->nr_cells ; cid += step ) {
-                c = &(s->cells[cid]);
-                if ( !( c->flags & cell_flag_ghost ) )
-                    for ( pid = 0 ; pid < c->count ; pid++ ) {
-                        p = &(c->parts[pid]);
-                        for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                            w = p->x[k] - c->oldx[ 4*pid + k ];
-                            dx += w*w;
-                            }
-                        lmaxdx = fmax( dx , lmaxdx );
-                        }
-                }
-            #pragma omp critical
-            maxdx = fmax( lmaxdx , maxdx );
-            }
-    #else
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( !( c->falgs & cell_flag_ghost ) )
+            for ( cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
+                c = &(s->cells[s->cid_real[cid]]);
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &(c->parts[pid]);
                     for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
                         w = p->x[k] - c->oldx[ 4*pid + k ];
                         dx += w*w;
                         }
-                    maxdx = fmax( dx , maxdx );
+                    lmaxdx = fmax( dx , lmaxdx );
                     }
+                }
+            #pragma omp critical
+            maxdx = fmax( lmaxdx , maxdx );
+            }
+    #else
+        for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+            c = &(s->cells[s->cid_real[cid]]);
+            for ( pid = 0 ; pid < c->count ; pid++ ) {
+                p = &(c->parts[pid]);
+                for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                    w = p->x[k] - c->oldx[ 4*pid + k ];
+                    dx += w*w;
+                    }
+                maxdx = fmax( dx , maxdx );
+                }
             }
     #endif
 
@@ -199,12 +197,9 @@ int engine_verlet_update ( struct engine *e ) {
                 return error(engine_err);
                 
         /* Flush the ghost cells (to avoid overlapping particles) */
-        #pragma omp parallel for schedule(static), private(c)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( c->flags & cell_flag_ghost )
-                cell_flush( c , s->partlist , s->celllist );
-            }
+        #pragma omp parallel for schedule(static)
+        for ( cid = 0 ; cid < s->nr_ghost ; cid++ )
+            cell_flush( &(s->cells[s->cid_ghost[cid]]) , s->partlist , s->celllist );
         
         /* Shuffle the domain. */
         if ( space_shuffle_local( s ) < 0 )
@@ -216,12 +211,10 @@ int engine_verlet_update ( struct engine *e ) {
                 return error(engine_err);
                         
         /* Welcome the new particles in each cell, unhook the old ones. */
-        #pragma omp parallel for schedule(static), private(c,k)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( !(c->flags & cell_flag_marked ) )
-                continue;
-            else if ( !(c->flags & cell_flag_ghost) )
+        #pragma omp parallel for schedule(static), private(cid,c,k)
+        for ( cid = 0 ; cid < s->nr_marked ; cid++ ) {
+            c = &(s->cells[s->cid_marked[cid]]);
+            if ( !(c->flags & cell_flag_ghost) )
                 cell_welcome( c , s->partlist );
             else {
                 for ( k = 0 ; k < c->incomming_count ; k++ )
@@ -232,10 +225,8 @@ int engine_verlet_update ( struct engine *e ) {
 
         /* Store the current positions as a reference. */
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( c->flags & cell_flag_ghost )
-                continue;
+        for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+            c = &(s->cells[s->cid_real[cid]]);
             if ( c->oldx == NULL || c->oldx_size < c->count ) {
                 free(c->oldx);
                 c->oldx_size = c->size + 20;
@@ -2574,10 +2565,8 @@ int engine_dihedral_eval ( struct engine *e ) {
             dihedral_evalf( &e->dihedrals[k*nr_dihedrals/nr_threads] , (k+1)*nr_dihedrals/nr_threads - k*nr_dihedrals/nr_threads , e , eff , &epot );
                     
             /* Write-back the forces (if anything was done). */
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &s->cells[ cid ];
-                if ( c->flags & cell_flag_ghost )
-                    continue;
+            for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+                c = &s->cells[ s->cid_real[cid] ];
                 pthread_mutex_lock( &c->cell_mutex );
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &c->parts[ pid ];
@@ -2672,10 +2661,8 @@ int engine_angle_eval ( struct engine *e ) {
             angle_evalf( &e->angles[k*nr_angles/nr_threads] , (k+1)*nr_angles/nr_threads - k*nr_angles/nr_threads , e , eff , &epot );
                     
             /* Write-back the forces (if anything was done). */
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &s->cells[ cid ];
-                if ( c->flags & cell_flag_ghost )
-                    continue;
+            for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+                c = &s->cells[ s->cid_real[cid] ];
                 pthread_mutex_lock( &c->cell_mutex );
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &c->parts[ pid ];
@@ -3086,10 +3073,8 @@ int engine_bond_eval ( struct engine *e ) {
             bond_evalf( &e->bonds[k*nr_bonds/nr_threads] , (k+1)*nr_bonds/nr_threads - k*nr_bonds/nr_threads , e , eff , &epot );
                     
             /* Write-back the forces (if anything was done). */
-            for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-                c = &s->cells[ cid ];
-                if ( c->flags & cell_flag_ghost )
-                    continue;
+            for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+                c = &s->cells[ s->cid_real[cid] ];
                 pthread_mutex_lock( &c->cell_mutex );
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &c->parts[ pid ];
@@ -3238,6 +3223,8 @@ int engine_angle_addpot ( struct engine *e , struct potential *p ) {
 #ifdef HAVE_MPI
 int engine_exchange_wait ( struct engine *e ) {
 
+    ticks tic = getticks();
+
     /* Try to grab the xchg_mutex, which will only be free while
        the async routine is waiting on a condition. */
     if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
@@ -3252,6 +3239,9 @@ int engine_exchange_wait ( struct engine *e ) {
     /* We don't actually need this, so release it again. */
     if ( pthread_mutex_unlock( &e->xchg_mutex ) != 0 )
         return error(engine_err_pthread);
+        
+    /* Record the time we've waited here. */
+    e->timers[engine_timer_exchange1] += getticks() - tic;
         
     /* The end of the tunnel. */
     return engine_err_ok;
@@ -3481,7 +3471,7 @@ int engine_exchange_async_run ( struct engine *e ) {
 #ifdef HAVE_MPI 
 int engine_exchange_async ( struct engine *e ) {
 
-    int k;
+    int k, cid;
 
     /* Check the input. */
     if ( e == NULL )
@@ -3492,12 +3482,12 @@ int engine_exchange_async ( struct engine *e ) {
         return engine_err_ok;
         
     /* Mark all the ghost cells as taboo and flush them. */
-    for ( k = 0 ; k < e->s.nr_cells ; k++ )
-        if ( e->s.cells[k].flags & cell_flag_ghost ) {
-            e->s.cells_taboo[ k ] += 2;
-            if ( cell_flush( &e->s.cells[k] , e->s.partlist , e->s.celllist ) < 0 )
-                return error(engine_err_cell);
-            }
+    for ( k = 0 ; k < e->s.nr_ghost ; k++ ) {
+        cid = e->s.cid_ghost[k];
+        e->s.cells_taboo[ cid ] += 2;
+        if ( cell_flush( &e->s.cells[cid] , e->s.partlist , e->s.celllist ) < 0 )
+            return error(engine_err_cell);
+        }
             
     /* Get a hold of the exchange mutex. */
     if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
@@ -3703,10 +3693,8 @@ int engine_exchange ( struct engine *e ) {
     
         /* Shuffle the particles to the correct cells. */
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( !(c->flags & cell_flag_marked) )
-                continue;
+        for ( cid = 0 ; cid < s->nr_marked ; cid++ ) {
+            c = &(s->cells[s->cid_marked[cid]]);
             pid = 0;
             while ( pid < c->count ) {
 
@@ -3747,11 +3735,8 @@ int engine_exchange ( struct engine *e ) {
 
         /* Welcome the new particles in each cell. */
         #pragma omp parallel for schedule(static), private(c)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( c->flags & cell_flag_marked )
-                cell_welcome( c , s->partlist );
-            }
+        for ( cid = 0 ; cid < s->nr_marked ; cid++ )
+            cell_welcome( &(s->cells[s->cid_marked[cid]]) , s->partlist );
             
         }
         
@@ -3985,6 +3970,10 @@ int engine_split ( struct engine *e ) {
         e->recv[k].count = 0;
         }
         
+    /* Un-mark all cells. */
+    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
+        e->s.cells[cid].flags &= ~cell_flag_marked;
+        
     /* Loop over each cell pair... */
     for ( i = 0 ; i < e->s.nr_pairs ; i++ ) {
     
@@ -4061,14 +4050,21 @@ int engine_split ( struct engine *e ) {
             for ( k = 0 ; k < e->s.cells[cid].count ; k++ )
                 e->s.cells[cid].parts[k].flags |= part_flag_ghost;
         
-    /* Number non-ghost cells. */
-    for ( k = 0 , cid = 0 ; cid < e->s.nr_cells ; cid++ )
-        if ( !( e->s.cells[cid].flags & cell_flag_ghost ) )
-            e->s.cells[cid].id = k++;
-        else
-            e->s.cells[cid].id = -e->s.nr_cells;
-    e->s.nr_cells_real = k;
-
+    /* Fill the cid lists with marked, local and ghost cells. */
+    e->s.nr_real = 0; e->s.nr_ghost = 0; e->s.nr_marked = 0;
+    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
+        if ( e->s.cells[cid].flags & cell_flag_marked ) {
+            e->s.cid_marked[ e->s.nr_marked++ ] = cid;
+            if ( e->s.cells[cid].flags & cell_flag_ghost ) {
+                e->s.cells[cid].id = -e->s.nr_cells;
+                e->s.cid_ghost[ e->s.nr_ghost++ ] = cid;
+                }
+            else {
+                e->s.cells[cid].id = e->s.nr_real;
+                e->s.cid_real[ e->s.nr_real++ ] = cid;
+                }
+            }
+        
     /* Re-build the tuples if needed. */
     if ( e->flags & engine_flag_tuples )
         if ( space_maketuples( &e->s ) < 0 )
@@ -4405,15 +4401,11 @@ int engine_unload_marked ( struct engine *e , double *x , double *v , int *type 
         
     /* Loop over each cell. */
     #pragma omp parallel for schedule(static), private(cid,count,c,k,p,j), reduction(+:epot_acc)
-    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
+    for ( cid = 0 ; cid < e->s.nr_marked ; cid++ ) {
     
         /* Get a hold of the cell. */
-        c = &( e->s.cells[cid] );
-        count = ind[cid];
-    
-        /* Skip it? */
-        if ( !(c->flags & cell_flag_marked) )
-            continue;
+        c = &( e->s.cells[e->s.cid_marked[cid]] );
+        count = ind[e->s.cid_marked[cid]];
     
         /* Collect the potential energy if requested. */
         epot_acc += c->epot;
@@ -4491,15 +4483,11 @@ int engine_unload_strays ( struct engine *e , double *x , double *v , int *type 
         return error(engine_err_null);
         
     /* Loop over each cell. */
-    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ ) {
+    for ( cid = 0 ; cid < e->s.nr_real ; cid++ ) {
     
         /* Get a hold of the cell. */
-        c = &( e->s.cells[cid] );
+        c = &( e->s.cells[e->s.cid_real[cid]] );
         
-        /* Skip it? */
-        if ( !(c->flags & cell_flag_ghost) )
-            continue;
-    
         /* Collect the potential energy if requested. */
         epot_acc += c->epot;
             
@@ -4871,10 +4859,8 @@ int engine_start ( struct engine *e , int nr_runners ) {
             
         /* Store the current positions as a reference. */
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            if ( c->flags & cell_flag_ghost )
-                continue;
+        for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+            c = &(s->cells[s->cid_real[cid]]);
             if ( c->oldx == NULL || c->oldx_size < c->count ) {
                 free(c->oldx);
                 c->oldx_size = c->size + 20;
@@ -5050,12 +5036,14 @@ int engine_advance ( struct engine *e ) {
     /* update the particle velocities and positions */
     if ( e->flags & engine_flag_verlet || e->flags & engine_flag_mpi ) {
     
+        /* Collect potential energy from ghosts. */
+        for ( cid = 0 ; cid < s->nr_ghost ; cid++ )
+            epot += s->cells[ s->cid_ghost[cid] ].epot;
+        
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,w,k), reduction(+:epot)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
+        for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+            c = &(s->cells[ s->cid_real[cid] ]);
             epot += c->epot;
-            if ( c->flags & cell_flag_ghost )
-                continue;
             for ( pid = 0 ; pid < c->count ; pid++ ) {
                 p = &( c->parts[pid] );
                 w = dt * e->types[p->type].imass;
@@ -5068,12 +5056,15 @@ int engine_advance ( struct engine *e ) {
             
         }
     else {
+    
+        /* Collect potential energy from ghosts. */
+        for ( cid = 0 ; cid < s->nr_ghost ; cid++ )
+            epot += s->cells[ s->cid_ghost[cid] ].epot;
+        
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,w,k,delta,c_dest), reduction(+:epot)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
+        for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+            c = &(s->cells[ s->cid_real[cid] ]);
             epot += c->epot;
-            if ( c->flags & cell_flag_ghost )
-                continue;
             pid = 0;
             while ( pid < c->count ) {
             
@@ -5111,11 +5102,10 @@ int engine_advance ( struct engine *e ) {
             }
             
         /* Welcome the new particles in each cell. */
-        #pragma omp parallel for schedule(static), private(c)
-        for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-            c = &(s->cells[cid]);
-            cell_welcome( c , s->partlist );
-            }
+        #pragma omp parallel for schedule(static)
+        for ( cid = 0 ; cid < s->nr_marked ; cid++ )
+            cell_welcome( &(s->cells[ s->cid_marked[cid] ]) , s->partlist );
+            
         }
             
     /* Store the accumulated potential energy. */

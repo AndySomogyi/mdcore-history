@@ -112,7 +112,7 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
         
     /* Get local copies of some variables. */
     s = &e->s;
-    incr = ((double)nr_threads) / s->nr_cells_real;
+    incr = ((double)nr_threads) / s->nr_real;
     pots = e->p_angle;
     partlist = s->partlist;
     celllist = s->celllist;

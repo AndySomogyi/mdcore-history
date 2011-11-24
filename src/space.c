@@ -669,7 +669,7 @@ int space_maketuples ( struct space *s ) {
 
 int space_prepare ( struct space *s ) {
 
-    int pid, cid, k;
+    int pid, cid, j, k;
 
     /* re-set next_pair */
     s->next_pair = 0;
@@ -680,7 +680,8 @@ int space_prepare ( struct space *s ) {
     s->epot = 0.0;
     
     /* run through the cells and re-set the potential energy and forces */
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
+    for ( j = 0 ; j < s->nr_marked ; j++ ) {
+        cid = s->cid_marked[j];
         s->cells[cid].epot = 0.0;
         if ( s->cells[cid].flags & cell_flag_ghost )
             continue;
@@ -1232,13 +1233,26 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                 s->cells[ space_cellid(s,s->cdim[0]-1,i,j) ].flags |= cell_flag_ghost;
                 }
                 
-    /* Number the non-ghost cells. */
-    for ( i = 0 , j = 0 ; i < s->nr_cells ; i++ )
-        if ( !( s->cells[i].flags & cell_flag_ghost ) )
-            s->cells[i].id = j++;
-        else
-            s->cells[i].id = -s->nr_cells;
-    s->nr_cells_real = j;
+    /* Allocate buffers for the cid lists. */
+    if ( ( s->cid_real = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL ||
+         ( s->cid_ghost = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL ||
+         ( s->cid_marked = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL )
+        return error(space_err_malloc);
+        
+    /* Fill the cid lists with marked, local and ghost cells. */
+    s->nr_real = 0; s->nr_ghost = 0; s->nr_marked = 0;
+    for ( k = 0 ; k < s->nr_cells ; k++ ) {
+        s->cells[k].flags |= cell_flag_marked;
+        s->cid_marked[ s->nr_marked++ ] = k;
+        if ( s->cells[k].flags & cell_flag_ghost ) {
+            s->cells[k].id = -s->nr_cells;
+            s->cid_ghost[ s->nr_ghost++ ] = k;
+            }
+        else {
+            s->cells[k].id = s->nr_real;
+            s->cid_real[ s->nr_real++ ] = k;
+            }
+        }
         
     /* allocate the cell pairs array (pessimistic guess) */
     if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * s->nr_cells * 14 )) == NULL )
