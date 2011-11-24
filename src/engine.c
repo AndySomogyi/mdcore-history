@@ -128,6 +128,7 @@ int engine_verlet_update ( struct engine *e ) {
     struct cell *c;
     struct part *p;
     struct space *s = &e->s;
+    ticks tic;
     #ifdef HAVE_OPENMP
         int step;
         double lmaxdx;
@@ -192,9 +193,13 @@ int engine_verlet_update ( struct engine *e ) {
         printf("engine_verlet_update: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
         
         /* Wait for any unterminated exchange. */
+        tic = getticks();
         if ( e->flags & engine_flag_async )
             if ( engine_exchange_wait( e ) < 0 )
                 return error(engine_err);
+        tic = getticks() - tic;
+        e->timers[engine_timer_exchange1] += tic;
+        e->timers[engine_timer_verlet] -= tic;
                 
         /* Flush the ghost cells (to avoid overlapping particles) */
         #pragma omp parallel for schedule(static), private(cid)
@@ -2790,6 +2795,7 @@ int engine_rigid_sort ( struct engine *e ) {
 int engine_rigid_eval ( struct engine *e ) {
 
     int nr_local = e->rigids_local, nr_rigids = e->rigids_semilocal;
+    ticks tic;
     #ifdef HAVE_OPENMP
         int finger_global = 0, finger, count;
     #endif
@@ -2835,8 +2841,13 @@ int engine_rigid_eval ( struct engine *e ) {
                 
                 
             /* Wait for the async data to come in. */
-            if ( engine_exchange_wait( e ) < 0 )
-                return error(engine_err);
+            tic = getticks();
+            if ( e->flags & engine_flag_async )
+                if ( engine_exchange_wait( e ) < 0 )
+                    return error(engine_err);
+            tic = getticks() - tic;
+            e->timers[engine_timer_exchange1] += tic;
+            e->timers[engine_timer_rigid] -= tic;
                 
                 
             /* Is it worth parallelizing? */
@@ -2873,12 +2884,24 @@ int engine_rigid_eval ( struct engine *e ) {
                 rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e );
                 
         #else
+        
+            /* Shake local rigids. */
             if ( rigid_eval_shake( e->rigids , nr_local , e ) < 0 )
                 return error(engine_err_rigid);
-            if ( engine_exchange_wait( e ) < 0 )
-                return error(engine_err);
+                
+            /* Wait for exchange to come in. */
+            tic = getticks();
+            if ( e->flags & engine_flag_async )
+                if ( engine_exchange_wait( e ) < 0 )
+                    return error(engine_err);
+            tic = getticks() - tic;
+            e->timers[engine_timer_exchange1] += tic;
+            e->timers[engine_timer_verlet] -= tic;
+                
+            /* Shake semi-local rigids. */
             if ( rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e ) < 0 )
                 return error(engine_err_rigid);
+                
         #endif
     
         }
@@ -3223,8 +3246,6 @@ int engine_angle_addpot ( struct engine *e , struct potential *p ) {
 #ifdef HAVE_MPI
 int engine_exchange_wait ( struct engine *e ) {
 
-    ticks tic = getticks();
-
     /* Try to grab the xchg_mutex, which will only be free while
        the async routine is waiting on a condition. */
     if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
@@ -3239,9 +3260,6 @@ int engine_exchange_wait ( struct engine *e ) {
     /* We don't actually need this, so release it again. */
     if ( pthread_mutex_unlock( &e->xchg_mutex ) != 0 )
         return error(engine_err_pthread);
-        
-    /* Record the time we've waited here. */
-    e->timers[engine_timer_exchange1] += getticks() - tic;
         
     /* The end of the tunnel. */
     return engine_err_ok;
