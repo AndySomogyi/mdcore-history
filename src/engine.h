@@ -71,8 +71,6 @@
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
 
-#define engine_nr_timers                 10
-
 /** Timer IDs. */
 enum {
     engine_timer_step = 0,
@@ -81,9 +79,15 @@ enum {
     engine_timer_exchange1,
     engine_timer_nonbond,
     engine_timer_bonded,
+    engine_timer_bonded_sort,
+    engine_timer_bonds,
+    engine_timer_angles,
+    engine_timer_dihedrals,
+    engine_timer_exclusions,
     engine_timer_advance,
     engine_timer_rigid,
-    engine_timer_exchange2
+    engine_timer_exchange2,
+    engine_timer_last
     };
 
 
@@ -184,7 +188,7 @@ struct engine {
     #endif
     
     /** Timers. */
-    ticks timers[engine_nr_timers];
+    ticks timers[engine_timer_last];
     
     };
     
