@@ -197,7 +197,7 @@ int engine_verlet_update ( struct engine *e ) {
                 return error(engine_err);
                 
         /* Flush the ghost cells (to avoid overlapping particles) */
-        #pragma omp parallel for schedule(static)
+        #pragma omp parallel for schedule(static), private(cid)
         for ( cid = 0 ; cid < s->nr_ghost ; cid++ )
             cell_flush( &(s->cells[s->cid_ghost[cid]]) , s->partlist , s->celllist );
         

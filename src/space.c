@@ -721,10 +721,8 @@ int space_shuffle ( struct space *s ) {
         h[k] = s->h[k];
 
     #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        c = &(s->cells[cid]);
-        if ( !(c->flags & cell_flag_marked) )
-            continue;
+    for ( cid = 0 ; cid < s->nr_marked ; cid++ ) {
+        c = &(s->cells[ s->cid_marked[cid] ]);
         pid = 0;
         while ( pid < c->count ) {
 
@@ -799,10 +797,8 @@ int space_shuffle_local ( struct space *s ) {
         h[k] = s->h[k];
 
     #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
-    for ( cid = 0 ; cid < s->nr_cells ; cid++ ) {
-        c = &(s->cells[cid]);
-        if ( !(c->flags & cell_flag_marked) )
-            continue;
+    for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+        c = &(s->cells[ s->cid_real[cid] ]);
         pid = 0;
         while ( pid < c->count ) {
 
