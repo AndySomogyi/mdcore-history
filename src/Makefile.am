@@ -25,19 +25,22 @@ AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
     errs.h bond.h angle.h reader.h rigid.h dihedral.h exclusion.h
+    
+# Both precisions have the same sources.
+SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
+    btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
+    engine_bonded.c
 
 # Build the libchebfun libraries
 lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
 
 # Set-up for general (double-precision) case
-libmdcore_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
-    btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c
+libmdcore_la_SOURCES = $(SOURCES)
 
 
 # Set-up for single-precision case
-libmdcore_single_la_SOURCES = cell.c part.c runner.c engine.c potential.c space.c \
-    errs.c btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c
+libmdcore_single_la_SOURCES = $(SOURCES)
 libmdcore_single_la_SHORTNAME = sp
 libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
 

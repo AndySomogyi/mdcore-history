@@ -64,7 +64,7 @@
 
 #define engine_bonds_chunk               100
 #define engine_angles_chunk              100
-#define engine_rigids_chunk              100
+#define engine_rigids_chunk              50
 #define engine_dihedrals_chunk           100
 #define engine_exclusions_chunk          100
 
@@ -93,6 +93,9 @@ enum {
 
 /** ID of the last error. */
 extern int engine_err;
+
+/** List of error messages. */
+extern char *engine_err_msg[];
 
 
 /** 
