@@ -190,6 +190,7 @@ int main ( int argc , char *argv[] ) {
         abort();
         }
     printf( "main[%i]: done reading parameters.\n" , myrank );
+    fclose( cpf );
     
     
     /* Correct the water vids. */
@@ -212,15 +213,17 @@ int main ( int argc , char *argv[] ) {
             
             
     /* Print some stats. */
-    printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
-    printf( "main[%i]: read %i particles.\n" , myrank , e.s.nr_parts );
-    printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
-    printf( "main[%i]: read %i angles.\n" , myrank , e.nr_angles );
-    printf( "main[%i]: read %i dihedrals.\n" , myrank , e.nr_dihedrals );
-    /* for ( k = 0 ; k < e.nr_types ; k++ )
-        printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
-    printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
-    fclose( cpf );
+    if ( myrank == 0 ) {
+        printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
+        printf( "main[%i]: read %i particles.\n" , myrank , e.s.nr_parts );
+        printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
+        printf( "main[%i]: read %i angles.\n" , myrank , e.nr_angles );
+        printf( "main[%i]: read %i dihedrals.\n" , myrank , e.nr_dihedrals );
+        /* for ( k = 0 ; k < e.nr_types ; k++ )
+            printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
+        printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
+        }
+        
     
     /* Dump bond types. */
     /* for ( j = 0 ; j < e.nr_types ; j++ )
