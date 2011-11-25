@@ -346,7 +346,7 @@ int engine_bond_add ( struct engine *e , int i , int j ) {
  * updates of the particle forces.
  */
  
-int engine_bonded_eval ( struct engine *e ) {
+int engine_bonded_eval_bak ( struct engine *e ) {
 
     double epot = 0.0;
     struct space *s;
@@ -502,6 +502,286 @@ int engine_bonded_eval ( struct engine *e ) {
             /* Correct for excluded interactons. */
             exclusion_eval_div( e->exclusions , nr_exclusions , nr_threads , thread_id , e , &epot_local );
               
+            /* Aggregate the global potential energy. */
+            #pragma omp atomic
+            epot += epot_local;
+                    
+            }
+            
+        /* Otherwise, evaluate directly. */
+        else if ( omp_get_thread_num() == 0 ) {
+        
+            /* Do bonds. */
+            tic = getticks();
+            bond_eval( e->bonds , nr_bonds , e , &epot );
+            e->timers[engine_timer_bonds] += getticks() - tic;
+            
+            /* Do angles. */
+            tic = getticks();
+            angle_eval( e->angles , nr_angles , e , &epot );
+            e->timers[engine_timer_angles] += getticks() - tic;
+            
+            /* Do dihedrals. */
+            tic = getticks();
+            dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot );
+            e->timers[engine_timer_dihedrals] += getticks() - tic;
+            
+            /* Do exclusions. */
+            tic = getticks();
+            exclusion_eval( e->exclusions , nr_exclusions , e , &epot );
+            e->timers[engine_timer_exclusions] += getticks() - tic;
+            
+            }
+            
+    #else
+    
+        /* Do bonds. */
+        tic = getticks();
+        if ( bond_eval( e->bonds , nr_bonds , e , &epot ) < 0 )
+            return error(engine_err_bond);
+        e->timers[engine_timer_bonds] += getticks() - tic;
+            
+        /* Do angles. */
+        tic = getticks();
+        if ( angle_eval( e->angles , nr_angles , e , &epot ) < 0 )
+            return error(engine_err_angle);
+        e->timers[engine_timer_angles] += getticks() - tic;
+            
+        /* Do dihedrals. */
+        tic = getticks();
+        if ( dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot ) < 0 )
+            return error(engine_err_dihedral);
+        e->timers[engine_timer_dihedrals] += getticks() - tic;
+            
+        /* Do exclusions. */
+        tic = getticks();
+        if ( exclusion_eval( e->exclusions , nr_exclusions , e , &epot ) < 0 )
+            return error(engine_err_exclusion);
+        e->timers[engine_timer_exclusions] += getticks() - tic;
+            
+    #endif
+        
+    /* Store the potential energy. */
+    s->epot += epot;
+    
+    /* I'll be back... */
+    return engine_err_ok;
+
+    }
+
+
+/**
+ * @brief Compute all bonded interactions stored in this engine.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Does the same as #engine_bond_eval, #engine_angle_eval and
+ * #engine_dihedral eval, yet all in one go to avoid excessive
+ * updates of the particle forces.
+ */
+ 
+int engine_bonded_eval ( struct engine *e ) {
+
+    double epot = 0.0;
+    struct space *s;
+    struct dihedral dtemp, *dihedrals;
+    struct angle atemp, *angles;
+    struct bond btemp, *bonds;
+    struct exclusion etemp, *exclusions;
+    int nr_dihedrals = e->nr_dihedrals, nr_bonds = e->nr_bonds;
+    int nr_angles = e->nr_angles, nr_exclusions = e->nr_exclusions;
+    int i, j, k;
+    #ifdef HAVE_OPENMP
+        int count, nr_threads, thread_id;
+        double scale, epot_local;
+    #endif
+    ticks tic;
+    
+    /* Bail if there are no bonded interaction. */
+    if ( nr_bonds == 0 && nr_angles == 0 && nr_dihedrals == 0 && nr_exclusions == 0 )
+        return engine_err_ok;
+    
+    /* Get a handle on the space. */
+    s = &e->s;
+
+    /* If in parallel... */
+    if ( e->nr_nodes > 1 ) {
+    
+        tic = getticks();
+    
+        #pragma omp parallel for schedule(static), private(i,j,dtemp,atemp,btemp,etemp)
+        for ( k = 0 ; k < 4 ; k++ ) {
+    
+            if ( k == 0 ) {
+                /* Sort the dihedrals. */
+                i = 0; j = nr_dihedrals-1;
+                while ( i < j ) {
+                    while ( i < nr_dihedrals &&
+                            s->partlist[e->dihedrals[i].i] != NULL &&
+                            s->partlist[e->dihedrals[i].j] != NULL &&
+                            s->partlist[e->dihedrals[i].k] != NULL &&
+                            s->partlist[e->dihedrals[i].l] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->dihedrals[j].i] == NULL ||
+                              s->partlist[e->dihedrals[j].j] == NULL ||
+                              s->partlist[e->dihedrals[j].k] == NULL ||
+                              s->partlist[e->dihedrals[j].l] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        dtemp = e->dihedrals[i];
+                        e->dihedrals[i] = e->dihedrals[j];
+                        e->dihedrals[j] = dtemp;
+                        }
+                    }
+                nr_dihedrals = i;
+                }
+
+            else if ( k == 1 ) {
+                /* Sort the angles. */
+                i = 0; j = nr_angles-1;
+                while ( i < j ) {
+                    while ( i < nr_angles &&
+                            s->partlist[e->angles[i].i] != NULL &&
+                            s->partlist[e->angles[i].j] != NULL &&
+                            s->partlist[e->angles[i].k] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->angles[j].i] == NULL ||
+                              s->partlist[e->angles[j].j] == NULL ||
+                              s->partlist[e->angles[j].k] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        atemp = e->angles[i];
+                        e->angles[i] = e->angles[j];
+                        e->angles[j] = atemp;
+                        }
+                    }
+                nr_angles = i;
+                }
+
+            else if ( k == 2 ) {
+                /* Sort the bonds. */
+                i = 0; j = nr_bonds-1;
+                while ( i < j ) {
+                    while ( i < nr_bonds &&
+                            s->partlist[e->bonds[i].i] != NULL &&
+                            s->partlist[e->bonds[i].j] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->bonds[j].i] == NULL ||
+                              s->partlist[e->bonds[j].j] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        btemp = e->bonds[i];
+                        e->bonds[i] = e->bonds[j];
+                        e->bonds[j] = btemp;
+                        }
+                    }
+                nr_bonds = i;
+                }
+
+            else if ( k == 3 ) {
+                /* Sort the exclusions. */
+                i = 0; j = nr_exclusions-1;
+                while ( i < j ) {
+                    while ( i < nr_exclusions &&
+                            s->partlist[e->exclusions[i].i] != NULL &&
+                            s->partlist[e->exclusions[i].j] != NULL )
+                        i += 1;
+                    while ( j >= 0 &&
+                            ( s->partlist[e->exclusions[j].i] == NULL ||
+                              s->partlist[e->exclusions[j].j] == NULL ) )
+                        j -= 1;
+                    if ( i < j ) {
+                        etemp = e->exclusions[i];
+                        e->exclusions[i] = e->exclusions[j];
+                        e->exclusions[j] = etemp;
+                        }
+                    }
+                nr_exclusions = i;
+                }
+        
+            }
+            
+        /* Stop the clock. */
+        e->timers[engine_timer_bonded_sort] += getticks() - tic;
+        
+        } /* If in parallel... */
+        
+
+    #ifdef HAVE_OPENMP
+    
+        /* Is it worth parallelizing? */
+        #pragma omp parallel private(thread_id,nr_threads,epot_local,count,k,bonds,angles,dihedrals,exclusions)
+        if ( ( e->flags & engine_flag_parbonded ) &&
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) &&
+             ( nr_bonds + nr_angles + nr_dihedrals ) > 0 ) {
+             
+            /* Init the local potential energy. */
+            epot_local = 0;
+             
+            /* Get the thread ID. */
+            thread_id = omp_get_thread_num();
+            scale = ((double)nr_threads) / s->nr_real;
+            
+            /* Allocate and fill a buffer with the local bonds. */
+            bonds = (struct bond *)malloc( sizeof(struct bond) * nr_bonds );
+            for ( count = 0 , k = 0 ; k < nr_bonds ; k++ )
+                if ( s->celllist[e->bonds[k].i]->id * scale == thread_id ||
+                     s->celllist[e->bonds[k].j]->id * scale == thread_id )
+                    bonds[ count++ ] = e->bonds[k];
+
+            /* Compute the bonded interactions. */
+            bond_eval_div( bonds , count , nr_threads , thread_id , e , &epot_local );
+            
+            /* Free the local bonds list. */
+            free(bonds);
+                    
+            /* Allocate and fill a buffer with the local angles. */
+            angles = (struct angle *)malloc( sizeof(struct angle) * nr_angles );
+            for ( count = 0 , k = 0 ; k < nr_angles ; k++ )
+                if ( s->celllist[e->angles[k].i]->id * scale == thread_id ||
+                     s->celllist[e->angles[k].j]->id * scale == thread_id ||
+                     s->celllist[e->angles[k].k]->id * scale == thread_id )
+                    angles[ count++ ] = e->angles[k];
+
+            /* Compute the angle interactions. */
+            angle_eval_div( angles , count , nr_threads , thread_id , e , &epot_local );
+                    
+            /* Free the local angles list. */
+            free(angles);
+                    
+            /* Allocate and fill a buffer with the local dihedrals. */
+            dihedrals = (struct dihedral *)malloc( sizeof(struct dihedral) * nr_dihedrals );
+            for ( count = 0 , k = 0 ; k < nr_dihedrals ; k++ )
+                if ( s->celllist[e->dihedrals[k].i]->id * scale == thread_id ||
+                     s->celllist[e->dihedrals[k].j]->id * scale == thread_id ||
+                     s->celllist[e->dihedrals[k].k]->id * scale == thread_id ||
+                     s->celllist[e->dihedrals[k].l]->id * scale == thread_id )
+                    dihedrals[ count++ ] = e->dihedrals[k];
+
+            /* Compute the dihedral interactions. */
+            dihedral_eval_div( dihedrals , count , nr_threads , thread_id , e , &epot_local );
+                    
+            /* Free the local dihedrals list. */
+            free(dihedrals);
+                    
+            /* Allocate and fill a buffer with the local exclusions. */
+            exclusions = (struct exclusion *)malloc( sizeof(struct exclusion) * nr_exclusions );
+            for ( count = 0 , k = 0 ; k < nr_exclusions ; k++ )
+                if ( s->celllist[e->exclusions[k].i]->id * scale == thread_id ||
+                     s->celllist[e->exclusions[k].j]->id * scale == thread_id )
+                    exclusions[ count++ ] = e->exclusions[k];
+
+            /* Correct for excluded interactons. */
+            exclusion_eval_div( exclusions , count , nr_threads , thread_id , e , &epot_local );
+              
+            /* Free the local exclusions list. */
+            free(exclusions);
+                    
             /* Aggregate the global potential energy. */
             #pragma omp atomic
             epot += epot_local;
