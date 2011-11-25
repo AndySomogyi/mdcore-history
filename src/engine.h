@@ -242,6 +242,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d );
 int engine_rigid_eval ( struct engine *e );
 int engine_rigid_sort ( struct engine *e );
+int engine_rigid_unsort ( struct engine *e );
 int engine_setexplepot ( struct engine *e , struct potential *ep );
 int engine_split_bisect ( struct engine *e , int N );
 int engine_split ( struct engine *e );

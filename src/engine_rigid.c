@@ -211,6 +211,41 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
     
     
 /**
+ * @brief Shuffle the rigid constraints randomly.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_rigid_unsort ( struct engine *e ) {
+
+    int k, j;
+    struct rigid temp;
+    double scale = ((double)e->nr_rigids) / RAND_MAX;
+    
+    /* For each rigid... */
+    for ( k = 0 ; k < e->nr_rigids ; k++ ) {
+    
+        /* Get the id of another random rigid. */
+        j = rand() * scale;
+        
+        /* Swap the jth and kth entry. */
+        if ( j != k ) {
+            temp = e->rigids[j];
+            e->rigids[j] = e->rigids[k];
+            e->rigids[k] = temp;
+            }
+            
+        }
+        
+    /* Don't you forget about me... */
+    return engine_err_ok;
+
+    }
+    
+    
+/**
  * @brief Split the rigids into local, semilocal and non-local.
  * 
  * @param e The #engine.
@@ -322,7 +357,7 @@ int engine_rigid_eval ( struct engine *e ) {
             /* Is it worth parallelizing? */
             // #pragma omp parallel private(finger,count)
             #pragma omp parallel private(k)
-            if ( ( nr_threads = omp_get_num_threads() ) > 1 && nr_local > engine_rigids_chunk ) {
+            if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
             
                 k = omp_get_thread_num();
                 rigid_eval_shake( &e->rigids[k*nr_local/nr_threads] , (k+1)*nr_local/nr_threads - k*nr_local/nr_threads , e );
@@ -370,7 +405,7 @@ int engine_rigid_eval ( struct engine *e ) {
             /* Is it worth parallelizing? */
             // #pragma omp parallel private(finger,count)
             #pragma omp parallel private(k)
-            if ( ( nr_threads = omp_get_num_threads() ) > 1 && nr_rigids-nr_local > engine_rigids_chunk ) {
+            if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
                 k = omp_get_thread_num();
                 rigid_eval_shake( &e->rigids[nr_local+k*count/nr_threads] , (k+1)*count/nr_threads - k*count/nr_threads , e );
@@ -435,7 +470,7 @@ int engine_rigid_eval ( struct engine *e ) {
             /* Is it worth parallelizing? */
             // #pragma omp parallel private(finger,count)
             #pragma omp parallel private(k)
-            if ( ( nr_threads = omp_get_num_threads() ) > 1 && nr_rigids > engine_rigids_chunk ) {
+            if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
                 k = omp_get_thread_num();
                 rigid_eval_shake( &e->rigids[k*nr_rigids/nr_threads] , (k+1)*nr_rigids/nr_threads - k*nr_rigids/nr_threads , e );
