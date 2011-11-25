@@ -29,7 +29,7 @@ include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
 # Both precisions have the same sources.
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
     btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
-    engine_bonded.c
+    engine_bonded.c engine_rigid.c
 
 # Build the libchebfun libraries
 lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
