@@ -715,7 +715,7 @@ int engine_bonded_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(thread_id,nr_threads,epot_local,count,k,bonds,angles,dihedrals,exclusions)
+        #pragma omp parallel private(scale,thread_id,nr_threads,epot_local,count,k,bonds,angles,dihedrals,exclusions)
         if ( ( e->flags & engine_flag_parbonded ) &&
              ( ( nr_threads = omp_get_num_threads() ) > 1 ) &&
              ( nr_bonds + nr_angles + nr_dihedrals ) > 0 ) {
@@ -730,8 +730,8 @@ int engine_bonded_eval ( struct engine *e ) {
             /* Allocate and fill a buffer with the local bonds. */
             bonds = (struct bond *)malloc( sizeof(struct bond) * nr_bonds );
             for ( count = 0 , k = 0 ; k < nr_bonds ; k++ )
-                if ( s->celllist[e->bonds[k].i]->id * scale == thread_id ||
-                     s->celllist[e->bonds[k].j]->id * scale == thread_id )
+                if ( (int)(s->celllist[e->bonds[k].i]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->bonds[k].j]->id * scale) == thread_id )
                     bonds[ count++ ] = e->bonds[k];
 
             /* Compute the bonded interactions. */
@@ -743,9 +743,9 @@ int engine_bonded_eval ( struct engine *e ) {
             /* Allocate and fill a buffer with the local angles. */
             angles = (struct angle *)malloc( sizeof(struct angle) * nr_angles );
             for ( count = 0 , k = 0 ; k < nr_angles ; k++ )
-                if ( s->celllist[e->angles[k].i]->id * scale == thread_id ||
-                     s->celllist[e->angles[k].j]->id * scale == thread_id ||
-                     s->celllist[e->angles[k].k]->id * scale == thread_id )
+                if ( (int)(s->celllist[e->angles[k].i]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->angles[k].j]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->angles[k].k]->id * scale) == thread_id )
                     angles[ count++ ] = e->angles[k];
 
             /* Compute the angle interactions. */
@@ -757,10 +757,10 @@ int engine_bonded_eval ( struct engine *e ) {
             /* Allocate and fill a buffer with the local dihedrals. */
             dihedrals = (struct dihedral *)malloc( sizeof(struct dihedral) * nr_dihedrals );
             for ( count = 0 , k = 0 ; k < nr_dihedrals ; k++ )
-                if ( s->celllist[e->dihedrals[k].i]->id * scale == thread_id ||
-                     s->celllist[e->dihedrals[k].j]->id * scale == thread_id ||
-                     s->celllist[e->dihedrals[k].k]->id * scale == thread_id ||
-                     s->celllist[e->dihedrals[k].l]->id * scale == thread_id )
+                if ( (int)(s->celllist[e->dihedrals[k].i]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->dihedrals[k].j]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->dihedrals[k].k]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->dihedrals[k].l]->id * scale) == thread_id )
                     dihedrals[ count++ ] = e->dihedrals[k];
 
             /* Compute the dihedral interactions. */
@@ -772,8 +772,8 @@ int engine_bonded_eval ( struct engine *e ) {
             /* Allocate and fill a buffer with the local exclusions. */
             exclusions = (struct exclusion *)malloc( sizeof(struct exclusion) * nr_exclusions );
             for ( count = 0 , k = 0 ; k < nr_exclusions ; k++ )
-                if ( s->celllist[e->exclusions[k].i]->id * scale == thread_id ||
-                     s->celllist[e->exclusions[k].j]->id * scale == thread_id )
+                if ( (int)(s->celllist[e->exclusions[k].i]->id * scale) == thread_id ||
+                     (int)(s->celllist[e->exclusions[k].j]->id * scale) == thread_id )
                     exclusions[ count++ ] = e->exclusions[k];
 
             /* Correct for excluded interactons. */
