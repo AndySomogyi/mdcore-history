@@ -345,7 +345,7 @@ int engine_rigid_eval ( struct engine *e ) {
     ticks tic;
     #ifdef HAVE_OPENMP
         int nr_threads, k, count = nr_rigids - nr_local;
-        // int finger_global = 0, finger, count;
+        int finger_global = 0, finger;
     #endif
     
     /* Do we have asynchronous communication going on, e.g. are we waiting
@@ -359,31 +359,31 @@ int engine_rigid_eval ( struct engine *e ) {
             #pragma omp parallel private(k)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
             
-                k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[k*nr_local/nr_threads] , (k+1)*nr_local/nr_threads - k*nr_local/nr_threads , e );
+                /* k = omp_get_thread_num();
+                rigid_eval_shake( &e->rigids[k*nr_local/nr_threads] , (k+1)*nr_local/nr_threads - k*nr_local/nr_threads , e ); */
 
                 /* Main loop. */
-                // while ( finger_global < nr_local ) {
-                // 
-                //     /* Get a finger on the bonds list. */
-                //     #pragma omp critical
-                //     {
-                //         if ( finger_global < nr_local ) {
-                //             finger = finger_global;
-                //             count = engine_rigids_chunk;
-                //             if ( finger + count > nr_local )
-                //                 count = nr_local - finger;
-                //             finger_global += count;
-                //             }
-                //         else
-                //             count = 0;
-                //         }
-                // 
-                //     /* Compute the bonded interactions. */
-                //     if ( count > 0 )
-                //         rigid_eval_shake( &e->rigids[finger] , count , e );
-                // 
-                //     } /* main loop. */
+                while ( finger_global < nr_local ) {
+                
+                    /* Get a finger on the bonds list. */
+                    #pragma omp critical
+                    {
+                        if ( finger_global < nr_local ) {
+                            finger = finger_global;
+                            count = engine_rigids_chunk;
+                            if ( finger + count > nr_local )
+                                count = nr_local - finger;
+                            finger_global += count;
+                            }
+                        else
+                            count = 0;
+                        }
+                
+                    /* Compute the bonded interactions. */
+                    if ( count > 0 )
+                        rigid_eval_shake( &e->rigids[finger] , count , e );
+                
+                    } /* main loop. */
 
                 }
 
@@ -407,31 +407,31 @@ int engine_rigid_eval ( struct engine *e ) {
             #pragma omp parallel private(k)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
-                k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[nr_local+k*count/nr_threads] , (k+1)*count/nr_threads - k*count/nr_threads , e );
+                /* k = omp_get_thread_num();
+                rigid_eval_shake( &e->rigids[nr_local+k*count/nr_threads] , (k+1)*count/nr_threads - k*count/nr_threads , e ); */
 
                 /* Main loop. */
-                // while ( finger_global < nr_rigids ) {
-                // 
-                //     /* Get a finger on the bonds list. */
-                //     #pragma omp critical
-                //     {
-                //         if ( finger_global < nr_rigids ) {
-                //             finger = finger_global;
-                //             count = engine_rigids_chunk;
-                //             if ( finger + count > nr_rigids )
-                //                 count = nr_rigids - finger;
-                //             finger_global += count;
-                //             }
-                //         else
-                //             count = 0;
-                //         }
-                // 
-                //     /* Compute the bonded interactions. */
-                //     if ( count > 0 )
-                //         rigid_eval_shake( &e->rigids[finger] , count , e );
-                // 
-                //     } /* main loop. */
+                while ( finger_global < nr_rigids ) {
+                
+                    /* Get a finger on the bonds list. */
+                    #pragma omp critical
+                    {
+                        if ( finger_global < nr_rigids ) {
+                            finger = finger_global;
+                            count = engine_rigids_chunk;
+                            if ( finger + count > nr_rigids )
+                                count = nr_rigids - finger;
+                            finger_global += count;
+                            }
+                        else
+                            count = 0;
+                        }
+                
+                    /* Compute the bonded interactions. */
+                    if ( count > 0 )
+                        rigid_eval_shake( &e->rigids[finger] , count , e );
+                
+                    } /* main loop. */
 
                 }
 
@@ -472,31 +472,31 @@ int engine_rigid_eval ( struct engine *e ) {
             #pragma omp parallel private(k)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
-                k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[k*nr_rigids/nr_threads] , (k+1)*nr_rigids/nr_threads - k*nr_rigids/nr_threads , e );
+                /* k = omp_get_thread_num();
+                rigid_eval_shake( &e->rigids[k*nr_rigids/nr_threads] , (k+1)*nr_rigids/nr_threads - k*nr_rigids/nr_threads , e ); */
 
                 /* Main loop. */
-                // while ( finger_global < nr_rigids ) {
-                // 
-                //     /* Get a finger on the bonds list. */
-                //     #pragma omp critical
-                //     {
-                //         if ( finger_global < nr_rigids ) {
-                //             finger = finger_global;
-                //             count = engine_rigids_chunk;
-                //             if ( finger + count > nr_rigids )
-                //                 count = nr_rigids - finger;
-                //             finger_global += count;
-                //             }
-                //         else
-                //             count = 0;
-                //         }
-                // 
-                //     /* Compute the bonded interactions. */
-                //     if ( count > 0 )
-                //         rigid_eval_shake( &e->rigids[finger] , count , e );
-                // 
-                //     } /* main loop. */
+                while ( finger_global < nr_rigids ) {
+                
+                    /* Get a finger on the bonds list. */
+                    #pragma omp critical
+                    {
+                        if ( finger_global < nr_rigids ) {
+                            finger = finger_global;
+                            count = engine_rigids_chunk;
+                            if ( finger + count > nr_rigids )
+                                count = nr_rigids - finger;
+                            finger_global += count;
+                            }
+                        else
+                            count = 0;
+                        }
+                
+                    /* Compute the bonded interactions. */
+                    if ( count > 0 )
+                        rigid_eval_shake( &e->rigids[finger] , count , e );
+                
+                    } /* main loop. */
 
                 }
 
