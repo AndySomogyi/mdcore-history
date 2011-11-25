@@ -176,13 +176,6 @@ int main ( int argc , char *argv[] ) {
         abort();
         }
     fclose( psf ); fclose( pdb );
-    printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
-    printf( "main[%i]: read %i particles.\n" , myrank , e.s.nr_parts );
-    printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
-    printf( "main[%i]: read %i angles.\n" , myrank , e.nr_angles );
-    printf( "main[%i]: read %i dihedrals.\n" , myrank , e.nr_dihedrals );
-    /* for ( k = 0 ; k < e.nr_types ; k++ )
-        printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
     
     
     /* Load the CHARMM parameter file. */
@@ -197,6 +190,35 @@ int main ( int argc , char *argv[] ) {
         abort();
         }
     printf( "main[%i]: done reading parameters.\n" , myrank );
+    
+    
+    /* Correct the water vids. */
+    for ( typeOT = 0 ; typeOT < e.nr_types && strcmp( e.types[typeOT].name , "OT" ) != 0 ; typeOT++ );
+    for ( nr_mols = 0 , k = 0 ; k < e.s.nr_parts ; k++ )
+        if ( e.s.partlist[k]->type == typeOT ) {
+            nr_mols += 1;
+            e.s.partlist[k]->vid = k;
+            e.s.partlist[k+1]->vid = k;
+            e.s.partlist[k+1]->vid = k;
+            }
+            
+    /* Remove water angles. */
+    for ( k = 0 ; k < e.nr_angles ; k++ )
+        if ( e.s.partlist[e.angles[k].j]->type == typeOT ) {
+            e.nr_angles -= 1;
+            e.angles[k] = e.angles[e.nr_angles];
+            k -= 1;
+            }
+            
+            
+    /* Print some stats. */
+    printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
+    printf( "main[%i]: read %i particles.\n" , myrank , e.s.nr_parts );
+    printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
+    printf( "main[%i]: read %i angles.\n" , myrank , e.nr_angles );
+    printf( "main[%i]: read %i dihedrals.\n" , myrank , e.nr_dihedrals );
+    /* for ( k = 0 ; k < e.nr_types ; k++ )
+        printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
     printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
     fclose( cpf );
     
@@ -270,25 +292,8 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
+    printf( "main[%i]: generated %i exclusions.\n" , myrank , e.nr_exclusions );
     
-    /* Correct the water vids. */
-    for ( typeOT = 0 ; typeOT < e.nr_types && strcmp( e.types[typeOT].name , "OT" ) != 0 ; typeOT++ );
-    for ( nr_mols = 0 , k = 0 ; k < e.s.nr_parts ; k++ )
-        if ( e.s.partlist[k]->type == typeOT ) {
-            nr_mols += 1;
-            e.s.partlist[k]->vid = k;
-            e.s.partlist[k+1]->vid = k;
-            e.s.partlist[k+1]->vid = k;
-            }
-            
-    /* Remove water angles. */
-    for ( k = 0 ; k < e.nr_angles ; k++ )
-        if ( e.s.partlist[e.angles[k].j]->type == typeOT ) {
-            e.nr_angles -= 1;
-            e.angles[k] = e.angles[e.nr_angles];
-            k -= 1;
-            }
-            
     /* Assign all particles a random initial velocity. */
     vcom[0] = 0.0; vcom[1] = 0.0; vcom[2] = 0.0; mass_tot = 0.0;
     for ( k = 0 ; k < e.s.nr_parts ; k++ ) {
