@@ -78,7 +78,7 @@ int main ( int argc , char *argv[] ) {
 
     /* Local variables. */
     int res = 0, myrank, prov;
-    int step, i, j, k, cid;
+    int step, incr, i, j, k, cid;
     FPTYPE ee, eff;
     double temp, v[3];
     FILE *dump, *psf, *pdb, *cpf;
@@ -425,8 +425,8 @@ int main ( int argc , char *argv[] ) {
         #pragma omp parallel private(c,p,j,k,v2,ekin_local,vcom_x,vcom_y,vcom_z)
         {
             vcom_x = 0.0; vcom_y = 0.0; vcom_z = 0.0; ekin_local = 0.0; 
-            step = omp_get_num_threads();
-            for ( k = omp_get_thread_num() ; k < e.s.nr_real ; k += step ) {
+            incr = omp_get_num_threads();
+            for ( k = omp_get_thread_num() ; k < e.s.nr_real ; k += incr ) {
                 c = &e.s.cells[ e.s.cid_real[k] ];
                 for ( j = 0 ; j < c->count ; j++ ) {
                     p = &( c->parts[j] );
