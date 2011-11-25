@@ -377,8 +377,13 @@ int main ( int argc , char *argv[] ) {
         
         
     /* Give the system a quick shake before going anywhere. */
+    if ( engine_rigid_unsort( &e ) != 0 ) {
+        printf("main: engine_rigid_unsort failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        abort();
+        }
     if ( engine_rigid_sort( &e ) != 0 ) {
-        printf("main: engine_rigid_sortl failed with engine_err=%i.\n",engine_err);
+        printf("main: engine_rigid_sort failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         abort();
         }
