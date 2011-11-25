@@ -309,7 +309,7 @@ int engine_rigid_eval ( struct engine *e ) {
     int nr_local = e->rigids_local, nr_rigids = e->rigids_semilocal;
     ticks tic;
     #ifdef HAVE_OPENMP
-        int nr_threads, k;
+        int nr_threads, k, count = nr_rigids - nr_local;
         // int finger_global = 0, finger, count;
     #endif
     
@@ -325,7 +325,7 @@ int engine_rigid_eval ( struct engine *e ) {
             if ( ( nr_threads = omp_get_num_threads() ) > 1 && nr_local > engine_rigids_chunk ) {
             
                 k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[k*nr_rigids/nr_threads] , (k+1)*nr_rigids/nr_threads - k*nr_rigids/nr_threads , e );
+                rigid_eval_shake( &e->rigids[k*nr_local/nr_threads] , (k+1)*nr_local/nr_threads - k*nr_local/nr_threads , e );
 
                 /* Main loop. */
                 // while ( finger_global < nr_local ) {
@@ -373,7 +373,7 @@ int engine_rigid_eval ( struct engine *e ) {
             if ( ( nr_threads = omp_get_num_threads() ) > 1 && nr_rigids-nr_local > engine_rigids_chunk ) {
 
                 k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[k*nr_rigids/nr_threads] , (k+1)*nr_rigids/nr_threads - k*nr_rigids/nr_threads , e );
+                rigid_eval_shake( &e->rigids[nr_local+k*count/nr_threads] , (k+1)*count/nr_threads - k*count/nr_threads , e );
 
                 /* Main loop. */
                 // while ( finger_global < nr_rigids ) {
