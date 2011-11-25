@@ -344,7 +344,8 @@ int engine_rigid_eval ( struct engine *e ) {
     int nr_local = e->rigids_local, nr_rigids = e->rigids_semilocal;
     ticks tic;
     #ifdef HAVE_OPENMP
-        int nr_threads, k, count = nr_rigids - nr_local;
+        // int k;
+        int nr_threads, count = nr_rigids - nr_local;
         int finger_global = 0, finger;
     #endif
     
@@ -355,8 +356,8 @@ int engine_rigid_eval ( struct engine *e ) {
         #ifdef HAVE_OPENMP
 
             /* Is it worth parallelizing? */
-            // #pragma omp parallel private(finger,count)
-            #pragma omp parallel private(k)
+            // #pragma omp parallel private(k)
+            #pragma omp parallel private(finger,count)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
             
                 /* k = omp_get_thread_num();
@@ -403,8 +404,8 @@ int engine_rigid_eval ( struct engine *e ) {
                 
                 
             /* Is it worth parallelizing? */
-            // #pragma omp parallel private(finger,count)
-            #pragma omp parallel private(k)
+            // #pragma omp parallel private(k)
+            #pragma omp parallel private(finger,count)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
                 /* k = omp_get_thread_num();
@@ -468,8 +469,8 @@ int engine_rigid_eval ( struct engine *e ) {
         #ifdef HAVE_OPENMP
 
             /* Is it worth parallelizing? */
-            // #pragma omp parallel private(finger,count)
-            #pragma omp parallel private(k)
+            // #pragma omp parallel private(k)
+            #pragma omp parallel private(finger,count)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
                 /* k = omp_get_thread_num();
