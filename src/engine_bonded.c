@@ -76,9 +76,19 @@ int engine_bonded_sets ( struct engine *e ) {
         } *confl;
     int confl_size, confl_count = 0;
     int *nconfl, *weight;
-    int *setid_bonds, *setid_angles, *setid_dihedras, *setid_exclusions;
+    int *setid_bonds, *setid_angles, *setid_dihedrals, *setid_exclusions;
     int nr_sets;
-    int sid = 0, k;
+    int sid = 0, j, k;
+    
+    /* Function to add a conflict. */
+    int confl_add ( int i , int j ) {
+        if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
+            return error(engine_err_malloc);
+        confl[confl_count].i = i; confl[confl_count].j = j;
+        nconfl[i] += 1; nconfl[j] += 1;
+        confl_count += 1;
+        return engine_err_ok;
+        }
     
     /* Start with one set per bonded interaction. */
     nr_sets = e->nr_bonds + e->nr_angles + e->nr_dihedrals + e->nr_exclusions;
@@ -124,46 +134,30 @@ int engine_bonded_sets ( struct engine *e ) {
         /* Loop over other bonds... */
         for ( j = k+1 ; j < e->nr_bonds ; j++ )
             if ( e->bonds[k].i == e->bonds[j].i || e->bonds[k].i == e->bonds[j].j ||
-                 e->bonds[k].j == e->bonds[j].i || e->bonds[k].j == e->bonds[j].j ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_bonds[k];
-                confl[confl_count].j = setid_bonds[j];
-                confl_count += 1;
-                }
+                 e->bonds[k].j == e->bonds[j].i || e->bonds[k].j == e->bonds[j].j )
+                if ( confl_add( setid_bonds[k] , setid_bonds[j] ) < 0 )
+                    return error(engine_err);
     
         /* Loop over angles... */
         for ( j = 0 ; j < e->nr_angles ; j++ )
             if ( e->bonds[k].i == e->angles[j].i || e->bonds[k].i == e->angles[j].j || e->bonds[k].i == e->angles[j].k ||
-                 e->bonds[k].j == e->angles[j].i || e->bonds[k].j == e->angles[j].j || e->bonds[k].j == e->angles[j].k ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_bonds[k];
-                confl[confl_count].j = setid_angles[j];
-                confl_count += 1;
-                }
+                 e->bonds[k].j == e->angles[j].i || e->bonds[k].j == e->angles[j].j || e->bonds[k].j == e->angles[j].k )
+                if ( confl_add( setid_bonds[k] , setid_angles[j] ) < 0 )
+                    return error(engine_err);
     
         /* Loop over dihedrals... */
         for ( j = 0 ; j < e->nr_dihedrals ; j++ )
             if ( e->bonds[k].i == e->dihedrals[j].i || e->bonds[k].i == e->dihedrals[j].j || e->bonds[k].i == e->dihedrals[j].k || e->bonds[k].i == e->dihedrals[j].l ||
-                 e->bonds[k].j == e->dihedrals[j].i || e->bonds[k].j == e->dihedrals[j].j || e->bonds[k].j == e->dihedrals[j].k || e->bonds[k].j == e->dihedrals[j].l ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_bonds[k];
-                confl[confl_count].j = setid_dihedrals[j];
-                confl_count += 1;
-                }
+                 e->bonds[k].j == e->dihedrals[j].i || e->bonds[k].j == e->dihedrals[j].j || e->bonds[k].j == e->dihedrals[j].k || e->bonds[k].j == e->dihedrals[j].l )
+                if ( confl_add( setid_bonds[k] , setid_dihedrals[j] ) < 0 )
+                    return error(engine_err);
     
         /* Loop over exclusions... */
         for ( j = 0 ; j < e->nr_exclusions ; j++ )
             if ( e->bonds[k].i == e->exclusions[j].i || e->bonds[k].i == e->exclusions[j].j ||
-                 e->bonds[k].j == e->exclusions[j].i || e->bonds[k].j == e->exclusions[j].j ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_bonds[k];
-                confl[confl_count].j = setid_exclusions[j];
-                confl_count += 1;
-                }
+                 e->bonds[k].j == e->exclusions[j].i || e->bonds[k].j == e->exclusions[j].j )
+                if ( confl_add( setid_bonds[k] , setid_exclusions[j] ) < 0 )
+                    return error(engine_err);
     
         } /* Loop over bonds. */
 
@@ -174,37 +168,25 @@ int engine_bonded_sets ( struct engine *e ) {
         for ( j = k+1 ; j < e->nr_angles ; j++ )
             if ( e->angles[k].i == e->angles[j].i || e->angles[k].i == e->angles[j].j || e->angles[k].i == e->angles[j].k ||
                  e->angles[k].j == e->angles[j].i || e->angles[k].j == e->angles[j].j || e->angles[k].j == e->angles[j].k ||
-                 e->angles[k].k == e->angles[j].i || e->angles[k].k == e->angles[j].j || e->angles[k].k == e->angles[j].k ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_angles[k];
-                confl[confl_count].j = setid_angles[j];
-                confl_count += 1;
-                }
+                 e->angles[k].k == e->angles[j].i || e->angles[k].k == e->angles[j].j || e->angles[k].k == e->angles[j].k )
+                if ( confl_add( setid_angles[k] , setid_angles[j] ) < 0 )
+                    return error(engine_err);
     
         /* Loop over dihedrals... */
         for ( j = 0 ; j < e->nr_dihedrals ; j++ )
             if ( e->angles[k].i == e->dihedrals[j].i || e->angles[k].i == e->dihedrals[j].j || e->angles[k].i == e->dihedrals[j].k || e->angles[k].i == e->dihedrals[j].l ||
                  e->angles[k].j == e->dihedrals[j].i || e->angles[k].j == e->dihedrals[j].j || e->angles[k].j == e->dihedrals[j].k || e->angles[k].j == e->dihedrals[j].l ||
-                 e->angles[k].k == e->dihedrals[j].i || e->angles[k].k == e->dihedrals[j].j || e->angles[k].k == e->dihedrals[j].k || e->angles[k].k == e->dihedrals[j].l ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_angles[k];
-                confl[confl_count].j = setid_dihedrals[j];
-                confl_count += 1;
-                }
+                 e->angles[k].k == e->dihedrals[j].i || e->angles[k].k == e->dihedrals[j].j || e->angles[k].k == e->dihedrals[j].k || e->angles[k].k == e->dihedrals[j].l )
+                if ( confl_add( setid_angles[k] , setid_dihedrals[j] ) < 0 )
+                    return error(engine_err);
     
         /* Loop over exclusions... */
         for ( j = 0 ; j < e->nr_exclusions ; j++ )
             if ( e->angles[k].i == e->exclusions[j].i || e->angles[k].i == e->exclusions[j].j ||
                  e->angles[k].j == e->exclusions[j].i || e->angles[k].j == e->exclusions[j].j ||
-                 e->angles[k].k == e->exclusions[j].i || e->angles[k].k == e->exclusions[j].j ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_angles[k];
-                confl[confl_count].j = setid_exclusions[j];
-                confl_count += 1;
-                }
+                 e->angles[k].k == e->exclusions[j].i || e->angles[k].k == e->exclusions[j].j )
+                if ( confl_add( setid_angles[k] , setid_exclusions[j] ) < 0 )
+                    return error(engine_err);
     
         } /* Loop over bonds. */
 
@@ -216,26 +198,18 @@ int engine_bonded_sets ( struct engine *e ) {
             if ( e->dihedrals[k].i == e->dihedrals[j].i || e->dihedrals[k].i == e->dihedrals[j].j || e->dihedrals[k].i == e->dihedrals[j].k || e->dihedrals[k].i == e->dihedrals[j].l ||
                  e->dihedrals[k].j == e->dihedrals[j].i || e->dihedrals[k].j == e->dihedrals[j].j || e->dihedrals[k].j == e->dihedrals[j].k || e->dihedrals[k].j == e->dihedrals[j].l ||
                  e->dihedrals[k].k == e->dihedrals[j].i || e->dihedrals[k].k == e->dihedrals[j].j || e->dihedrals[k].k == e->dihedrals[j].k || e->dihedrals[k].k == e->dihedrals[j].l ||
-                 e->dihedrals[k].l == e->dihedrals[j].i || e->dihedrals[k].l == e->dihedrals[j].j || e->dihedrals[k].l == e->dihedrals[j].k || e->dihedrals[k].l == e->dihedrals[j].l ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_dihedrals[k];
-                confl[confl_count].j = setid_dihedrals[j];
-                confl_count += 1;
-                }
+                 e->dihedrals[k].l == e->dihedrals[j].i || e->dihedrals[k].l == e->dihedrals[j].j || e->dihedrals[k].l == e->dihedrals[j].k || e->dihedrals[k].l == e->dihedrals[j].l )
+                if ( confl_add( setid_dihedrals[k] , setid_dihedrals[j] ) < 0 )
+                    return error(engine_err);
     
         /* Loop over exclusions... */
         for ( j = 0 ; j < e->nr_exclusions ; j++ )
             if ( e->dihedrals[k].i == e->exclusions[j].i || e->dihedrals[k].i == e->exclusions[j].j ||
                  e->dihedrals[k].j == e->exclusions[j].i || e->dihedrals[k].j == e->exclusions[j].j ||
                  e->dihedrals[k].k == e->exclusions[j].i || e->dihedrals[k].k == e->exclusions[j].j ||
-                 e->dihedrals[k].l == e->exclusions[j].i || e->dihedrals[k].l == e->exclusions[j].j ) {
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_dihedrals[k];
-                confl[confl_count].j = setid_exclusions[j];
-                confl_count += 1;
-                }
+                 e->dihedrals[k].l == e->exclusions[j].i || e->dihedrals[k].l == e->exclusions[j].j )
+                if ( confl_add( setid_dihedrals[k] , setid_exclusions[j] ) < 0 )
+                    return error(engine_err);
     
         } /* Loop over bonds. */
 
@@ -245,15 +219,16 @@ int engine_bonded_sets ( struct engine *e ) {
         /* Loop over other exclusions... */
         for ( j = k+1 ; j < e->nr_exclusions ; j++ )
             if ( e->exclusions[k].i == e->exclusions[j].i || e->exclusions[k].i == e->exclusions[j].j ||
-                 e->exclusions[k].j == e->exclusions[j].i || e->exclusions[k].j == e->exclusions[j].j ||
-                if ( confl_count == confl_size && ( confl = realloc( confl , sizeof(int) * 2 * (confl_size *= 2) ) ) == NULL )
-                    return error(engine_err_malloc);
-                confl[confl_count].i = setid_exclusions[k];
-                confl[confl_count].j = setid_exclusions[j];
-                confl_count += 1;
-                }
+                 e->exclusions[k].j == e->exclusions[j].i || e->exclusions[k].j == e->exclusions[j].j )
+                if ( confl_add( setid_exclusions[k] , setid_exclusions[j] ) < 0 )
+                    return error(engine_err);
     
         } /* Loop over bonds. */
+        
+        
+    /* As of here, the data structure has been set-up! */
+    
+    return engine_err_ok;
 
     }
     
