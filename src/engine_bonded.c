@@ -346,7 +346,7 @@ int engine_bond_add ( struct engine *e , int i , int j ) {
  * updates of the particle forces.
  */
  
-int engine_bonded_eval_bak ( struct engine *e ) {
+int engine_bonded_eval ( struct engine *e ) {
 
     double epot = 0.0;
     struct space *s;
@@ -371,7 +371,7 @@ int engine_bonded_eval_bak ( struct engine *e ) {
     s = &e->s;
 
     /* If in parallel... */
-    if ( e->nr_nodes > 1 ) {
+    if ( 0 && e->nr_nodes > 1 ) {
     
         tic = getticks();
     
@@ -582,7 +582,7 @@ int engine_bonded_eval_bak ( struct engine *e ) {
  * updates of the particle forces.
  */
  
-int engine_bonded_eval ( struct engine *e ) {
+int engine_bonded_eval_alt ( struct engine *e ) {
 
     double epot = 0.0;
     struct space *s;
