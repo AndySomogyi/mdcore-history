@@ -1158,15 +1158,21 @@ int engine_start ( struct engine *e , int nr_runners ) {
     
         /* Init the mutex and condition variable for the asynchronous communication. */
 	    if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
-             pthread_cond_init( &e->xchg_cond , NULL ) != 0 )
+             pthread_cond_init( &e->xchg_cond , NULL ) != 0 ||
+	         pthread_mutex_init( &e->xchg2_mutex , NULL ) != 0 ||
+             pthread_cond_init( &e->xchg2_cond , NULL ) != 0 )
             return error(engine_err_pthread);
             
         /* Set the exchange flags. */
         e->xchg_started = 0;
         e->xchg_running = 0;
+        e->xchg2_started = 0;
+        e->xchg2_running = 0;
             
         /* Start a thread with the async exchange. */
         if ( pthread_create( &e->thread_exchg , NULL , (void *(*)(void *))engine_exchange_async_run , e ) != 0 )
+            return error(engine_err_pthread);
+        if ( pthread_create( &e->thread_exchg2 , NULL , (void *(*)(void *))engine_exchange_rigid_async_run , e ) != 0 )
             return error(engine_err_pthread);
             
         }
@@ -1549,11 +1555,11 @@ int engine_step ( struct engine *e ) {
             tic = getticks();
     
             if ( e->flags & engine_flag_async ) {
-                if ( engine_exchange_async( e ) != 0 )
+                if ( engine_exchange_rigid_async( e ) != 0 )
                     return error(engine_err);
                 }
             else {
-                if ( engine_exchange( e ) != 0 )
+                if ( engine_exchange_rigid( e ) != 0 )
                     return error(engine_err);
                 }
                 

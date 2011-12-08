@@ -70,6 +70,394 @@
  */
  
 #ifdef HAVE_MPI
+int engine_exchange_rigid_wait ( struct engine *e ) {
+
+    /* Try to grab the xchg_mutex, which will only be free while
+       the async routine is waiting on a condition. */
+    if ( pthread_mutex_lock( &e->xchg2_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* If the async exchange was started but is not running,
+       wait for a signal. */
+    while ( e->xchg2_started && ~e->xchg2_running )
+        if ( pthread_cond_wait( &e->xchg2_cond , &e->xchg2_mutex ) != 0 )
+            return error(engine_err_pthread);
+        
+    /* We don't actually need this, so release it again. */
+    if ( pthread_mutex_unlock( &e->xchg2_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* The end of the tunnel. */
+    return engine_err_ok;
+
+    }
+#endif
+
+
+/**
+ * @brief Exchange data with other nodes asynchronously.
+ *
+ * @param e The #engine to work with.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Starts a new thread which handles the particle exchange. At the
+ * start of the exchange, ghost cells are marked in the taboo-list
+ * and only freed once their data has been received.
+ *
+ * The function #engine_exchange_wait can be used to wait for
+ * the asynchronous communication to finish.
+ */
+
+#ifdef HAVE_MPI 
+int engine_exchange_rigid_async ( struct engine *e ) {
+
+    /* Check the input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+
+    /* Bail if not in parallel. */
+    if ( !(e->flags & engine_flag_mpi) || e->nr_nodes <= 1 )
+        return engine_err_ok;
+        
+    /* Get a hold of the exchange mutex. */
+    if ( pthread_mutex_lock( &e->xchg2_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* Tell the async thread to get to work. */
+    e->xchg2_started = 1;
+    if ( pthread_cond_signal( &e->xchg2_cond ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* Release the exchange mutex and let the async run. */
+    if ( pthread_mutex_unlock( &e->xchg2_mutex ) != 0 )
+        return error(engine_err_pthread);
+        
+    /* Done (for now). */
+    return engine_err_ok;
+        
+    }
+#endif
+    
+    
+/**
+ * @brief Exchange only rigid parts which span the node edges.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+#ifdef HAVE_MPI
+int engine_exchange_rigid ( struct engine *e ) {
+
+    int i, j, k, ind, res;
+    int counts[ e->nr_nodes ], next[ e->nr_nodes ];
+    int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
+    MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
+    struct part *buff_send[ e->nr_nodes ], *buff_recv[ e->nr_nodes ];
+    struct cell *c;
+
+    /* Check the input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+
+    /* Initialize the request queues. */
+    for ( k = 0 ; k < e->nr_nodes ; k++ ) {
+        reqs_recv[k] = MPI_REQUEST_NULL;
+        reqs_send[k] = MPI_REQUEST_NULL;
+        }
+        
+    /* Run through the cells and fill the total counts. */
+    bzero( totals_send , sizeof(int) * e->nr_nodes );
+    bzero( totals_recv , sizeof(int) * e->nr_nodes );
+    for ( k = e->rigids_local ; k < e->rigids_semilocal ; k++ ) {
+    
+        /* count the nr of parts on each node. */
+        bzero( counts , sizeof(int) * e->nr_nodes );
+        for ( j = 0 ; j < e->rigids[k].nr_parts ; j++ ) {
+            c = e->s.celllist[ e->rigids[k].parts[j] ];
+            counts[ c->nodeID ] += 1;
+            }
+            
+        /* Add the number of particles going out. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ )
+            if ( i != e->nodeID && counts[i] > 0 ) {
+                totals_send[i] += counts[ e->nodeID ];
+                totals_recv[i] += counts[i];
+                }
+            
+        }
+        
+    /* Run through the cells again and fill the send buffers. */
+    for ( i = 0 ; i < e->nr_nodes ; i++ )
+        if ( e->send[i].count > 0 ) {
+            if ( ( buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] ) ) == NULL )
+                return error(engine_err_malloc);
+            next[i] = 0;
+            }
+    for ( k = e->rigids_local ; k < e->rigids_semilocal ; k++ ) {
+    
+        /* count the nr of parts on each node. */
+        bzero( counts , sizeof(int) * e->nr_nodes );
+        for ( j = 0 ; j < e->rigids[k].nr_parts ; j++ ) {
+            c = e->s.celllist[ e->rigids[k].parts[j] ];
+            counts[ c->nodeID ] += 1;
+            }
+            
+        /* Copy the local particles to the appropriate arrays */
+        for ( j = 0 ; j < e->rigids[k].nr_parts ; j++ ) {
+            c = e->s.celllist[ e->rigids[k].parts[j] ];
+            if ( c->nodeID == e->nodeID )
+                for ( i = 0 ; i < e->nr_nodes ; i++ )
+                    if ( i != e->nodeID && counts[i] > 0 )
+                        buff_send[i][ next[i]++ ] = *( e->s.partlist[ e->rigids[k].parts[j] ] );
+            }
+            
+        }
+        
+        
+    /* Send and receive data for each neighbour. */
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+    
+        /* Do we have anything to send? */
+        if ( e->send[i].count > 0 ) {
+            
+            /* File a send. */
+            /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
+            res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send[i] );
+            
+            }
+            
+        /* Are we expecting any parts? */
+        if ( e->recv[i].count > 0 ) {
+    
+            /* Allocate a buffer for the send and recv queues. */
+            buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] );
+
+            /* File a recv. */
+            /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
+            res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv[i] );
+            
+            }
+            
+        }
+
+    /* Wait for all the recvs to come in. */
+    /* if ( ( res = MPI_Waitall( e->nr_nodes , reqs_recv , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+        return error(engine_err_mpi); */
+        
+    /* Unpack the received data. */
+    #pragma omp parallel for schedule(static), private(i,ind,res,k)
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+    
+        /* Wait for this recv to come in. */
+        #pragma omp critical
+        { res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE ); }
+        
+        /* Did we get a propper index? */
+        if ( ind != MPI_UNDEFINED ) {
+
+            /* Loop over the data and pass it to the cells. */
+            for ( k = 0 ; k < totals_recv[ind] ; k++ )
+                *(e->s.partlist[ buff_recv[ind][k].id ]) = buff_recv[ind][k];
+                
+            }
+                
+        }
+        
+    /* Wait for all the sends to come in. */
+    if ( ( res = MPI_Waitall( e->nr_nodes , reqs_send , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+        return error(engine_err_mpi);
+    /* printf( "engine_exchange[%i]: all send/recv completed.\n" , e->nodeID ); */
+        
+    /* Free the send and recv buffers. */
+    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+        if ( e->send[i].count > 0 )
+            free( buff_send[i] );
+        if ( e->recv[i].count > 0 )
+            free( buff_recv[i] );
+        }
+        
+
+    /* The end of the tunnel. */
+    return engine_err_ok;
+
+    }
+#endif 
+
+
+/**
+ * @brief Exchange only rigid parts which span the node edges.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+#ifdef HAVE_MPI
+int engine_exchange_rigid_async_run ( struct engine *e ) {
+
+    int i, j, k, ind, res;
+    int counts[ e->nr_nodes ], next[ e->nr_nodes ];
+    int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
+    MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
+    struct part *buff_send[ e->nr_nodes ], *buff_recv[ e->nr_nodes ];
+    struct cell *c;
+
+    /* Check the input. */
+    if ( e == NULL )
+        return error(engine_err_null);
+
+    /* Initialize the request queues. */
+    for ( k = 0 ; k < e->nr_nodes ; k++ ) {
+        reqs_recv[k] = MPI_REQUEST_NULL;
+        reqs_send[k] = MPI_REQUEST_NULL;
+        }
+        
+    /* Start by acquiring the xchg_mutex. */
+    if ( pthread_mutex_lock( &e->xchg2_mutex ) != 0 )
+        return error(engine_err_pthread);
+
+    /* Main loop... */
+    while ( 1 ) {
+
+        /* Wait for a signal to start. */
+        e->xchg_running = 0;
+        if ( pthread_cond_wait( &e->xchg2_cond , &e->xchg2_mutex ) != 0 )
+            return error(engine_err_pthread);
+            
+        /* Tell the world I'm alive! */
+        e->xchg2_started = 0; e->xchg2_running = 1;
+        if ( pthread_cond_signal( &e->xchg2_cond ) != 0 )
+            return error(engine_err_pthread);
+        
+        /* Run through the cells and fill the total counts. */
+        bzero( totals_send , sizeof(int) * e->nr_nodes );
+        bzero( totals_recv , sizeof(int) * e->nr_nodes );
+        for ( k = e->rigids_local ; k < e->rigids_semilocal ; k++ ) {
+
+            /* count the nr of parts on each node. */
+            bzero( counts , sizeof(int) * e->nr_nodes );
+            for ( j = 0 ; j < e->rigids[k].nr_parts ; j++ ) {
+                c = e->s.celllist[ e->rigids[k].parts[j] ];
+                counts[ c->nodeID ] += 1;
+                }
+
+            /* Add the number of particles going out. */
+            for ( i = 0 ; i < e->nr_nodes ; i++ )
+                if ( i != e->nodeID && counts[i] > 0 ) {
+                    totals_send[i] += counts[ e->nodeID ];
+                    totals_recv[i] += counts[i];
+                    }
+
+            }
+
+        /* Run through the cells again and fill the send buffers. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ )
+            if ( e->send[i].count > 0 ) {
+                if ( ( buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] ) ) == NULL )
+                    return error(engine_err_malloc);
+                next[i] = 0;
+                }
+        for ( k = e->rigids_local ; k < e->rigids_semilocal ; k++ ) {
+
+            /* count the nr of parts on each node. */
+            bzero( counts , sizeof(int) * e->nr_nodes );
+            for ( j = 0 ; j < e->rigids[k].nr_parts ; j++ ) {
+                c = e->s.celllist[ e->rigids[k].parts[j] ];
+                counts[ c->nodeID ] += 1;
+                }
+
+            /* Copy the local particles to the appropriate arrays */
+            for ( j = 0 ; j < e->rigids[k].nr_parts ; j++ ) {
+                c = e->s.celllist[ e->rigids[k].parts[j] ];
+                if ( c->nodeID == e->nodeID )
+                    for ( i = 0 ; i < e->nr_nodes ; i++ )
+                        if ( i != e->nodeID && counts[i] > 0 )
+                            buff_send[i][ next[i]++ ] = *( e->s.partlist[ e->rigids[k].parts[j] ] );
+                }
+
+            }
+
+
+        /* Send and receive data for each neighbour. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+
+            /* Do we have anything to send? */
+            if ( e->send[i].count > 0 ) {
+
+                /* File a send. */
+                /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
+                res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send[i] );
+
+                }
+
+            /* Are we expecting any parts? */
+            if ( e->recv[i].count > 0 ) {
+
+                /* Allocate a buffer for the send and recv queues. */
+                buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] );
+
+                /* File a recv. */
+                /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
+                res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv[i] );
+
+                }
+
+            }
+
+        /* Wait for all the recvs to come in. */
+        /* if ( ( res = MPI_Waitall( e->nr_nodes , reqs_recv , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+            return error(engine_err_mpi); */
+
+        /* Unpack the received data. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+
+            /* Wait for this recv to come in. */
+            res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE );
+
+            /* Did we get a propper index? */
+            if ( ind != MPI_UNDEFINED ) {
+
+                /* Loop over the data and pass it to the cells. */
+                for ( k = 0 ; k < totals_recv[ind] ; k++ )
+                    *(e->s.partlist[ buff_recv[ind][k].id ]) = buff_recv[ind][k];
+
+                }
+
+            }
+
+        /* Wait for all the sends to come in. */
+        if ( ( res = MPI_Waitall( e->nr_nodes , reqs_send , MPI_STATUSES_IGNORE ) ) != MPI_SUCCESS )
+            return error(engine_err_mpi);
+        /* printf( "engine_exchange[%i]: all send/recv completed.\n" , e->nodeID ); */
+
+        /* Free the send and recv buffers. */
+        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+            if ( e->send[i].count > 0 )
+                free( buff_send[i] );
+            if ( e->recv[i].count > 0 )
+                free( buff_recv[i] );
+            }
+        
+        } /* main loop. */
+        
+
+    /* The end of the tunnel. */
+    return engine_err_ok;
+
+    }
+#endif 
+
+
+/** 
+ * @brief Wait for an asynchronous data exchange to finalize.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+#ifdef HAVE_MPI
 int engine_exchange_wait ( struct engine *e ) {
 
     /* Try to grab the xchg_mutex, which will only be free while
@@ -303,7 +691,6 @@ int engine_exchange_async_run ( struct engine *e ) {
  * @brief Exchange data with other nodes asynchronously.
  *
  * @param e The #engine to work with.
- * @param comm The @c MPI_Comm over which to exchange data.
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  *

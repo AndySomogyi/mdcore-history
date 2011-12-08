@@ -183,16 +183,44 @@ struct engine {
     
     /** The Comm object for mpi. */
     #ifdef HAVE_MPI
+        MPI_Comm comm;
         pthread_mutex_t xchg_mutex;
         pthread_cond_t xchg_cond;
         short int xchg_started, xchg_running;
-        MPI_Comm comm;
         pthread_t thread_exchg;
+        pthread_mutex_t xchg2_mutex;
+        pthread_cond_t xchg2_cond;
+        short int xchg2_started, xchg2_running;
+        pthread_t thread_exchg2;
     #endif
     
     /** Timers. */
     ticks timers[engine_timer_last];
     
+    /** Bonded sets. */
+    struct engine_set *sets;
+    int nr_sets;
+    
+    };
+    
+    
+/**
+ * Structure storing grouped sets of bonded interactions.
+ */
+struct engine_set {
+
+    /* Counts of the different interaction types. */
+    int nr_bonds, nr_angles, nr_dihedrals, nr_exclusions;
+    
+    /* Lists of ID of the relevant bonded types. */
+    int *bonds, *angles, *dihedrals, *exclusions;
+    
+    /* Nr of sets with which this set conflicts. */
+    int nr_confl;
+    
+    /* IDs of the sets with which this set conflicts. */
+    int *confl;
+
     };
     
     
@@ -221,6 +249,7 @@ int engine_bond_addpot ( struct engine *e , struct potential *p , int i , int j 
 int engine_bond_add ( struct engine *e , int i , int j );
 int engine_bond_eval ( struct engine *e );
 int engine_bonded_eval ( struct engine *e );
+int engine_bonded_sets ( struct engine *e );
 int engine_dihedral_add ( struct engine *e , int i , int j , int k , int l , int pid );
 int engine_dihedral_addpot ( struct engine *e , struct potential *p );
 int engine_dihedral_eval ( struct engine *e );
@@ -260,5 +289,9 @@ int engine_verlet_update ( struct engine *e );
     int engine_exchange_async ( struct engine *e );
     int engine_exchange_async_run ( struct engine *e );
     int engine_exchange_incomming ( struct engine *e );
+    int engine_exchange_rigid ( struct engine *e );
+    int engine_exchange_rigid_async ( struct engine *e );
+    int engine_exchange_rigid_async_run ( struct engine *e );
+    int engine_exchange_rigid_wait ( struct engine *e );
     int engine_exchange_wait ( struct engine *e );
 #endif

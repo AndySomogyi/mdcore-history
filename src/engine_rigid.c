@@ -396,7 +396,7 @@ int engine_rigid_eval ( struct engine *e ) {
             /* Wait for the async data to come in. */
             tic = getticks();
             if ( e->flags & engine_flag_async )
-                if ( engine_exchange_wait( e ) < 0 )
+                if ( engine_exchange_rigid_wait( e ) < 0 )
                     return error(engine_err);
             tic = getticks() - tic;
             e->timers[engine_timer_exchange1] += tic;

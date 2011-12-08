@@ -73,12 +73,14 @@ int engine_bonded_sets ( struct engine *e ) {
 
     struct {
         int i, j;
-        } *confl;
-    int confl_size, confl_count = 0;
+        } *confl, *confl_sorted, temp;
+    int *confl_index, confl_size, confl_count = 0;
     int *nconfl, *weight;
-    int *setid_bonds, *setid_angles, *setid_dihedrals, *setid_exclusions;
+    int *setid_bonds, *setid_angles, *setid_dihedrals, *setid_exclusions, *setid_rigids, *vsetid;
     int nr_sets;
-    int sid = 0, j, k;
+    int i, jj , j , k, min_i, min_j, max_confl, nr_confl;
+    double avg_nconfl, avg_weight, tot_weight;
+    char *confl_counts;
     
     /* Function to add a conflict. */
     int confl_add ( int i , int j ) {
@@ -89,112 +91,90 @@ int engine_bonded_sets ( struct engine *e ) {
         confl_count += 1;
         return engine_err_ok;
         }
-    
+        
+    /* Recursive quicksort for the conflicts. */
+    void confl_qsort ( int l , int r ) {
+        
+        int i = l, j = r;
+        int pivot_i = confl_sorted[ (l + r)/2 ].i;
+        
+        /* Too small? */
+        if ( r - l < 10 ) {
+        
+            /* Use Insertion Sort. */
+            for ( i = l+1 ; i <= r ; i++ ) {
+                pivot_i = confl_sorted[i].i;
+                for ( j = i-1 ; j >= l ; j-- )
+                    if ( confl_sorted[j].i > pivot_i ) {
+                        temp = confl_sorted[j];
+                        confl_sorted[j] = confl_sorted[j+1];
+                        confl_sorted[j+1] = temp;
+                        }
+                    else
+                        break;
+                }
+        
+            }
+            
+        else {
+        
+            /* Partition. */
+            while ( i <= j ) {
+                while ( confl_sorted[i].i < pivot_i )
+                    i += 1;
+                while ( confl_sorted[j].i > pivot_i )
+                    j -= 1;
+                if ( i <= j ) {
+                    temp = confl_sorted[i];
+                    confl_sorted[i] = confl_sorted[j];
+                    confl_sorted[j] = temp;
+                    i += 1;
+                    j -= 1;
+                    }
+                }
+
+            /* Recurse. */
+            if ( l < j )
+                confl_qsort( l , j );
+            if ( i < r )
+                confl_qsort( i , r );
+                
+            }
+        
+        }
+        
+        
     /* Start with one set per bonded interaction. */
-    nr_sets = e->nr_bonds + e->nr_angles + e->nr_dihedrals + e->nr_exclusions;
+    nr_sets = e->nr_bonds + e->nr_angles + e->nr_dihedrals + e->nr_exclusions + e->nr_rigids;
+    tot_weight = e->nr_bonds + 2*e->nr_angles + 3*e->nr_dihedrals + e->nr_exclusions;
     if ( ( weight = (int *)malloc( sizeof(int) * nr_sets ) ) == NULL ||
-         ( nconfl = (int *)calloc( nr_sets , sizeof(int) ) ) == NULL )
+         ( nconfl = (int *)calloc( nr_sets , sizeof(int) ) ) == NULL ||
+         ( confl_counts = (char *)malloc( sizeof(char) * nr_sets ) ) == NULL )
         return error(engine_err_malloc);
         
-    /* Fill the initial setids and weights. */
+    /* Allocate the initial setids. */
     if ( ( setid_bonds = (int *)malloc( sizeof(int) * e->nr_bonds ) ) == NULL ||
          ( setid_angles = (int *)malloc( sizeof(int) * e->nr_angles ) ) == NULL ||
          ( setid_dihedrals = (int *)malloc( sizeof(int) * e->nr_dihedrals ) ) == NULL ||
-         ( setid_exclusions = (int *)malloc( sizeof(int) * e->nr_exclusions ) ) == NULL )
+         ( setid_exclusions = (int *)malloc( sizeof(int) * e->nr_exclusions ) ) == NULL ||
+         ( setid_rigids = (int *)malloc( sizeof(int) * e->nr_rigids ) ) == NULL )
         return error(engine_err_malloc);
-    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
-        weight[ sid ] = 1;
-        setid_bonds[k] = sid;
-        sid += 1;
-        }
-    for ( k = 0 ; k < e->nr_angles ; k++ ) {
-        weight[ sid ] = 2;
-        setid_angles[k] = sid;
-        sid += 1;
-        }
-    for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
-        weight[ sid ] = 3;
-        setid_dihedrals[k] = sid;
-        sid += 1;
-        }
-    for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
-        weight[ sid ] = 1;
-        setid_exclusions[k] = sid;
-        sid += 1;
-        }
         
     /* Generate the set of conflicts. */
     confl_size = nr_sets;
     if ( ( confl = malloc( sizeof(int) * 2 * confl_size ) ) == NULL )
         return error(engine_err_malloc);
+    nr_sets = 0;
         
-    /* Loop over all bonds. */
-    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
-    
-        /* Loop over other bonds... */
-        for ( j = k+1 ; j < e->nr_bonds ; j++ )
-            if ( e->bonds[k].i == e->bonds[j].i || e->bonds[k].i == e->bonds[j].j ||
-                 e->bonds[k].j == e->bonds[j].i || e->bonds[k].j == e->bonds[j].j )
-                if ( confl_add( setid_bonds[k] , setid_bonds[j] ) < 0 )
-                    return error(engine_err);
-    
-        /* Loop over angles... */
-        for ( j = 0 ; j < e->nr_angles ; j++ )
-            if ( e->bonds[k].i == e->angles[j].i || e->bonds[k].i == e->angles[j].j || e->bonds[k].i == e->angles[j].k ||
-                 e->bonds[k].j == e->angles[j].i || e->bonds[k].j == e->angles[j].j || e->bonds[k].j == e->angles[j].k )
-                if ( confl_add( setid_bonds[k] , setid_angles[j] ) < 0 )
-                    return error(engine_err);
-    
-        /* Loop over dihedrals... */
-        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
-            if ( e->bonds[k].i == e->dihedrals[j].i || e->bonds[k].i == e->dihedrals[j].j || e->bonds[k].i == e->dihedrals[j].k || e->bonds[k].i == e->dihedrals[j].l ||
-                 e->bonds[k].j == e->dihedrals[j].i || e->bonds[k].j == e->dihedrals[j].j || e->bonds[k].j == e->dihedrals[j].k || e->bonds[k].j == e->dihedrals[j].l )
-                if ( confl_add( setid_bonds[k] , setid_dihedrals[j] ) < 0 )
-                    return error(engine_err);
-    
-        /* Loop over exclusions... */
-        for ( j = 0 ; j < e->nr_exclusions ; j++ )
-            if ( e->bonds[k].i == e->exclusions[j].i || e->bonds[k].i == e->exclusions[j].j ||
-                 e->bonds[k].j == e->exclusions[j].i || e->bonds[k].j == e->exclusions[j].j )
-                if ( confl_add( setid_bonds[k] , setid_exclusions[j] ) < 0 )
-                    return error(engine_err);
-    
-        } /* Loop over bonds. */
-
-    /* Loop over all angles. */
-    for ( k = 0 ; k < e->nr_angles ; k++ ) {
-    
-        /* Loop over other angles... */
-        for ( j = k+1 ; j < e->nr_angles ; j++ )
-            if ( e->angles[k].i == e->angles[j].i || e->angles[k].i == e->angles[j].j || e->angles[k].i == e->angles[j].k ||
-                 e->angles[k].j == e->angles[j].i || e->angles[k].j == e->angles[j].j || e->angles[k].j == e->angles[j].k ||
-                 e->angles[k].k == e->angles[j].i || e->angles[k].k == e->angles[j].j || e->angles[k].k == e->angles[j].k )
-                if ( confl_add( setid_angles[k] , setid_angles[j] ) < 0 )
-                    return error(engine_err);
-    
-        /* Loop over dihedrals... */
-        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
-            if ( e->angles[k].i == e->dihedrals[j].i || e->angles[k].i == e->dihedrals[j].j || e->angles[k].i == e->dihedrals[j].k || e->angles[k].i == e->dihedrals[j].l ||
-                 e->angles[k].j == e->dihedrals[j].i || e->angles[k].j == e->dihedrals[j].j || e->angles[k].j == e->dihedrals[j].k || e->angles[k].j == e->dihedrals[j].l ||
-                 e->angles[k].k == e->dihedrals[j].i || e->angles[k].k == e->dihedrals[j].j || e->angles[k].k == e->dihedrals[j].k || e->angles[k].k == e->dihedrals[j].l )
-                if ( confl_add( setid_angles[k] , setid_dihedrals[j] ) < 0 )
-                    return error(engine_err);
-    
-        /* Loop over exclusions... */
-        for ( j = 0 ; j < e->nr_exclusions ; j++ )
-            if ( e->angles[k].i == e->exclusions[j].i || e->angles[k].i == e->exclusions[j].j ||
-                 e->angles[k].j == e->exclusions[j].i || e->angles[k].j == e->exclusions[j].j ||
-                 e->angles[k].k == e->exclusions[j].i || e->angles[k].k == e->exclusions[j].j )
-                if ( confl_add( setid_angles[k] , setid_exclusions[j] ) < 0 )
-                    return error(engine_err);
-    
-        } /* Loop over bonds. */
-
     /* Loop over all dihedrals. */
     for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
     
+        /* This dihedral gets its own id. */
+        weight[ nr_sets ] = 3;
+        setid_dihedrals[k] = nr_sets++;
+                 
         /* Loop over other dihedrals... */
-        for ( j = k+1 ; j < e->nr_dihedrals ; j++ )
+        for ( j = 0 ; j < k ; j++ )
             if ( e->dihedrals[k].i == e->dihedrals[j].i || e->dihedrals[k].i == e->dihedrals[j].j || e->dihedrals[k].i == e->dihedrals[j].k || e->dihedrals[k].i == e->dihedrals[j].l ||
                  e->dihedrals[k].j == e->dihedrals[j].i || e->dihedrals[k].j == e->dihedrals[j].j || e->dihedrals[k].j == e->dihedrals[j].k || e->dihedrals[k].j == e->dihedrals[j].l ||
                  e->dihedrals[k].k == e->dihedrals[j].i || e->dihedrals[k].k == e->dihedrals[j].j || e->dihedrals[k].k == e->dihedrals[j].k || e->dihedrals[k].k == e->dihedrals[j].l ||
@@ -202,32 +182,601 @@ int engine_bonded_sets ( struct engine *e ) {
                 if ( confl_add( setid_dihedrals[k] , setid_dihedrals[j] ) < 0 )
                     return error(engine_err);
     
-        /* Loop over exclusions... */
-        for ( j = 0 ; j < e->nr_exclusions ; j++ )
-            if ( e->dihedrals[k].i == e->exclusions[j].i || e->dihedrals[k].i == e->exclusions[j].j ||
-                 e->dihedrals[k].j == e->exclusions[j].i || e->dihedrals[k].j == e->exclusions[j].j ||
-                 e->dihedrals[k].k == e->exclusions[j].i || e->dihedrals[k].k == e->exclusions[j].j ||
-                 e->dihedrals[k].l == e->exclusions[j].i || e->dihedrals[k].l == e->exclusions[j].j )
-                if ( confl_add( setid_dihedrals[k] , setid_exclusions[j] ) < 0 )
+        } /* Loop over dihedrals. */
+
+    /* Loop over all angles. */
+    for ( k = 0 ; k < e->nr_angles ; k++ ) {
+    
+        /* Loop over dihedrals, looking for matches... */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            if ( ( e->angles[k].i == e->dihedrals[j].i && e->angles[k].j == e->dihedrals[j].j && e->angles[k].k == e->dihedrals[j].k ) ||
+                 ( e->angles[k].i == e->dihedrals[j].j && e->angles[k].j == e->dihedrals[j].k && e->angles[k].k == e->dihedrals[j].l ) ||
+                 ( e->angles[k].k == e->dihedrals[j].j && e->angles[k].j == e->dihedrals[j].k && e->angles[k].i == e->dihedrals[j].l ) ||
+                 ( e->angles[k].k == e->dihedrals[j].i && e->angles[k].j == e->dihedrals[j].j && e->angles[k].i == e->dihedrals[j].k ) ) {
+                setid_angles[k] = -setid_dihedrals[j];
+                weight[ setid_dihedrals[j] ] += 2;
+                break;
+                }
+                 
+        /* Does this angle get its own id? */
+        if ( j < e->nr_dihedrals)
+            continue;
+        else {
+            weight[ nr_sets ] = 2;
+            setid_angles[k] = nr_sets++;
+            }
+                 
+        /* Loop over dihedrals, looking for conflicts... */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            if ( e->angles[k].i == e->dihedrals[j].i || e->angles[k].i == e->dihedrals[j].j || e->angles[k].i == e->dihedrals[j].k || e->angles[k].i == e->dihedrals[j].l ||
+                 e->angles[k].j == e->dihedrals[j].i || e->angles[k].j == e->dihedrals[j].j || e->angles[k].j == e->dihedrals[j].k || e->angles[k].j == e->dihedrals[j].l ||
+                 e->angles[k].k == e->dihedrals[j].i || e->angles[k].k == e->dihedrals[j].j || e->angles[k].k == e->dihedrals[j].k || e->angles[k].k == e->dihedrals[j].l )
+                if ( confl_add( setid_angles[k] , setid_dihedrals[j] ) < 0 )
+                    return error(engine_err);
+    
+        /* Loop over previous angles... */
+        for ( j = 0 ; j < k ; j++ )
+            if ( setid_angles[j] >= 0 &&
+                 ( e->angles[k].i == e->angles[j].i || e->angles[k].i == e->angles[j].j || e->angles[k].i == e->angles[j].k ||
+                   e->angles[k].j == e->angles[j].i || e->angles[k].j == e->angles[j].j || e->angles[k].j == e->angles[j].k ||
+                   e->angles[k].k == e->angles[j].i || e->angles[k].k == e->angles[j].j || e->angles[k].k == e->angles[j].k ) )
+                if ( confl_add( setid_angles[k] , setid_angles[j] ) < 0 )
+                    return error(engine_err);
+    
+        } /* Loop over angles. */
+
+    /* Loop over all bonds. */
+    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
+    
+        /* Loop over dihedrals, looking for overlap... */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            if ( ( e->bonds[k].i == e->dihedrals[j].i && e->bonds[k].j == e->dihedrals[j].j ) ||
+                 ( e->bonds[k].j == e->dihedrals[j].i && e->bonds[k].i == e->dihedrals[j].j ) ||
+                 ( e->bonds[k].i == e->dihedrals[j].j && e->bonds[k].j == e->dihedrals[j].k ) ||
+                 ( e->bonds[k].j == e->dihedrals[j].j && e->bonds[k].i == e->dihedrals[j].k ) ||
+                 ( e->bonds[k].i == e->dihedrals[j].k && e->bonds[k].j == e->dihedrals[j].l ) ||
+                 ( e->bonds[k].j == e->dihedrals[j].k && e->bonds[k].i == e->dihedrals[j].l ) ) {
+                setid_bonds[k] = -setid_dihedrals[j];
+                weight[ setid_dihedrals[j] ] += 1;
+                break;
+                }
+    
+        /* Does this bond get its own id? */
+        if ( j < e->nr_dihedrals)
+            continue;
+                 
+        /* Loop over angles, looking for overlap... */
+        for ( j = 0 ; j < e->nr_angles ; j++ )
+            if ( setid_angles[j] >= 0 &&
+                 ( ( e->bonds[k].i == e->angles[j].i && e->bonds[k].j == e->angles[j].j ) ||
+                   ( e->bonds[k].j == e->angles[j].i && e->bonds[k].i == e->angles[j].j ) ||
+                   ( e->bonds[k].i == e->angles[j].j && e->bonds[k].j == e->angles[j].k ) ||
+                   ( e->bonds[k].j == e->angles[j].j && e->bonds[k].i == e->angles[j].k ) ) ) {
+                setid_bonds[k] = -setid_angles[j];
+                weight[ setid_angles[j] ] += 1;
+                break;
+                }
+
+        /* Does this bond get its own id? */
+        if ( j < e->nr_angles)
+            continue;
+        else {
+            weight[ nr_sets ] = 1;
+            setid_bonds[k] = nr_sets++;
+            }
+                 
+        /* Loop over dihedrals... */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            if ( e->bonds[k].i == e->dihedrals[j].i || e->bonds[k].i == e->dihedrals[j].j || e->bonds[k].i == e->dihedrals[j].k || e->bonds[k].i == e->dihedrals[j].l ||
+                 e->bonds[k].j == e->dihedrals[j].i || e->bonds[k].j == e->dihedrals[j].j || e->bonds[k].j == e->dihedrals[j].k || e->bonds[k].j == e->dihedrals[j].l )
+                if ( confl_add( setid_bonds[k] , setid_dihedrals[j] ) < 0 )
+                    return error(engine_err);
+
+        /* Loop over angles... */
+        for ( j = 0 ; j < e->nr_angles ; j++ )
+            if ( setid_angles[j] >= 0 &&
+                 ( e->bonds[k].i == e->angles[j].i || e->bonds[k].i == e->angles[j].j || e->bonds[k].i == e->angles[j].k ||
+                   e->bonds[k].j == e->angles[j].i || e->bonds[k].j == e->angles[j].j || e->bonds[k].j == e->angles[j].k ) )
+                if ( confl_add( setid_bonds[k] , setid_angles[j] ) < 0 )
+                    return error(engine_err);
+                    
+        /* Loop over previous bonds... */
+        for ( j = 0 ; j < k ; j++ )
+            if ( setid_bonds[j] >= 0 &&
+                 ( e->bonds[k].i == e->bonds[j].i || e->bonds[k].i == e->bonds[j].j ||
+                   e->bonds[k].j == e->bonds[j].i || e->bonds[k].j == e->bonds[j].j ) )
+                if ( confl_add( setid_bonds[k] , setid_bonds[j] ) < 0 )
                     return error(engine_err);
     
         } /* Loop over bonds. */
+        
+    /* Blindly add all the rigids as sets. */
+    for ( k = 0 ; k < e->nr_rigids ; k++ ) {
+    
+        /* Add this rigid as a set. */
+        weight[ nr_sets ] = 0;
+        setid_rigids[k] = nr_sets++;
+        
+        /* Loop over dihedrals, looking for overlap. */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ ) {
+            for ( i = 0 ; i < e->rigids[k].nr_parts; i ++ )
+                if ( e->rigids[k].parts[i] == e->dihedrals[j].i || e->rigids[k].parts[i] == e->dihedrals[j].j || e->rigids[k].parts[i] == e->dihedrals[j].k || e->rigids[k].parts[i] == e->dihedrals[j].l )
+                    break;
+            if ( i < e->rigids[k].nr_parts && confl_add( setid_rigids[k] , setid_dihedrals[j] ) )
+                return error(engine_err);
+            }
+        
+        /* Loop over angles, looking for overlap. */
+        for ( j = 0 ; j < e->nr_angles ; j++ ) {
+            if ( setid_angles[j] < 0 )
+                continue;
+            for ( i = 0 ; i < e->rigids[k].nr_parts; i ++ )
+                if ( e->rigids[k].parts[i] == e->angles[j].i || e->rigids[k].parts[i] == e->angles[j].j || e->rigids[k].parts[i] == e->angles[j].k )
+                    break;
+            if ( i < e->rigids[k].nr_parts && confl_add( setid_rigids[k] , setid_angles[j] ) )
+                return error(engine_err);
+            }
+        
+        /* Loop over bonds, looking for overlap. */
+        for ( j = 0 ; j < e->nr_bonds ; j++ ) {
+            if ( setid_bonds[j] < 0 )
+                continue;
+            for ( i = 0 ; i < e->rigids[k].nr_parts; i ++ )
+                if ( e->rigids[k].parts[i] == e->bonds[j].i || e->rigids[k].parts[i] == e->bonds[j].j )
+                    break;
+            if ( i < e->rigids[k].nr_parts && confl_add( setid_rigids[k] , setid_bonds[j] ) )
+                return error(engine_err);
+            }
+        
+        }
 
     /* Loop over all exclusions. */
     for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
     
-        /* Loop over other exclusions... */
-        for ( j = k+1 ; j < e->nr_exclusions ; j++ )
-            if ( e->exclusions[k].i == e->exclusions[j].i || e->exclusions[k].i == e->exclusions[j].j ||
-                 e->exclusions[k].j == e->exclusions[j].i || e->exclusions[k].j == e->exclusions[j].j )
+        /* Loop over rigids, looking for overlap. */
+        for ( j = 0 ; j < e->nr_rigids ; j++ ) {
+            for ( i = 0 ; i < e->rigids[j].nr_constr ; i++ )
+                if ( ( e->exclusions[k].i == e->rigids[j].parts[ e->rigids[j].constr[i].i ] && e->exclusions[k].j == e->rigids[j].parts[ e->rigids[j].constr[i].j ] ) ||
+                     ( e->exclusions[k].j == e->rigids[j].parts[ e->rigids[j].constr[i].i ] && e->exclusions[k].i == e->rigids[j].parts[ e->rigids[j].constr[i].j ] ) )
+                    break;
+            if ( i < e->rigids[j].nr_constr ) {
+                setid_exclusions[k] = -setid_rigids[j];
+                weight[ setid_rigids[j] ] += 1;
+                break;
+                }
+            }
+  
+        /* Does this bond get its own id? */
+        if ( j < e->nr_rigids )
+            continue;
+                 
+        /* Loop over dihedrals, looking for overlap... */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            if ( ( e->exclusions[k].i == e->dihedrals[j].i && e->exclusions[k].j == e->dihedrals[j].j ) ||
+                 ( e->exclusions[k].j == e->dihedrals[j].i && e->exclusions[k].i == e->dihedrals[j].j ) ||
+                 ( e->exclusions[k].i == e->dihedrals[j].j && e->exclusions[k].j == e->dihedrals[j].k ) ||
+                 ( e->exclusions[k].j == e->dihedrals[j].j && e->exclusions[k].i == e->dihedrals[j].k ) ||
+                 ( e->exclusions[k].i == e->dihedrals[j].k && e->exclusions[k].j == e->dihedrals[j].l ) ||
+                 ( e->exclusions[k].j == e->dihedrals[j].k && e->exclusions[k].i == e->dihedrals[j].l ) ||
+                 ( e->exclusions[k].i == e->dihedrals[j].i && e->exclusions[k].j == e->dihedrals[j].k ) ||
+                 ( e->exclusions[k].j == e->dihedrals[j].i && e->exclusions[k].i == e->dihedrals[j].k ) ||
+                 ( e->exclusions[k].i == e->dihedrals[j].j && e->exclusions[k].j == e->dihedrals[j].l ) ||
+                 ( e->exclusions[k].j == e->dihedrals[j].j && e->exclusions[k].i == e->dihedrals[j].l ) ||
+                 ( e->exclusions[k].i == e->dihedrals[j].i && e->exclusions[k].j == e->dihedrals[j].l ) ||
+                 ( e->exclusions[k].j == e->dihedrals[j].i && e->exclusions[k].i == e->dihedrals[j].l ) ) {
+                setid_exclusions[k] = -setid_dihedrals[j];
+                weight[ setid_dihedrals[j] ] += 1;
+                break;
+                }
+    
+        /* Does this bond get its own id? */
+        if ( j < e->nr_dihedrals )
+            continue;
+                 
+        /* Loop over angles, looking for overlap... */
+        for ( j = 0 ; j < e->nr_angles ; j++ )
+            if ( setid_angles[j] >= 0 &&
+                 ( ( e->exclusions[k].i == e->angles[j].i && e->exclusions[k].j == e->angles[j].j ) ||
+                   ( e->exclusions[k].j == e->angles[j].i && e->exclusions[k].i == e->angles[j].j ) ||
+                   ( e->exclusions[k].i == e->angles[j].j && e->exclusions[k].j == e->angles[j].k ) ||
+                   ( e->exclusions[k].j == e->angles[j].j && e->exclusions[k].i == e->angles[j].k ) ||
+                   ( e->exclusions[k].i == e->angles[j].i && e->exclusions[k].j == e->angles[j].k ) ||
+                   ( e->exclusions[k].j == e->angles[j].i && e->exclusions[k].i == e->angles[j].k ) ) ) {
+                setid_exclusions[k] = -setid_angles[j];
+                weight[ setid_angles[j] ] += 1;
+                break;
+                }
+
+        /* Does this bond get its own id? */
+        if ( j < e->nr_angles)
+            continue;
+                 
+        /* Loop over bonds, looking for overlap... */
+        for ( j = 0 ; j < e->nr_bonds ; j++ )
+            if ( setid_bonds[j] >= 0 &&
+                 ( ( e->exclusions[k].i == e->bonds[j].i && e->exclusions[k].j == e->bonds[j].j ) ||
+                   ( e->exclusions[k].j == e->bonds[j].i && e->exclusions[k].i == e->bonds[j].j ) ) ) {
+                setid_exclusions[k] = -setid_bonds[j];
+                weight[ setid_bonds[j] ] += 1;
+                break;
+                }
+
+        /* Does this bond get its own id? */
+        if ( j < e->nr_bonds )
+            continue;
+        else {
+            weight[ nr_sets ] = 1;
+            setid_exclusions[k] = nr_sets++;
+            }
+                 
+        /* Loop over dihedrals... */
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            if ( e->exclusions[k].i == e->dihedrals[j].i || e->exclusions[k].i == e->dihedrals[j].j || e->exclusions[k].i == e->dihedrals[j].k || e->exclusions[k].i == e->dihedrals[j].l ||
+                 e->exclusions[k].j == e->dihedrals[j].i || e->exclusions[k].j == e->dihedrals[j].j || e->exclusions[k].j == e->dihedrals[j].k || e->exclusions[k].j == e->dihedrals[j].l )
+                if ( confl_add( setid_exclusions[k] , setid_dihedrals[j] ) < 0 )
+                    return error(engine_err);
+
+        /* Loop over angles... */
+        for ( j = 0 ; j < e->nr_angles ; j++ )
+            if ( setid_angles[j] >= 0 && 
+                 ( e->exclusions[k].i == e->angles[j].i || e->exclusions[k].i == e->angles[j].j || e->exclusions[k].i == e->angles[j].k ||
+                   e->exclusions[k].j == e->angles[j].i || e->exclusions[k].j == e->angles[j].j || e->exclusions[k].j == e->angles[j].k ) )
+                if ( confl_add( setid_exclusions[k] , setid_angles[j] ) < 0 )
+                    return error(engine_err);
+                    
+        /* Loop over  bonds... */
+        for ( j = 0 ; j < e->nr_bonds ; j++ )
+            if ( setid_bonds[j] >= 0 &&
+                 ( e->exclusions[k].i == e->bonds[j].i || e->exclusions[k].i == e->bonds[j].j ||
+                   e->exclusions[k].j == e->bonds[j].i || e->exclusions[k].j == e->bonds[j].j ) )
+                if ( confl_add( setid_exclusions[k] , setid_bonds[j] ) < 0 )
+                    return error(engine_err);
+                    
+        /* Loop over previous exclusions... */
+        for ( j = 0 ; j < k ; j++ )
+            if ( setid_exclusions[j] >= 0 &&
+                 ( e->exclusions[k].i == e->exclusions[j].i || e->exclusions[k].i == e->exclusions[j].j ||
+                   e->exclusions[k].j == e->exclusions[j].i || e->exclusions[k].j == e->exclusions[j].j ) )
                 if ( confl_add( setid_exclusions[k] , setid_exclusions[j] ) < 0 )
                     return error(engine_err);
     
-        } /* Loop over bonds. */
+        } /* Loop over exclusions. */
         
+    /* Make the setids positive again. */
+    for ( k = 0 ; k < e->nr_angles ; k++ )
+        setid_angles[k] = abs(setid_angles[k]);
+    for ( k = 0 ; k < e->nr_bonds ; k++ )
+        setid_bonds[k] = abs(setid_bonds[k]);
+    for ( k = 0 ; k < e->nr_exclusions ; k++ )
+        setid_exclusions[k] = abs(setid_exclusions[k]);
         
+    /* Allocate and fill the virtual setids. */
+    if ( ( vsetid = (int *)malloc( sizeof(int) * nr_sets ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( k = 0 ; k < nr_sets ; k++ )
+        vsetid[k] = k;
+        
+    /* Allocate the sorted conflict data. */
+    if ( ( confl_sorted = malloc( sizeof(int) * 4 * confl_size ) ) == NULL ||
+         ( confl_index = (int *)malloc( sizeof(int) * (nr_sets + 1) ) ) == NULL )
+        return error(engine_err_malloc);
+
+
     /* As of here, the data structure has been set-up! */
     
+    
+    /* Main loop... */
+    while ( nr_sets > 10 ) {
+    
+        /* Assemble and sort the conflicts array. */
+        for ( k = 0 ; k < confl_count ; k++ ) {
+            confl_sorted[k] = confl[k];
+            confl_sorted[confl_count+k].i = confl[k].j;
+            confl_sorted[confl_count+k].j = confl[k].i;
+            }
+        confl_qsort( 0 , 2*confl_count - 1 );
+        confl_index[0] = 0;
+        for ( j = 0 , k = 0 ; k < 2*confl_count ; k++ )
+            while ( confl_sorted[k].i > j )
+                confl_index[++j] = k;
+        while ( j < nr_sets )
+            confl_index[ ++j ] = 2*confl_count;
+        bzero( confl_counts , sizeof(char) * nr_sets );
+        
+        /* Verify a few things... */
+        if ( j != nr_sets )
+            printf( "engine_bonded_sets: indexing is botched (j=%i)!\n" , j );
+        for ( k = 0 ; k < confl_count ; k++ )
+            if ( confl[k].i < 0 || confl[k].i >= nr_sets || confl[k].j < 0 || confl[k].j >= nr_sets || confl[k].i == confl[k].j )
+                printf( "engine_bonded_sets: invalid %ith conflict [%i,%i].\n" ,
+                    k , confl[k].i , confl[k].j );
+        for ( avg_nconfl = 0 , k = 0 ; k < nr_sets ; k++ )
+            avg_nconfl += nconfl[k];
+        if ( avg_nconfl/2 != confl_count )
+            printf( "engine_bonded_sets: inconsistent nconfl (%f != %i)!\n" ,
+                avg_nconfl/2 , confl_count );
+        for ( k = 1 ; k < 2*confl_count ; k++ )
+            if ( confl_sorted[k].i < confl_sorted[k-1].i )
+                printf( "engine_bonded_sets: sorting is botched!\n" );
+        for ( avg_weight = 0 , k = 0 ; k < nr_sets ; k++ )
+            avg_weight += weight[k];
+        if ( avg_weight != tot_weight )
+            printf( "engine_bonded_sets: weights are botched (%f != %f)!\n" , avg_weight , tot_weight );
+        for ( k = 0 ; k < nr_sets ; k++ )
+            if ( confl_index[k+1]-confl_index[k] != nconfl[k] ) {
+                printf( "engine_bonded_sets: nconfl and confl inconsistent (%i:%i-%i != %i)!\n" ,
+                    k , confl_index[k+1] , confl_index[k] , nconfl[k] );
+                printf( "engine_bonded_sets: conflicts are" );
+                for ( j = confl_index[k] ; j < confl_index[k+1] ; j++ )
+                    printf( " [%i,%i]" , confl_sorted[j].i , confl_sorted[j].j );
+                printf( ".\n" );
+                }
+
+        /* Get the average number of conflicts. */
+        avg_nconfl = (2.0 * confl_count) / nr_sets;
+        avg_weight = tot_weight / nr_sets;
+        printf( "engine_bonded_sets: nr_sets=%i, confl_count=%i, avg_weight=%f, avg_nconfl=%f.\n" ,
+            nr_sets, confl_count, avg_weight , avg_nconfl ); fflush(stdout);
+        avg_weight = ceil( avg_weight );
+        
+        /* Are we done? */
+        /* if ( (1 + avg_nconfl) * e->nr_runners <= nr_sets )
+            break; */
+            
+        /* Init min_i, min_j and min_confl. */
+        min_i = -1;
+        min_j = -1;
+        max_confl = -1;
+            
+        /* For every pair of sets i and j... */
+        for ( i = 0; i < nr_sets ; i++ ) {
+        
+            /* Skip i? */
+            if ( weight[i] > avg_weight || nconfl[i] <= max_confl )
+                continue;
+                
+            /* Mark the conflicts in the ith set. */
+            for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
+                confl_counts[ confl_sorted[k].j ] = 1;
+            confl_counts[i] = 1;
+                
+            /* Loop over all following sets. */
+            for ( jj = confl_index[i] ; jj < confl_index[i+1] ; jj++ ) {
+            
+                /* Skip j? */
+                j = confl_sorted[jj].j;
+                if ( weight[j] > avg_weight || nconfl[j] <= max_confl )
+                    continue;
+                    
+                /* Get the number of conflicts in the combined set of i and j. */
+                for ( nr_confl = 0 , k = confl_index[j] ; k < confl_index[j+1] ; k++ )
+                    if ( confl_counts[ confl_sorted[k].j ] )
+                        nr_confl += 1;
+                        
+                /* Is this value larger than the current maximum? */
+                if ( nr_confl > max_confl ) {
+                    max_confl = nr_confl; min_i = i; min_j = j;
+                    }
+                    
+                } /* loop over following sets. */
+                
+            /* Un-mark the conflicts in the ith set. */
+            for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
+                confl_counts[ confl_sorted[k].j ] = 0;
+            confl_counts[i] = 0;
+                
+            } /* for every pair of sets i and j. */
+            
+        /* If no pair was found, just look for two small disjointed sets with the
+           smallest sum of conflicts. */
+        if ( min_i < 0 ) {
+        
+            /* Loop over all sets. */
+            min_i = 0;
+            for ( i = 1 ; nconfl[min_i] > 0 && i < nr_sets ; i++ )
+                if ( weight[i] <= avg_weight && nconfl[i] < nconfl[min_i] )
+                    min_i = i;
+                    
+            if ( min_i == 0 )
+                min_j = 1;
+            else
+                min_j = 0;
+            for ( j = 1 ; nconfl[min_j] > 0 && j < nr_sets ; j++ )
+                if ( weight[j] <= avg_weight && j != min_i && nconfl[j] < nconfl[min_j] )
+                    min_j = j;
+                    
+            /* printf( "engine_bonded_sets: found disjoint sets %i and %i, %i confl.\n" ,
+                min_i , min_j , nconfl[min_i] + nconfl[min_j] ); */
+        
+            } /* look for small disjointed sets. */
+        
+        /* Otherwise, say something. */
+        /* else    
+            printf( "engine_bonded_sets: found pair of sets %i and %i with %i less confl.\n" ,
+                min_i , min_j , max_confl ); */
+            
+        /* Dump both sets. */
+        /* printf( "engine_bonded_sets: set %i has conflicts" , min_i );
+        for ( k = 0 ; k < confl_count ; k++ )
+            if ( confl[k].i == min_i )
+                printf( " %i" , confl[k].j );
+            else if ( confl[k].j == min_i )
+                printf( " %i" ,  confl[k].i );
+        printf(".\n");
+        printf( "engine_bonded_sets: set %i has conflicts" , min_j );
+        for ( k = 0 ; k < confl_count ; k++ )
+            if ( confl[k].i == min_j )
+                printf( " %i" , confl[k].j );
+            else if ( confl[k].j == min_j )
+                printf( " %i" , confl[k].i );
+        printf(".\n"); */
+    
+        /* Merge the sets min_i and min_j. */
+        for ( k = 0 ; k < e->nr_bonds ; k++ )
+            if ( setid_bonds[k] == min_j )
+                setid_bonds[k] = min_i;
+        for ( k = 0 ; k < e->nr_angles ; k++ )
+            if ( setid_angles[k] == min_j )
+                setid_angles[k] = min_i;
+        for ( k = 0 ; k < e->nr_dihedrals ; k++ )
+            if ( setid_dihedrals[k] == min_j )
+                setid_dihedrals[k] = min_i;
+        for ( k = 0 ; k < e->nr_exclusions ; k++ )
+            if ( setid_exclusions[k] == min_j )
+                setid_exclusions[k] = min_i;
+                
+        /* Mark the sets with which min_i conflicts. */
+        for ( k = confl_index[min_i] ; k < confl_index[min_i+1] ; k++ )
+            confl_counts[ confl_sorted[k].j ] = 1;
+        confl_counts[ min_i ] = 1;
+                
+        /* Re-label or remove conflicts with min_j. */
+        for ( k = 0 ; k < confl_count ; k++ )
+            if ( confl[k].i == min_j ) {
+                if ( confl_counts[ confl[k].j ] ) {
+                    nconfl[ confl[k].j ] -= 1;
+                    confl[ k-- ] = confl[ --confl_count ];
+                    }
+                else {
+                    confl[k].i = min_i;
+                    nconfl[min_i] += 1;
+                    }
+                }
+            else if ( confl[k].j == min_j ) {
+                if ( confl_counts[ confl[k].i ] ) {
+                    nconfl[ confl[k].i ] -= 1;
+                    confl[ k-- ] = confl[ --confl_count ];
+                    }
+                else {
+                    confl[k].j = min_i;
+                    nconfl[min_i] += 1;
+                    }
+                }
+                
+        /* Remove the set min_j (replace by last). */
+        weight[min_i] += weight[min_j];
+        nr_sets -= 1;
+        weight[min_j] = weight[nr_sets];
+        nconfl[min_j] = nconfl[nr_sets];
+        vsetid[nr_sets] = min_j;
+        for ( k = 0 ; k < confl_count ; k++ )
+            if ( confl[k].i == nr_sets )
+                confl[k].i = min_j;
+            else if ( confl[k].j == nr_sets )
+                confl[k].j = min_j;
+            
+        /* printf( "engine_bonded_sets: merged sets %i and %i, weight %i and %i confl.\n" ,
+            min_i , min_j , weight[min_i] , nconfl[min_i] ); fflush(stdout);
+        getchar(); */
+            
+    
+        } /* main loop. */
+        
+    
+    /* Allocate the sets. */
+    e->nr_sets = nr_sets;
+    if ( ( e->sets = (struct engine_set *)malloc( sizeof(struct engine_set) * nr_sets ) ) == NULL )
+        return error(engine_err_malloc);
+    bzero( e->sets , sizeof(struct engine_set) * nr_sets );
+    
+    /* Fill in the counts. */
+    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
+        for ( j = setid_bonds[k] ; j != vsetid[j] ; j = vsetid[j] );
+        setid_bonds[k] = j;
+        e->sets[j].nr_bonds += 1;
+        }
+    for ( k = 0 ; k < e->nr_angles ; k++ ) {
+        for ( j = setid_angles[k] ; j != vsetid[j] ; j = vsetid[j] );
+        setid_angles[k] = j;
+        e->sets[j].nr_angles += 1;
+        }
+    for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
+        for ( j = setid_dihedrals[k] ; j != vsetid[j] ; j = vsetid[j] );
+        setid_dihedrals[k] = j;
+        e->sets[j].nr_dihedrals += 1;
+        }
+    for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
+        for ( j = setid_exclusions[k] ; j != vsetid[j] ; j = vsetid[j] );
+        setid_exclusions[k] = j;
+        e->sets[j].nr_exclusions += 1;
+        }
+        
+    /* Allocate the index lists. */
+    for ( k = 0 ; k < nr_sets ; k++ ) {
+        if ( ( e->sets[k].bonds = (int *)malloc( sizeof(int) * e->sets[k].nr_bonds ) ) == NULL ||
+             ( e->sets[k].angles = (int *)malloc( sizeof(int) * e->sets[k].nr_angles ) ) == NULL ||
+             ( e->sets[k].dihedrals = (int *)malloc( sizeof(int) * e->sets[k].nr_dihedrals ) ) == NULL ||
+             ( e->sets[k].exclusions = (int *)malloc( sizeof(int) * e->sets[k].nr_exclusions ) ) == NULL ||
+             ( e->sets[k].confl = (int *)malloc( sizeof(int) * nconfl[k] ) ) == NULL )
+            return error(engine_err_malloc);
+        e->sets[k].nr_bonds = 0;
+        e->sets[k].nr_angles = 0;
+        e->sets[k].nr_dihedrals = 0;
+        e->sets[k].nr_exclusions = 0;
+        }
+    
+    /* Fill in the indices. */
+    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
+        j = vsetid[ setid_bonds[k] ];
+        e->sets[j].bonds[ e->sets[j].nr_bonds++ ] = k;
+        }
+    for ( k = 0 ; k < e->nr_angles ; k++ ) {
+        j = vsetid[ setid_angles[k] ];
+        e->sets[j].angles[ e->sets[j].nr_angles++ ] = k;
+        }
+    for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
+        j = vsetid[ setid_dihedrals[k] ];
+        e->sets[j].dihedrals[ e->sets[j].nr_dihedrals++ ] = k;
+        }
+    for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
+        j = vsetid[ setid_exclusions[k] ];
+        e->sets[j].exclusions[ e->sets[j].nr_exclusions++ ] = k;
+        }
+        
+    /* Fill in the conflicts. */
+    for ( k = 0 ; k < confl_count ; k++ ) {
+        i = confl[k].i; j = confl[k].j;
+        e->sets[i].confl[ e->sets[i].nr_confl++ ] = j;
+        e->sets[j].confl[ e->sets[j].nr_confl++ ] = i;
+        }
+        
+        
+    /* Dump the sets. */
+    for ( k = 0 ; k < nr_sets ; k++ ) {
+        printf( "engine_bonded_sets: set %i:\n" , k );
+        printf( "engine_bonded_sets:    bonds = [ " );
+        for ( j = 0 ; j < e->sets[k].nr_bonds ; j++ )
+            printf( "%i " , e->sets[k].bonds[j] );
+        printf( "]\n" );
+        printf( "engine_bonded_sets:    angles = [ " );
+        for ( j = 0 ; j < e->sets[k].nr_angles ; j++ )
+            printf( "%i " , e->sets[k].angles[j] );
+        printf( "]\n" );
+        printf( "engine_bonded_sets:    dihedrals = [ " );
+        for ( j = 0 ; j < e->sets[k].nr_dihedrals ; j++ )
+            printf( "%i " , e->sets[k].dihedrals[j] );
+        printf( "]\n" );
+        printf( "engine_bonded_sets:    exclusions = [ " );
+        for ( j = 0 ; j < e->sets[k].nr_exclusions ; j++ )
+            printf( "%i " , e->sets[k].exclusions[j] );
+        printf( "]\n" );
+        printf( "engine_bonded_sets:    conflicts = [ " );
+        for ( j = 0 ; j < e->sets[k].nr_confl ; j++ )
+            printf( "%i " , e->sets[k].confl[j] );
+        printf( "]\n" );
+        }
+        
+    /* Clean up the allocated memory. */
+    free( nconfl );
+    free( weight );
+    free( confl );
+    free( confl_sorted );
+    free( vsetid );
+    free( setid_bonds ); free( setid_angles ); free( setid_dihedrals );
+    free( setid_rigids ); free( setid_exclusions );
+        
+        
+    /* It's the end of the world as we know it... */
     return engine_err_ok;
 
     }
@@ -358,8 +907,8 @@ int engine_exclusion_shrink ( struct engine *e ) {
                 pivot_i = e->exclusions[i].i;
                 pivot_j = e->exclusions[i].j;
                 for ( j = i-1 ; j >= l ; j-- )
-                    if ( e->exclusions[j].i < pivot_i ||
-                         ( e->exclusions[j].i == pivot_i && e->exclusions[j].j < pivot_j ) ) {
+                    if ( e->exclusions[j].i > pivot_i ||
+                         ( e->exclusions[j].i == pivot_i && e->exclusions[j].j > pivot_j ) ) {
                         temp = e->exclusions[j];
                         e->exclusions[j] = e->exclusions[j+1];
                         e->exclusions[j+1] = temp;
@@ -402,16 +951,24 @@ int engine_exclusion_shrink ( struct engine *e ) {
     /* Sort the exclusions. */
     qsort( 0 , e->nr_exclusions-1 );
     
+    /* Verify the sort. */
+    /* for ( k = 1 ; k < e->nr_exclusions ; k++ )
+        if ( e->exclusions[k].i < e->exclusions[k-1].i ||
+             ( e->exclusions[k].i == e->exclusions[k-1].i && e->exclusions[k].j < e->exclusions[k-1].j ) )
+            printf( "engine_exclusion_shrink: sorting failed!\n" ); */
+    
     /* Run through the exclusions and skip duplicates. */
-    for ( j = 1 , k = 1 ; k < e->nr_exclusions ; k++ )
-        if ( e->exclusions[k].j != e->exclusions[k-1].j ||
-             e->exclusions[k].i != e->exclusions[k-1].i ) {
-            e->exclusions[j] = e->exclusions[k];
+    for ( j = 0 , k = 1 ; k < e->nr_exclusions ; k++ )
+        if ( e->exclusions[k].j != e->exclusions[j].j ||
+             e->exclusions[k].i != e->exclusions[j].i ) {
             j += 1;
+            e->exclusions[j] = e->exclusions[k];
             }
             
     /* Set the number of exclusions to j. */
-    e->nr_exclusions = j;
+    e->nr_exclusions = j+1;
+    if ( ( e->exclusions = (struct exclusion *)realloc( e->exclusions , sizeof(struct exclusion) * e->nr_exclusions ) ) == NULL )
+        return error(engine_err_malloc);
     
     /* Go home. */
     return engine_err_ok;
