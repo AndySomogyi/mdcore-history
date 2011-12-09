@@ -62,6 +62,180 @@
 
 
 /**
+ * @brief Compute all bonded interactions stored in this engine.
+ * 
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ *
+ * Does the same as #engine_bond_eval, #engine_angle_eval and
+ * #engine_dihedral eval, yet all in one go to avoid excessive
+ * updates of the particle forces.
+ */
+ 
+int engine_bonded_eval_sets ( struct engine *e ) {
+
+    double epot = 0.0;
+    #ifdef HAVE_OPENMP
+        int sets_taboo[ 20 ];
+        int k, j, set_curr, sets_next = 0, sets_ind[ 20 ];
+        double epot_local;
+        ticks toc_bonds, toc_angles, toc_dihedrals, toc_exclusions;
+    #endif
+    ticks tic;
+    
+    #ifdef HAVE_OPENMP
+    
+        /* Fill the indices. */
+        for ( k = 0 ; k < e->nr_sets ; k++ ) {
+            sets_ind[k] = k;
+            sets_taboo[k] = 0;
+            }
+    
+        #pragma omp parallel private(k,j,set_curr,epot_local,toc_bonds,toc_angles,toc_dihedrals,toc_exclusions)
+        if ( e->nr_sets > 0 && omp_get_num_threads() > 1 ) {
+        
+            /* Init local counters. */
+            toc_bonds = 0; toc_angles = 0; toc_dihedrals = 0; toc_exclusions = 0;
+            epot_local = 0.0; set_curr = -1;
+            
+            /* Main loop. */
+            while ( sets_next < e->nr_sets ) {
+            
+                /* Try to grab a set. */
+                set_curr = -1;
+                #pragma omp critical (setlist)
+                while ( sets_next < e->nr_sets ) {
+                
+                    /* Find the next free set. */
+                    for ( k = sets_next ; k < e->nr_sets && sets_taboo[ sets_ind[k] ] ; k++ );
+                    
+                    /* If a set was found... */
+                    if ( k < e->nr_sets ) {
+                    
+                        /* Swap it to the top and put a finger on it. */
+                        set_curr = sets_ind[k];
+                        sets_ind[k] = sets_ind[sets_next];
+                        sets_ind[sets_next] = set_curr;
+                        sets_next += 1;
+                        
+                        /* Mark conflicting sets as taboo. */
+                        #pragma omp critical (taboo)
+                        for ( j = 0 ; j < e->sets[set_curr].nr_confl ; j++ )
+                            sets_taboo[ e->sets[set_curr].confl[j] ] += 1;
+                            
+                        /* And exit the loop. */
+                        break;
+                        
+                        }
+                        
+                    }
+                    
+                /* Did we even get a set? */
+                if ( set_curr < 0 )
+                    break;
+                    
+                /* Evaluate the bonded interaction in the set. */
+                /* Do bonds. */
+                tic = getticks();
+                bond_eval( e->sets[set_curr].bonds , e->sets[set_curr].nr_bonds , e , &epot_local );
+                toc_bonds += getticks() - tic;
+
+                /* Do angles. */
+                tic = getticks();
+                angle_eval( e->sets[set_curr].angles , e->sets[set_curr].nr_angles , e , &epot_local );
+                toc_angles += getticks() - tic;
+
+                /* Do dihedrals. */
+                tic = getticks();
+                dihedral_eval( e->sets[set_curr].dihedrals , e->sets[set_curr].nr_dihedrals , e , &epot_local );
+                toc_dihedrals += getticks() - tic;
+
+                /* Do exclusions. */
+                tic = getticks();
+                exclusion_eval( e->sets[set_curr].exclusions , e->sets[set_curr].nr_exclusions , e , &epot_local );
+                toc_exclusions += getticks() - tic;
+                
+                /* Un-mark conflicting sets. */
+                #pragma omp critical (taboo)
+                for ( k = 0 ; k < e->sets[set_curr].nr_confl ; k++ )
+                    sets_taboo[ e->sets[set_curr].confl[k] ] -= 1;
+                   
+                } /* main loop. */
+        
+            /* Write-back global data. */
+            #pragma omp critical (writeback)
+            {
+                e->timers[engine_timer_bonds] += toc_bonds;
+                e->timers[engine_timer_angles] += toc_angles;
+                e->timers[engine_timer_dihedrals] += toc_dihedrals;
+                e->timers[engine_timer_exclusions] += toc_exclusions;
+                epot += epot_local;
+                }
+            
+            }
+    
+        /* Otherwise, just do the sequential thing. */
+        else {
+        
+            tic = getticks();
+            bond_eval( e->bonds , e->nr_bonds , e , &epot );
+            e->timers[engine_timer_bonds] += getticks() - tic;
+
+            /* Do angles. */
+            tic = getticks();
+            angle_eval( e->angles , e->nr_angles , e , &epot );
+            e->timers[engine_timer_angles] += getticks() - tic;
+
+            /* Do dihedrals. */
+            tic = getticks();
+            dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot );
+            e->timers[engine_timer_dihedrals] += getticks() - tic;
+
+            /* Do exclusions. */
+            tic = getticks();
+            exclusion_eval( e->exclusions , e->nr_exclusions , e , &epot );
+            e->timers[engine_timer_exclusions] += getticks() - tic;
+        
+            }
+    #else
+
+        /* Do bonds. */
+        tic = getticks();
+        if ( bond_eval( e->bonds , e->nr_bonds , e , &epot ) < 0 )
+            return error(engine_err_bond);
+        e->timers[engine_timer_bonds] += getticks() - tic;
+            
+        /* Do angles. */
+        tic = getticks();
+        if ( angle_eval( e->angles , e->nr_angles , e , &epot ) < 0 )
+            return error(engine_err_angle);
+        e->timers[engine_timer_angles] += getticks() - tic;
+            
+        /* Do dihedrals. */
+        tic = getticks();
+        if ( dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot ) < 0 )
+            return error(engine_err_dihedral);
+        e->timers[engine_timer_dihedrals] += getticks() - tic;
+            
+        /* Do exclusions. */
+        tic = getticks();
+        if ( exclusion_eval( e->exclusions , e->nr_exclusions , e , &epot ) < 0 )
+            return error(engine_err_exclusion);
+        e->timers[engine_timer_exclusions] += getticks() - tic;
+            
+    #endif
+        
+    /* Store the potential energy. */
+    e->s.epot += epot;
+    
+    /* I'll be back... */
+    return engine_err_ok;
+
+    }
+
+
+/**
  * @brief Assemble non-conflicting sets of bonded interactions.
  *
  * @param e The #engine.
@@ -69,16 +243,16 @@
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
-int engine_bonded_sets ( struct engine *e ) {
+int engine_bonded_sets ( struct engine *e , int max_sets ) {
 
     struct {
         int i, j;
         } *confl, *confl_sorted, temp;
     int *confl_index, confl_size, confl_count = 0;
     int *nconfl, *weight;
-    int *setid_bonds, *setid_angles, *setid_dihedrals, *setid_exclusions, *setid_rigids, *vsetid;
+    int *setid_bonds, *setid_angles, *setid_dihedrals, *setid_exclusions, *setid_rigids;
     int nr_sets;
-    int i, jj , j , k, min_i, min_j, max_confl, nr_confl;
+    int i, jj , j , k, min_i, min_j, min_weight, max_weight, max_confl, nr_confl;
     double avg_nconfl, avg_weight, tot_weight;
     char *confl_counts;
     
@@ -450,12 +624,6 @@ int engine_bonded_sets ( struct engine *e ) {
     for ( k = 0 ; k < e->nr_exclusions ; k++ )
         setid_exclusions[k] = abs(setid_exclusions[k]);
         
-    /* Allocate and fill the virtual setids. */
-    if ( ( vsetid = (int *)malloc( sizeof(int) * nr_sets ) ) == NULL )
-        return error(engine_err_malloc);
-    for ( k = 0 ; k < nr_sets ; k++ )
-        vsetid[k] = k;
-        
     /* Allocate the sorted conflict data. */
     if ( ( confl_sorted = malloc( sizeof(int) * 4 * confl_size ) ) == NULL ||
          ( confl_index = (int *)malloc( sizeof(int) * (nr_sets + 1) ) ) == NULL )
@@ -466,130 +634,223 @@ int engine_bonded_sets ( struct engine *e ) {
     
     
     /* Main loop... */
-    while ( nr_sets > 10 ) {
+    while ( nr_sets > max_sets ) {
     
-        /* Assemble and sort the conflicts array. */
-        for ( k = 0 ; k < confl_count ; k++ ) {
-            confl_sorted[k] = confl[k];
-            confl_sorted[confl_count+k].i = confl[k].j;
-            confl_sorted[confl_count+k].j = confl[k].i;
-            }
-        confl_qsort( 0 , 2*confl_count - 1 );
-        confl_index[0] = 0;
-        for ( j = 0 , k = 0 ; k < 2*confl_count ; k++ )
-            while ( confl_sorted[k].i > j )
-                confl_index[++j] = k;
-        while ( j < nr_sets )
-            confl_index[ ++j ] = 2*confl_count;
-        bzero( confl_counts , sizeof(char) * nr_sets );
-        
-        /* Verify a few things... */
-        if ( j != nr_sets )
-            printf( "engine_bonded_sets: indexing is botched (j=%i)!\n" , j );
-        for ( k = 0 ; k < confl_count ; k++ )
-            if ( confl[k].i < 0 || confl[k].i >= nr_sets || confl[k].j < 0 || confl[k].j >= nr_sets || confl[k].i == confl[k].j )
-                printf( "engine_bonded_sets: invalid %ith conflict [%i,%i].\n" ,
-                    k , confl[k].i , confl[k].j );
-        for ( avg_nconfl = 0 , k = 0 ; k < nr_sets ; k++ )
-            avg_nconfl += nconfl[k];
-        if ( avg_nconfl/2 != confl_count )
-            printf( "engine_bonded_sets: inconsistent nconfl (%f != %i)!\n" ,
-                avg_nconfl/2 , confl_count );
-        for ( k = 1 ; k < 2*confl_count ; k++ )
-            if ( confl_sorted[k].i < confl_sorted[k-1].i )
-                printf( "engine_bonded_sets: sorting is botched!\n" );
-        for ( avg_weight = 0 , k = 0 ; k < nr_sets ; k++ )
-            avg_weight += weight[k];
-        if ( avg_weight != tot_weight )
-            printf( "engine_bonded_sets: weights are botched (%f != %f)!\n" , avg_weight , tot_weight );
-        for ( k = 0 ; k < nr_sets ; k++ )
-            if ( confl_index[k+1]-confl_index[k] != nconfl[k] ) {
-                printf( "engine_bonded_sets: nconfl and confl inconsistent (%i:%i-%i != %i)!\n" ,
-                    k , confl_index[k+1] , confl_index[k] , nconfl[k] );
-                printf( "engine_bonded_sets: conflicts are" );
-                for ( j = confl_index[k] ; j < confl_index[k+1] ; j++ )
-                    printf( " [%i,%i]" , confl_sorted[j].i , confl_sorted[j].j );
-                printf( ".\n" );
-                }
-
         /* Get the average number of conflicts. */
         avg_nconfl = (2.0 * confl_count) / nr_sets;
-        avg_weight = tot_weight / nr_sets;
-        printf( "engine_bonded_sets: nr_sets=%i, confl_count=%i, avg_weight=%f, avg_nconfl=%f.\n" ,
-            nr_sets, confl_count, avg_weight , avg_nconfl ); fflush(stdout);
-        avg_weight = ceil( avg_weight );
+        min_weight = weight[0]; max_weight = weight[0];
+        for ( k = 1 ; k < nr_sets ; k++ )
+            if ( weight[k] < min_weight )
+                min_weight = weight[k];
+            else if ( weight[k] > max_weight )
+                max_weight = weight[k];
+        avg_weight = ( 2.0*min_weight + max_weight ) / 3;
+        /* printf( "engine_bonded_sets: nr_sets=%i, confl_count=%i, avg_weight=%f, avg_nconfl=%f.\n" ,
+            nr_sets, confl_count, avg_weight , avg_nconfl );
+        fflush(stdout); */
         
-        /* Are we done? */
-        /* if ( (1 + avg_nconfl) * e->nr_runners <= nr_sets )
-            break; */
-            
-        /* Init min_i, min_j and min_confl. */
-        min_i = -1;
-        min_j = -1;
-        max_confl = -1;
-            
-        /* For every pair of sets i and j... */
-        for ( i = 0; i < nr_sets ; i++ ) {
-        
-            /* Skip i? */
-            if ( weight[i] > avg_weight || nconfl[i] <= max_confl )
-                continue;
-                
-            /* Mark the conflicts in the ith set. */
-            for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
-                confl_counts[ confl_sorted[k].j ] = 1;
-            confl_counts[i] = 1;
-                
-            /* Loop over all following sets. */
-            for ( jj = confl_index[i] ; jj < confl_index[i+1] ; jj++ ) {
-            
-                /* Skip j? */
-                j = confl_sorted[jj].j;
-                if ( weight[j] > avg_weight || nconfl[j] <= max_confl )
-                    continue;
-                    
-                /* Get the number of conflicts in the combined set of i and j. */
-                for ( nr_confl = 0 , k = confl_index[j] ; k < confl_index[j+1] ; k++ )
-                    if ( confl_counts[ confl_sorted[k].j ] )
-                        nr_confl += 1;
-                        
-                /* Is this value larger than the current maximum? */
-                if ( nr_confl > max_confl ) {
-                    max_confl = nr_confl; min_i = i; min_j = j;
-                    }
-                    
-                } /* loop over following sets. */
-                
-            /* Un-mark the conflicts in the ith set. */
-            for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
-                confl_counts[ confl_sorted[k].j ] = 0;
-            confl_counts[i] = 0;
-                
-            } /* for every pair of sets i and j. */
-            
-        /* If no pair was found, just look for two small disjointed sets with the
-           smallest sum of conflicts. */
-        if ( min_i < 0 ) {
-        
-            /* Loop over all sets. */
-            min_i = 0;
-            for ( i = 1 ; nconfl[min_i] > 0 && i < nr_sets ; i++ )
-                if ( weight[i] <= avg_weight && nconfl[i] < nconfl[min_i] )
-                    min_i = i;
-                    
-            if ( min_i == 0 )
-                min_j = 1;
-            else
-                min_j = 0;
-            for ( j = 1 ; nconfl[min_j] > 0 && j < nr_sets ; j++ )
-                if ( weight[j] <= avg_weight && j != min_i && nconfl[j] < nconfl[min_j] )
+        /* First try to do the cheap thing: find a pair with
+           zero conflicts each. */
+        for ( min_i = -1 , i = 0 ; i < nr_sets && nconfl[min_i] > 0 ; i++ )
+            if ( weight[i] < avg_weight && ( min_i < 0 || nconfl[i] < nconfl[min_i] ) )
+                min_i = i;
+        if ( nconfl[min_i] == 0 ) {
+            for ( min_j = -1 , j = i+1 ; j < nr_sets &&  nconfl[min_j] > 0 ; j++ )
+                if ( weight[j] < avg_weight && ( min_j < -1 || nconfl[j] < nconfl[min_j] ) )
                     min_j = j;
+            }
                     
+        /* Did we find a mergeable pair? */
+        if ( nconfl[min_i] == 0 && ( min_j < nr_sets && nconfl[min_j] == 0 ) ) {
+        
             /* printf( "engine_bonded_sets: found disjoint sets %i and %i, %i confl.\n" ,
                 min_i , min_j , nconfl[min_i] + nconfl[min_j] ); */
         
-            } /* look for small disjointed sets. */
+            } 
         
+        /* Otherwise, look for a pair sharing a conflict. */
+        else {
+    
+            /* Assemble and sort the conflicts array. */
+            for ( k = 0 ; k < confl_count ; k++ ) {
+                confl_sorted[k] = confl[k];
+                confl_sorted[confl_count+k].i = confl[k].j;
+                confl_sorted[confl_count+k].j = confl[k].i;
+                }
+            confl_qsort( 0 , 2*confl_count - 1 );
+            confl_index[0] = 0;
+            for ( j = 0 , k = 0 ; k < 2*confl_count ; k++ )
+                while ( confl_sorted[k].i > j )
+                    confl_index[++j] = k;
+            while ( j < nr_sets )
+                confl_index[ ++j ] = 2*confl_count;
+            bzero( confl_counts , sizeof(char) * nr_sets );
+
+            /* Verify a few things... */
+            /* if ( j != nr_sets )
+                printf( "engine_bonded_sets: indexing is botched (j=%i)!\n" , j );
+            for ( k = 0 ; k < confl_count ; k++ )
+                if ( confl[k].i < 0 || confl[k].i >= nr_sets || confl[k].j < 0 || confl[k].j >= nr_sets || confl[k].i == confl[k].j )
+                    printf( "engine_bonded_sets: invalid %ith conflict [%i,%i].\n" ,
+                        k , confl[k].i , confl[k].j );
+            for ( avg_nconfl = 0 , k = 0 ; k < nr_sets ; k++ )
+                avg_nconfl += nconfl[k];
+            if ( avg_nconfl/2 != confl_count )
+                printf( "engine_bonded_sets: inconsistent nconfl (%f != %i)!\n" ,
+                    avg_nconfl/2 , confl_count );
+            for ( k = 1 ; k < 2*confl_count ; k++ )
+                if ( confl_sorted[k].i < confl_sorted[k-1].i )
+                    printf( "engine_bonded_sets: sorting is botched!\n" );
+            for ( k = 0 ; k < nr_sets ; k++ )
+                if ( confl_index[k+1]-confl_index[k] != nconfl[k] ) {
+                    printf( "engine_bonded_sets: nconfl and confl inconsistent (%i:%i-%i != %i)!\n" ,
+                        k , confl_index[k+1] , confl_index[k] , nconfl[k] );
+                    printf( "engine_bonded_sets: conflicts are" );
+                    for ( j = confl_index[k] ; j < confl_index[k+1] ; j++ )
+                        printf( " [%i,%i]" , confl_sorted[j].i , confl_sorted[j].j );
+                    printf( ".\n" );
+                    } */
+
+            /* Init min_i, min_j and min_confl. */
+            min_i = -1;
+            min_j = -1;
+            max_confl = -1;
+
+            /* For every pair of sets i and j... */
+            for ( i = 0; i < nr_sets ; i++ ) {
+
+                /* Skip i? */
+                if ( weight[i] > avg_weight || nconfl[i] <= max_confl )
+                    continue;
+
+                /* Mark the conflicts in the ith set. */
+                for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
+                    confl_counts[ confl_sorted[k].j ] = 1;
+                confl_counts[i] = 1;
+
+                /* Loop over all following sets. */
+                for ( jj = confl_index[i] ; jj < confl_index[i+1] ; jj++ ) {
+
+                    /* Skip j? */
+                    j = confl_sorted[jj].j;
+                    if ( weight[j] > avg_weight || nconfl[j] <= max_confl )
+                        continue;
+
+                    /* Get the number of conflicts in the combined set of i and j. */
+                    for ( nr_confl = 0 , k = confl_index[j] ; k < confl_index[j+1] ; k++ )
+                        if ( confl_counts[ confl_sorted[k].j ] )
+                            nr_confl += 1;
+
+                    /* Is this value larger than the current maximum? */
+                    if ( nr_confl > max_confl ) {
+                        max_confl = nr_confl; min_i = i; min_j = j;
+                        }
+
+                    } /* loop over following sets. */
+
+                /* Un-mark the conflicts in the ith set. */
+                for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
+                    confl_counts[ confl_sorted[k].j ] = 0;
+                confl_counts[i] = 0;
+
+                } /* for every pair of sets i and j. */
+                
+                
+            /* If we didn't find anything, look for non-related set pairs (more expensive). */
+            if ( min_i < 0 || min_j < 0 ) {
+            
+                /* For every pair of sets i and j... */
+                for ( i = 0; i < nr_sets ; i++ ) {
+
+                    /* Skip i? */
+                    if ( weight[i] > avg_weight || nconfl[i] <= max_confl )
+                        continue;
+
+                    /* Mark the conflicts in the ith set. */
+                    for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
+                        confl_counts[ confl_sorted[k].j ] = 1;
+                    confl_counts[i] = 1;
+
+                    /* Loop over all following sets. */
+                    for ( j = i+1 ; j < nr_sets ; j++ ) {
+
+                        /* Skip j? */
+                        if ( weight[j] > avg_weight || nconfl[j] <= max_confl )
+                            continue;
+
+                        /* Get the number of conflicts in the combined set of i and j. */
+                        for ( nr_confl = 0 , k = confl_index[j] ; k < confl_index[j+1] ; k++ )
+                            if ( confl_counts[ confl_sorted[k].j ] )
+                                nr_confl += 1;
+
+                        /* Is this value larger than the current maximum? */
+                        if ( nr_confl > max_confl ) {
+                            max_confl = nr_confl; min_i = i; min_j = j;
+                            }
+
+                        } /* loop over following sets. */
+
+                    /* Un-mark the conflicts in the ith set. */
+                    for ( k = confl_index[i] ; k < confl_index[i+1] ; k++ )
+                        confl_counts[ confl_sorted[k].j ] = 0;
+                    confl_counts[i] = 0;
+
+                    } /* for every pair of sets i and j. */
+                
+                }
+            
+            /* If we didn't find anything, merge the pairs with the lowest weight. */
+            if ( min_i < 0 || min_j < 0 ) {
+            
+                /* Find the set with the minimum weight. */
+                for (  min_i = 0 , i = 1 ; i < nr_sets ; i++ )
+                    if ( weight[i] < weight[min_i] )
+                        min_i = i;
+                      
+                /* Find the set with the second-minimum weight. */
+                min_j = ( min_i == 0 ? 1 : 0 );
+                for ( j = 0 ; j < nr_sets ; j++ )
+                    if ( j != min_i && weight[j] < weight[min_j] )
+                        min_j = j;
+                    
+                }
+                
+            /* Did we catch any pair? */
+            if ( min_i < 0 || min_j < 0 ) {
+                printf( "engine_bonded_sets: could not find a pair to merge!\n" );
+                return error(engine_err_sets);
+                }
+                
+            /* Mark the sets with which min_i conflicts. */
+            for ( k = confl_index[min_i] ; k < confl_index[min_i+1] ; k++ )
+                confl_counts[ confl_sorted[k].j ] = 1;
+            confl_counts[ min_i ] = 1;
+
+            /* Re-label or remove conflicts with min_j. */
+            for ( k = 0 ; k < confl_count ; k++ )
+                if ( confl[k].i == min_j ) {
+                    if ( confl_counts[ confl[k].j ] ) {
+                        nconfl[ confl[k].j ] -= 1;
+                        confl[ k-- ] = confl[ --confl_count ];
+                        }
+                    else {
+                        confl[k].i = min_i;
+                        nconfl[min_i] += 1;
+                        }
+                    }
+                else if ( confl[k].j == min_j ) {
+                    if ( confl_counts[ confl[k].i ] ) {
+                        nconfl[ confl[k].i ] -= 1;
+                        confl[ k-- ] = confl[ --confl_count ];
+                        }
+                    else {
+                        confl[k].j = min_i;
+                        nconfl[min_i] += 1;
+                        }
+                    }
+                
+            }
+            
         /* Otherwise, say something. */
         /* else    
             printf( "engine_bonded_sets: found pair of sets %i and %i with %i less confl.\n" ,
@@ -625,40 +886,23 @@ int engine_bonded_sets ( struct engine *e ) {
             if ( setid_exclusions[k] == min_j )
                 setid_exclusions[k] = min_i;
                 
-        /* Mark the sets with which min_i conflicts. */
-        for ( k = confl_index[min_i] ; k < confl_index[min_i+1] ; k++ )
-            confl_counts[ confl_sorted[k].j ] = 1;
-        confl_counts[ min_i ] = 1;
-                
-        /* Re-label or remove conflicts with min_j. */
-        for ( k = 0 ; k < confl_count ; k++ )
-            if ( confl[k].i == min_j ) {
-                if ( confl_counts[ confl[k].j ] ) {
-                    nconfl[ confl[k].j ] -= 1;
-                    confl[ k-- ] = confl[ --confl_count ];
-                    }
-                else {
-                    confl[k].i = min_i;
-                    nconfl[min_i] += 1;
-                    }
-                }
-            else if ( confl[k].j == min_j ) {
-                if ( confl_counts[ confl[k].i ] ) {
-                    nconfl[ confl[k].i ] -= 1;
-                    confl[ k-- ] = confl[ --confl_count ];
-                    }
-                else {
-                    confl[k].j = min_i;
-                    nconfl[min_i] += 1;
-                    }
-                }
-                
         /* Remove the set min_j (replace by last). */
         weight[min_i] += weight[min_j];
         nr_sets -= 1;
         weight[min_j] = weight[nr_sets];
         nconfl[min_j] = nconfl[nr_sets];
-        vsetid[nr_sets] = min_j;
+        for ( k = 0 ; k < e->nr_bonds ; k++ )
+            if ( setid_bonds[k] == nr_sets )
+                setid_bonds[k] = min_j;
+        for ( k = 0 ; k < e->nr_angles ; k++ )
+            if ( setid_angles[k] == nr_sets )
+                setid_angles[k] = min_j;
+        for ( k = 0 ; k < e->nr_dihedrals ; k++ )
+            if ( setid_dihedrals[k] == nr_sets )
+                setid_dihedrals[k] = min_j;
+        for ( k = 0 ; k < e->nr_exclusions ; k++ )
+            if ( setid_exclusions[k] == nr_sets )
+                setid_exclusions[k] = min_j;
         for ( k = 0 ; k < confl_count ; k++ )
             if ( confl[k].i == nr_sets )
                 confl[k].i = min_j;
@@ -680,35 +924,24 @@ int engine_bonded_sets ( struct engine *e ) {
     bzero( e->sets , sizeof(struct engine_set) * nr_sets );
     
     /* Fill in the counts. */
-    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
-        for ( j = setid_bonds[k] ; j != vsetid[j] ; j = vsetid[j] );
-        setid_bonds[k] = j;
-        e->sets[j].nr_bonds += 1;
-        }
-    for ( k = 0 ; k < e->nr_angles ; k++ ) {
-        for ( j = setid_angles[k] ; j != vsetid[j] ; j = vsetid[j] );
-        setid_angles[k] = j;
-        e->sets[j].nr_angles += 1;
-        }
-    for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
-        for ( j = setid_dihedrals[k] ; j != vsetid[j] ; j = vsetid[j] );
-        setid_dihedrals[k] = j;
-        e->sets[j].nr_dihedrals += 1;
-        }
-    for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
-        for ( j = setid_exclusions[k] ; j != vsetid[j] ; j = vsetid[j] );
-        setid_exclusions[k] = j;
-        e->sets[j].nr_exclusions += 1;
-        }
+    for ( k = 0 ; k < e->nr_bonds ; k++ )
+        e->sets[ setid_bonds[k] ].nr_bonds += 1;
+    for ( k = 0 ; k < e->nr_angles ; k++ )
+        e->sets[ setid_angles[k] ].nr_angles += 1;
+    for ( k = 0 ; k < e->nr_dihedrals ; k++ )
+        e->sets[ setid_dihedrals[k] ].nr_dihedrals += 1;
+    for ( k = 0 ; k < e->nr_exclusions ; k++ )
+        e->sets[ setid_exclusions[k] ].nr_exclusions += 1;
         
     /* Allocate the index lists. */
     for ( k = 0 ; k < nr_sets ; k++ ) {
-        if ( ( e->sets[k].bonds = (int *)malloc( sizeof(int) * e->sets[k].nr_bonds ) ) == NULL ||
-             ( e->sets[k].angles = (int *)malloc( sizeof(int) * e->sets[k].nr_angles ) ) == NULL ||
-             ( e->sets[k].dihedrals = (int *)malloc( sizeof(int) * e->sets[k].nr_dihedrals ) ) == NULL ||
-             ( e->sets[k].exclusions = (int *)malloc( sizeof(int) * e->sets[k].nr_exclusions ) ) == NULL ||
+        if ( ( e->sets[k].bonds = (struct bond *)malloc( sizeof(struct bond) * e->sets[k].nr_bonds ) ) == NULL ||
+             ( e->sets[k].angles = (struct angle *)malloc( sizeof(struct angle) * e->sets[k].nr_angles ) ) == NULL ||
+             ( e->sets[k].dihedrals = (struct dihedral *)malloc( sizeof(struct dihedral) * e->sets[k].nr_dihedrals ) ) == NULL ||
+             ( e->sets[k].exclusions = (struct exclusion *)malloc( sizeof(struct exclusion) * e->sets[k].nr_exclusions ) ) == NULL ||
              ( e->sets[k].confl = (int *)malloc( sizeof(int) * nconfl[k] ) ) == NULL )
             return error(engine_err_malloc);
+        e->sets[k].weight = e->sets[k].nr_bonds + e->sets[k].nr_exclusions + 2*e->sets[k].nr_angles + 3*e->sets[k].nr_dihedrals;
         e->sets[k].nr_bonds = 0;
         e->sets[k].nr_angles = 0;
         e->sets[k].nr_dihedrals = 0;
@@ -717,20 +950,20 @@ int engine_bonded_sets ( struct engine *e ) {
     
     /* Fill in the indices. */
     for ( k = 0 ; k < e->nr_bonds ; k++ ) {
-        j = vsetid[ setid_bonds[k] ];
-        e->sets[j].bonds[ e->sets[j].nr_bonds++ ] = k;
+        j = setid_bonds[k];
+        e->sets[j].bonds[ e->sets[j].nr_bonds++ ] = e->bonds[ k ];
         }
     for ( k = 0 ; k < e->nr_angles ; k++ ) {
-        j = vsetid[ setid_angles[k] ];
-        e->sets[j].angles[ e->sets[j].nr_angles++ ] = k;
+        j = setid_angles[k];
+        e->sets[j].angles[ e->sets[j].nr_angles++ ] = e->angles[ k ];
         }
     for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
-        j = vsetid[ setid_dihedrals[k] ];
-        e->sets[j].dihedrals[ e->sets[j].nr_dihedrals++ ] = k;
+        j = setid_dihedrals[k];
+        e->sets[j].dihedrals[ e->sets[j].nr_dihedrals++ ] = e->dihedrals[ k ];
         }
     for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
-        j = vsetid[ setid_exclusions[k] ];
-        e->sets[j].exclusions[ e->sets[j].nr_exclusions++ ] = k;
+        j = setid_exclusions[k];
+        e->sets[j].exclusions[ e->sets[j].nr_exclusions++ ] = e->exclusions[ k ];
         }
         
     /* Fill in the conflicts. */
@@ -742,36 +975,36 @@ int engine_bonded_sets ( struct engine *e ) {
         
         
     /* Dump the sets. */
-    for ( k = 0 ; k < nr_sets ; k++ ) {
+    /* for ( k = 0 ; k < nr_sets ; k++ ) {
         printf( "engine_bonded_sets: set %i:\n" , k );
-        printf( "engine_bonded_sets:    bonds = [ " );
+        printf( "engine_bonded_sets:    bonds[%i] = [ " , e->sets[k].nr_bonds );
         for ( j = 0 ; j < e->sets[k].nr_bonds ; j++ )
             printf( "%i " , e->sets[k].bonds[j] );
         printf( "]\n" );
-        printf( "engine_bonded_sets:    angles = [ " );
+        printf( "engine_bonded_sets:    angles[%i] = [ " , e->sets[k].nr_angles );
         for ( j = 0 ; j < e->sets[k].nr_angles ; j++ )
             printf( "%i " , e->sets[k].angles[j] );
         printf( "]\n" );
-        printf( "engine_bonded_sets:    dihedrals = [ " );
+        printf( "engine_bonded_sets:    dihedrals[%i] = [ " , e->sets[k].nr_dihedrals );
         for ( j = 0 ; j < e->sets[k].nr_dihedrals ; j++ )
             printf( "%i " , e->sets[k].dihedrals[j] );
         printf( "]\n" );
-        printf( "engine_bonded_sets:    exclusions = [ " );
+        printf( "engine_bonded_sets:    exclusions[%i] = [ " , e->sets[k].nr_exclusions );
         for ( j = 0 ; j < e->sets[k].nr_exclusions ; j++ )
             printf( "%i " , e->sets[k].exclusions[j] );
         printf( "]\n" );
-        printf( "engine_bonded_sets:    conflicts = [ " );
+        printf( "engine_bonded_sets:    conflicts[%i] = [ " , e->sets[k].nr_confl );
         for ( j = 0 ; j < e->sets[k].nr_confl ; j++ )
             printf( "%i " , e->sets[k].confl[j] );
         printf( "]\n" );
-        }
+        printf( "engine_bonded_sets:    weight = %i\n" , e->sets[k].nr_bonds + e->sets[k].nr_exclusions + 2*e->sets[k].nr_angles + 3*e->sets[k].nr_dihedrals );
+        } */
         
     /* Clean up the allocated memory. */
     free( nconfl );
     free( weight );
     free( confl );
     free( confl_sorted );
-    free( vsetid );
     free( setid_bonds ); free( setid_angles ); free( setid_dihedrals );
     free( setid_rigids ); free( setid_exclusions );
         

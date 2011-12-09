@@ -42,6 +42,8 @@
 #define engine_err_cpf                   -16
 #define engine_err_potential             -17
 #define engine_err_exclusion             -18
+#define engine_err_sets                  -19
+#define engine_err_dihedral              -20
 
 
 /* some constants */
@@ -61,6 +63,7 @@
 #define engine_flag_mpi                  4096
 #define engine_flag_parbonded            8192
 #define engine_flag_async                16384
+#define engine_flag_sets                 32768
 
 #define engine_bonds_chunk               100
 #define engine_angles_chunk              100
@@ -210,10 +213,13 @@ struct engine {
 struct engine_set {
 
     /* Counts of the different interaction types. */
-    int nr_bonds, nr_angles, nr_dihedrals, nr_exclusions;
+    int nr_bonds, nr_angles, nr_dihedrals, nr_exclusions, weight;
     
     /* Lists of ID of the relevant bonded types. */
-    int *bonds, *angles, *dihedrals, *exclusions;
+    struct bond *bonds;
+    struct angle *angles;
+    struct dihedral *dihedrals;
+    struct exclusion *exclusions;
     
     /* Nr of sets with which this set conflicts. */
     int nr_confl;
@@ -249,7 +255,8 @@ int engine_bond_addpot ( struct engine *e , struct potential *p , int i , int j 
 int engine_bond_add ( struct engine *e , int i , int j );
 int engine_bond_eval ( struct engine *e );
 int engine_bonded_eval ( struct engine *e );
-int engine_bonded_sets ( struct engine *e );
+int engine_bonded_eval_sets ( struct engine *e );
+int engine_bonded_sets ( struct engine *e , int max_sets );
 int engine_dihedral_add ( struct engine *e , int i , int j , int k , int l , int pid );
 int engine_dihedral_addpot ( struct engine *e , struct potential *p );
 int engine_dihedral_eval ( struct engine *e );

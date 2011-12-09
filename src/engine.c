@@ -64,7 +64,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[19] = {
+char *engine_err_msg[21] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -84,6 +84,8 @@ char *engine_err_msg[19] = {
     "An error occured while interpreting the CPF file.",
     "An error occured when calling a potential function.", 
     "An error occured when calling an exclusion function.", 
+    "An error occured while computing the bonded sets.", 
+    "An error occured when calling a dihedral funtion.", 
 	};
 
 
@@ -1530,8 +1532,14 @@ int engine_step ( struct engine *e ) {
             
     /* Do bonded interactions. */
     tic = getticks();
-    if ( engine_bonded_eval( e ) < 0 )
-        return error(engine_err);
+    if ( e->flags & engine_flag_sets ) {
+        if ( engine_bonded_eval_sets( e ) < 0 )
+            return error(engine_err);
+        }
+    else {
+        if ( engine_bonded_eval( e ) < 0 )
+            return error(engine_err);
+        }
     e->timers[engine_timer_bonded] += getticks() - tic;
 
     /* update the particle velocities and positions. */
