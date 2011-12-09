@@ -1551,14 +1551,15 @@ int engine_step ( struct engine *e ) {
     /* Shake the particle positions? */
     if ( e->nr_rigids > 0 ) {
     
-        /* Sort the constraints. */
-        tic = getticks();
-        if ( engine_rigid_sort( e ) != 0 )
-            return error(engine_err);
-        e->timers[engine_timer_rigid] += getticks() - tic;
-    
+        /* If we have to do some communication first... */
         if ( e->flags & engine_flag_mpi ) {
         
+            /* Sort the constraints. */
+            tic = getticks();
+            if ( engine_rigid_sort( e ) != 0 )
+                return error(engine_err);
+            e->timers[engine_timer_rigid] += getticks() - tic;
+    
             /* Start the clock. */
             tic = getticks();
     
@@ -1768,6 +1769,10 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     e->nr_types = 0;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )
         return error(engine_err_malloc);
+        
+    /* Init the sets. */
+    e->sets = NULL;
+    e->nr_sets = 0;
     
     /* allocate the interaction matrices */
     if ( (e->p = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type )) == NULL)

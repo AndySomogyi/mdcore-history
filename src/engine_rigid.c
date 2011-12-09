@@ -204,6 +204,9 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
         
         }
         
+    /* Re-set the rigid local/semilocal counts. */
+    e->rigids_local = e->rigids_semilocal = e->nr_rigids;
+        
     /* It's the end of the world as we know it. */
     return engine_err_ok;
 
