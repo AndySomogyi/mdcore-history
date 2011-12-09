@@ -661,7 +661,7 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
             }
                     
         /* Did we find a mergeable pair? */
-        if ( nconfl[min_i] == 0 && ( min_j < nr_sets && nconfl[min_j] == 0 ) ) {
+        if ( ( min_i >= 0 && nconfl[min_i] == 0 ) && ( min_j < nr_sets && nconfl[min_j] == 0 ) ) {
         
             /* printf( "engine_bonded_sets: found disjoint sets %i and %i, %i confl.\n" ,
                 min_i , min_j , nconfl[min_i] + nconfl[min_j] ); */
