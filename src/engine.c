@@ -1155,6 +1155,10 @@ int engine_start ( struct engine *e , int nr_runners ) {
     struct space *s = &e->s;
     struct runner *temp;
     
+    /* Is MPI really needed? */
+    if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
+        e->flags &= ~( engine_flag_mpi | engine_flag_async );
+
     /* Set up async communication? */
     if ( e->flags & engine_flag_async ) {
     
@@ -1210,6 +1214,10 @@ int engine_start ( struct engine *e , int nr_runners ) {
         s->verlet_rebuild = 1;
 
         }
+        
+    /* Is MPI really needed? */
+    if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
+        e->flags &= ~engine_flag_mpi;
 
     /* (re)allocate the runners */
     if ( e->nr_runners == 0 ) {
@@ -1470,7 +1478,6 @@ int engine_advance ( struct engine *e ) {
  * Once all the #runner's are done, the particle velocities and positions
  * are updated and the particles are re-sorted in the #space.
  */
-/* TODO: Should the velocities and positions really be updated here? */
 
 int engine_step ( struct engine *e ) {
 
