@@ -1408,7 +1408,7 @@ int engine_advance ( struct engine *e ) {
             step = omp_get_num_threads(); epot_local = 0.0;
             for ( cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
                 c = &(s->cells[ s->cid_real[cid] ]);
-                epot += c->epot;
+                epot_local += c->epot;
                 pid = 0;
                 while ( pid < c->count ) {
 
