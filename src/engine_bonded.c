@@ -77,8 +77,8 @@ int engine_bonded_eval_sets ( struct engine *e ) {
 
     double epot = 0.0;
     #ifdef HAVE_OPENMP
-        int sets_taboo[ 20 ];
-        int k, j, set_curr, sets_next = 0, sets_ind[ 20 ];
+        int sets_taboo[ e->nr_sets];
+        int k, j, set_curr, sets_next = 0, sets_ind[ e->nr_sets ];
         double epot_local;
         ticks toc_bonds, toc_angles, toc_dihedrals, toc_exclusions;
     #endif
@@ -651,11 +651,11 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
         
         /* First try to do the cheap thing: find a pair with
            zero conflicts each. */
-        for ( min_i = -1 , i = 0 ; i < nr_sets && nconfl[min_i] > 0 ; i++ )
+        for ( min_i = -1 , i = 0 ; i < nr_sets && ( min_i < 0 || nconfl[min_i] ) > 0 ; i++ )
             if ( weight[i] < avg_weight && ( min_i < 0 || nconfl[i] < nconfl[min_i] ) )
                 min_i = i;
         if ( nconfl[min_i] == 0 ) {
-            for ( min_j = -1 , j = i+1 ; j < nr_sets &&  nconfl[min_j] > 0 ; j++ )
+            for ( min_j = -1 , j = i+1 ; j < nr_sets && ( min_j < 0 || nconfl[min_j] > 0 ) ; j++ )
                 if ( weight[j] < avg_weight && ( min_j < -1 || nconfl[j] < nconfl[min_j] ) )
                     min_j = j;
             }
