@@ -90,6 +90,53 @@ char *engine_err_msg[21] = {
 
 
 /**
+ * @brief Re-shuffle the particles in the engine.
+ *
+ * @param e The #engine on which to run.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_shuffle ( struct engine *e ) {
+
+    int cid, k;
+    struct cell *c;
+    struct space *s = &e->s;
+    
+    /* Flush the ghost cells (to avoid overlapping particles) */
+    #pragma omp parallel for schedule(static), private(cid)
+    for ( cid = 0 ; cid < s->nr_ghost ; cid++ )
+        cell_flush( &(s->cells[s->cid_ghost[cid]]) , s->partlist , s->celllist );
+
+    /* Shuffle the domain. */
+    if ( space_shuffle_local( s ) < 0 )
+        return error(engine_err_space);
+
+    /* Get the incomming particle from other procs if needed. */
+    if ( e->flags & engine_flag_mpi )
+        if ( engine_exchange_incomming( e ) < 0 )
+            return error(engine_err);
+
+    /* Welcome the new particles in each cell, unhook the old ones. */
+    #pragma omp parallel for schedule(static), private(cid,c,k)
+    for ( cid = 0 ; cid < s->nr_marked ; cid++ ) {
+        c = &(s->cells[s->cid_marked[cid]]);
+        if ( !(c->flags & cell_flag_ghost) )
+            cell_welcome( c , s->partlist );
+        else {
+            for ( k = 0 ; k < c->incomming_count ; k++ )
+                e->s.partlist[ c->incomming[k].id ] = NULL;
+            c->incomming_count = 0;
+            }
+        }
+
+    /* return quietly */
+    return engine_err_ok;
+    
+    }
+
+
+/**
  * @brief Set all the engine timers to 0.
  *
  * @param e The #engine.
@@ -144,11 +191,28 @@ int engine_verlet_update ( struct engine *e ) {
     skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) ) - s->cutoff;
     
     /* Get the maximum particle movement. */
-    #ifdef HAVE_OPENMP
-        #pragma omp parallel private(c,cid,pid,p,dx,k,w,step,lmaxdx)
-        {
-            lmaxdx = 0.0; step = omp_get_num_threads();
-            for ( cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
+    if ( !s->verlet_rebuild ) {
+    
+        #ifdef HAVE_OPENMP
+            #pragma omp parallel private(c,cid,pid,p,dx,k,w,step,lmaxdx)
+            {
+                lmaxdx = 0.0; step = omp_get_num_threads();
+                for ( cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
+                    c = &(s->cells[s->cid_real[cid]]);
+                    for ( pid = 0 ; pid < c->count ; pid++ ) {
+                        p = &(c->parts[pid]);
+                        for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
+                            w = p->x[k] - c->oldx[ 4*pid + k ];
+                            dx += w*w;
+                            }
+                        lmaxdx = fmax( dx , lmaxdx );
+                        }
+                    }
+                #pragma omp critical
+                maxdx = fmax( lmaxdx , maxdx );
+                }
+        #else
+            for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
                 c = &(s->cells[s->cid_real[cid]]);
                 for ( pid = 0 ; pid < c->count ; pid++ ) {
                     p = &(c->parts[pid]);
@@ -156,37 +220,24 @@ int engine_verlet_update ( struct engine *e ) {
                         w = p->x[k] - c->oldx[ 4*pid + k ];
                         dx += w*w;
                         }
-                    lmaxdx = fmax( dx , lmaxdx );
+                    maxdx = fmax( dx , maxdx );
                     }
                 }
-            #pragma omp critical
-            maxdx = fmax( lmaxdx , maxdx );
-            }
-    #else
-        for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
-            c = &(s->cells[s->cid_real[cid]]);
-            for ( pid = 0 ; pid < c->count ; pid++ ) {
-                p = &(c->parts[pid]);
-                for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    w = p->x[k] - c->oldx[ 4*pid + k ];
-                    dx += w*w;
-                    }
-                maxdx = fmax( dx , maxdx );
-                }
-            }
-    #endif
+        #endif
 
-    #ifdef HAVE_MPI
-    /* Collect the maximum displacement from other nodes. */
-    if ( ( e->flags & engine_flag_mpi ) && ( e->nr_nodes > 1 ) ) {
-        /* Do not use in-place as it is buggy when async is going on in the background. */
-        if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE_PRECISION , MPI_MAX , e->comm ) != MPI_SUCCESS )
-            return error(engine_err_mpi);
+        #ifdef HAVE_MPI
+        /* Collect the maximum displacement from other nodes. */
+        if ( ( e->flags & engine_flag_mpi ) && ( e->nr_nodes > 1 ) ) {
+            /* Do not use in-place as it is buggy when async is going on in the background. */
+            if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE_PRECISION , MPI_MAX , e->comm ) != MPI_SUCCESS )
+                return error(engine_err_mpi);
+            }
+        #endif
+
+        /* Are we still in the green? */
+        s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
+
         }
-    #endif
-
-    /* Are we still in the green? */
-    s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
         
     /* Do we have to rebuild the Verlet list? */
     if ( s->verlet_rebuild ) {
@@ -1510,25 +1561,29 @@ int engine_step ( struct engine *e ) {
         e->timers[engine_timer_verlet] += getticks() - tic;
             
         }
-            
+                    
     /* Re-distribute the particles to the processors. */
     if ( e->flags & engine_flag_mpi ) {
         
         /* Start the clock. */
         tic = getticks();
-    
+        
         if ( e->flags & engine_flag_async ) {
-            if ( engine_exchange_async( e ) != 0 )
+            if ( !( e->flags & engine_flag_verlet ) ) {
+                if ( engine_shuffle( e ) < 0 )
+                    return error(engine_err_space);
+                }
+            if ( engine_exchange_async( e ) < 0 )
                 return error(engine_err);
             }
         else {
-            if ( engine_exchange( e ) != 0 )
+            if ( engine_exchange( e ) < 0 )
                 return error(engine_err);
             }
             
         /* Store the timing. */
         e->timers[engine_timer_exchange1] += getticks() - tic;
-            
+        
         }
             
     /* Compute the non-bonded interactions. */

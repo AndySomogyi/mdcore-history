@@ -755,16 +755,14 @@ int engine_exchange_async ( struct engine *e ) {
 #ifdef HAVE_MPI 
 int engine_exchange ( struct engine *e ) {
 
-    int i, k, ind, res, pid, cid, delta[3];
+    int i, k, ind, res;
     int *counts_in[ e->nr_nodes ], *counts_out[ e->nr_nodes ];
     int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
     MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
     MPI_Request reqs_send2[ e->nr_nodes ], reqs_recv2[ e->nr_nodes ];
     struct part *buff_send[ e->nr_nodes ], *buff_recv[ e->nr_nodes ], *finger;
-    struct cell *c, *c_dest;
-    struct part *p;
+    struct cell *c;
     struct space *s;
-    FPTYPE h[3];
     
     /* Check the input. */
     if ( e == NULL )
@@ -776,8 +774,6 @@ int engine_exchange ( struct engine *e ) {
         
     /* Get local copies of some data. */
     s = &e->s;
-    for ( k = 0 ; k < 3 ; k++ )
-        h[k] = s->h[k];
         
     /* Wait for any asynchronous calls to finish. */
     if ( e->flags & engine_flag_async )
@@ -928,58 +924,21 @@ int engine_exchange ( struct engine *e ) {
             }
         }
         
-    /* Do we need to update cell locations? */
+    /* Make sure each part is in the right cell, but only if we're
+       not using Verlet lists. */
     if ( !( e->flags & engine_flag_verlet ) ) {
     
-        /* Shuffle the particles to the correct cells. */
-        #pragma omp parallel for schedule(static), private(cid,c,pid,p,k,delta,c_dest)
-        for ( cid = 0 ; cid < s->nr_marked ; cid++ ) {
-            c = &(s->cells[s->cid_marked[cid]]);
-            pid = 0;
-            while ( pid < c->count ) {
-
-                p = &( c->parts[pid] );
-                for ( k = 0 ; k < 3 ; k++ )
-                    delta[k] = __builtin_isgreaterequal( p->x[k] , h[k] ) - __builtin_isless( p->x[k] , 0.0 );
-
-                /* do we have to move this particle? */
-                if ( ( delta[0] != 0 ) || ( delta[1] != 0 ) || ( delta[2] != 0 ) ) {
-                    for ( k = 0 ; k < 3 ; k++ )
-                        p->x[k] -= delta[k] * h[k];
-                    c_dest = &( s->cells[ space_cellid( s ,
-                        (c->loc[0] + delta[0] + s->cdim[0]) % s->cdim[0] , 
-                        (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
-                        (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
-
-	                if ( c_dest->flags & cell_flag_marked ) {
-                        pthread_mutex_lock(&c_dest->cell_mutex);
-                        cell_add_incomming( c_dest , p );
-	                    pthread_mutex_unlock(&c_dest->cell_mutex);
-                        s->celllist[ p->id ] = c_dest;
-                        }
-                    else {
-                        s->partlist[ p->id ] = NULL;
-                        s->celllist[ p->id ] = NULL;
-                        }
-
-                    c->count -= 1;
-                    if ( pid < c->count ) {
-                        c->parts[pid] = c->parts[c->count];
-                        s->partlist[ c->parts[pid].id ] = &( c->parts[pid] );
-                        }
-                    }
-                else
-                    pid += 1;
-                }
-            }
-
-        /* Welcome the new particles in each cell. */
-        #pragma omp parallel for schedule(static), private(c)
-        for ( cid = 0 ; cid < s->nr_marked ; cid++ )
-            cell_welcome( &(s->cells[s->cid_marked[cid]]) , s->partlist );
+        /* Shuffle the space. */
+        if ( space_shuffle( s ) < 0 )
+            return error(engine_err_space);
             
+        /* Welcome the parts into the respective cells. */
+        #pragma omp parallel for schedule(static), private(i)
+        for ( i = 0 ; i < s->nr_marked ; i++ )
+            cell_welcome( &( s->cells[ s->cid_marked[i] ] ) , s->partlist );
+    
         }
-        
+            
     /* Call it a day. */
     return engine_err_ok;
         
@@ -1007,7 +966,6 @@ int engine_exchange_incomming ( struct engine *e ) {
     struct part *buff_send[ e->nr_nodes ], *buff_recv[ e->nr_nodes ], *finger;
     struct cell *c;
     struct space *s;
-    FPTYPE h[3];
     
     /* Check the input. */
     if ( e == NULL )
@@ -1019,8 +977,6 @@ int engine_exchange_incomming ( struct engine *e ) {
         
     /* Get local copies of some data. */
     s = &e->s;
-    for ( k = 0 ; k < 3 ; k++ )
-        h[k] = s->h[k];
         
     /* Initialize the request queues. */
     for ( k = 0 ; k < e->nr_nodes ; k++ ) {

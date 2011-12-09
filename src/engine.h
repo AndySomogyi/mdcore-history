@@ -90,6 +90,7 @@ enum {
     engine_timer_advance,
     engine_timer_rigid,
     engine_timer_exchange2,
+    engine_timer_shuffle,
     engine_timer_last
     };
 
@@ -280,6 +281,7 @@ int engine_rigid_eval ( struct engine *e );
 int engine_rigid_sort ( struct engine *e );
 int engine_rigid_unsort ( struct engine *e );
 int engine_setexplepot ( struct engine *e , struct potential *ep );
+int engine_shuffle ( struct engine *e );
 int engine_split_bisect ( struct engine *e , int N );
 int engine_split ( struct engine *e );
 int engine_start_SPU ( struct engine *e , int nr_runners );
