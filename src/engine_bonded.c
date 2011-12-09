@@ -655,12 +655,12 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
         for ( min_j = min_i+1 ; min_j < nr_sets && ( weight[min_j] >= avg_weight || nconfl[min_j] > 0 ) ; min_j++ );
                     
         /* Did we find a mergeable pair? */
-        if ( ( min_i < e->nr_sets && nconfl[min_i] == 0 ) && ( min_j < nr_sets && nconfl[min_j] == 0 ) ) {
+        if ( min_i < nr_sets && min_j < nr_sets ) {
         
             /* printf( "engine_bonded_sets: found disjoint sets %i and %i, %i confl.\n" ,
                 min_i , min_j , nconfl[min_i] + nconfl[min_j] ); */
         
-            } 
+            }
         
         /* Otherwise, look for a pair sharing a conflict. */
         else {
