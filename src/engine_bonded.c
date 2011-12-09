@@ -651,17 +651,11 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
         
         /* First try to do the cheap thing: find a pair with
            zero conflicts each. */
-        for ( min_i = -1 , i = 0 ; i < nr_sets && ( min_i < 0 || nconfl[min_i] ) > 0 ; i++ )
-            if ( weight[i] < avg_weight && ( min_i < 0 || nconfl[i] < nconfl[min_i] ) )
-                min_i = i;
-        if ( nconfl[min_i] == 0 ) {
-            for ( min_j = -1 , j = i+1 ; j < nr_sets && ( min_j < 0 || nconfl[min_j] > 0 ) ; j++ )
-                if ( weight[j] < avg_weight && ( min_j < 0 || nconfl[j] < nconfl[min_j] ) )
-                    min_j = j;
-            }
+        for ( min_i = 0 ; min_i < nr_sets && ( weight[min_i] >= avg_weight || nconfl[min_i] > 0 ) ; min_i++ );
+        for ( min_j = min_i+1 ; min_j < nr_sets && ( weight[min_j] >= avg_weight || nconfl[min_j] > 0 ) ; min_j++ );
                     
         /* Did we find a mergeable pair? */
-        if ( ( min_i >= 0 && nconfl[min_i] == 0 ) && ( min_j < nr_sets && nconfl[min_j] == 0 ) ) {
+        if ( ( min_i < e->nr_sets && nconfl[min_i] == 0 ) && ( min_j < nr_sets && nconfl[min_j] == 0 ) ) {
         
             /* printf( "engine_bonded_sets: found disjoint sets %i and %i, %i confl.\n" ,
                 min_i , min_j , nconfl[min_i] + nconfl[min_j] ); */
