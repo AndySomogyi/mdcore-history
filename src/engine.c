@@ -254,32 +254,9 @@ int engine_verlet_update ( struct engine *e ) {
         e->timers[engine_timer_exchange1] += tic;
         e->timers[engine_timer_verlet] -= tic;
                 
-        /* Flush the ghost cells (to avoid overlapping particles) */
-        #pragma omp parallel for schedule(static), private(cid)
-        for ( cid = 0 ; cid < s->nr_ghost ; cid++ )
-            cell_flush( &(s->cells[s->cid_ghost[cid]]) , s->partlist , s->celllist );
-        
-        /* Shuffle the domain. */
-        if ( space_shuffle_local( s ) < 0 )
-            return error(engine_err_space);
-            
-        /* Get the incomming particle from other procs if needed. */
-        if ( e->flags & engine_flag_mpi )
-            if ( engine_exchange_incomming( e ) < 0 )
-                return error(engine_err);
-                        
-        /* Welcome the new particles in each cell, unhook the old ones. */
-        #pragma omp parallel for schedule(static), private(cid,c,k)
-        for ( cid = 0 ; cid < s->nr_marked ; cid++ ) {
-            c = &(s->cells[s->cid_marked[cid]]);
-            if ( !(c->flags & cell_flag_ghost) )
-                cell_welcome( c , s->partlist );
-            else {
-                for ( k = 0 ; k < c->incomming_count ; k++ )
-                    e->s.partlist[ c->incomming[k].id ] = NULL;
-                c->incomming_count = 0;
-                }
-            }
+        /* Move the particles to the respecitve cells. */
+        if ( engine_shuffle( e ) < 0 )
+            return error(engine_err);
 
         /* Store the current positions as a reference. */
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
@@ -1561,6 +1538,15 @@ int engine_step ( struct engine *e ) {
         e->timers[engine_timer_verlet] += getticks() - tic;
             
         }
+        
+    /* Otherwise, if async MPI, move the particles accross the
+       node boundaries. */
+    else if ( e->flags & engine_flag_async ) {
+        tic = getticks();
+        if ( engine_shuffle( e ) < 0 )
+            return error(engine_err_space);
+        e->timers[engine_timer_advance] += getticks() - tic;
+        }
                     
     /* Re-distribute the particles to the processors. */
     if ( e->flags & engine_flag_mpi ) {
@@ -1569,10 +1555,6 @@ int engine_step ( struct engine *e ) {
         tic = getticks();
         
         if ( e->flags & engine_flag_async ) {
-            if ( !( e->flags & engine_flag_verlet ) ) {
-                if ( engine_shuffle( e ) < 0 )
-                    return error(engine_err_space);
-                }
             if ( engine_exchange_async( e ) < 0 )
                 return error(engine_err);
             }

@@ -971,22 +971,10 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
     /* Dump the sets. */
     /* for ( k = 0 ; k < nr_sets ; k++ ) {
         printf( "engine_bonded_sets: set %i:\n" , k );
-        printf( "engine_bonded_sets:    bonds[%i] = [ " , e->sets[k].nr_bonds );
-        for ( j = 0 ; j < e->sets[k].nr_bonds ; j++ )
-            printf( "%i " , e->sets[k].bonds[j] );
-        printf( "]\n" );
-        printf( "engine_bonded_sets:    angles[%i] = [ " , e->sets[k].nr_angles );
-        for ( j = 0 ; j < e->sets[k].nr_angles ; j++ )
-            printf( "%i " , e->sets[k].angles[j] );
-        printf( "]\n" );
-        printf( "engine_bonded_sets:    dihedrals[%i] = [ " , e->sets[k].nr_dihedrals );
-        for ( j = 0 ; j < e->sets[k].nr_dihedrals ; j++ )
-            printf( "%i " , e->sets[k].dihedrals[j] );
-        printf( "]\n" );
-        printf( "engine_bonded_sets:    exclusions[%i] = [ " , e->sets[k].nr_exclusions );
-        for ( j = 0 ; j < e->sets[k].nr_exclusions ; j++ )
-            printf( "%i " , e->sets[k].exclusions[j] );
-        printf( "]\n" );
+        printf( "engine_bonded_sets:    bonds: %i,\n" , e->sets[k].nr_bonds );
+        printf( "engine_bonded_sets:    angles: %i,\n" , e->sets[k].nr_angles );
+        printf( "engine_bonded_sets:    dihedrals: %i,\n" , e->sets[k].nr_dihedrals );
+        printf( "engine_bonded_sets:    exclusions: %i,\n" , e->sets[k].nr_exclusions );
         printf( "engine_bonded_sets:    conflicts[%i] = [ " , e->sets[k].nr_confl );
         for ( j = 0 ; j < e->sets[k].nr_confl ; j++ )
             printf( "%i " , e->sets[k].confl[j] );
