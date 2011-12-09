@@ -656,7 +656,7 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
                 min_i = i;
         if ( nconfl[min_i] == 0 ) {
             for ( min_j = -1 , j = i+1 ; j < nr_sets && ( min_j < 0 || nconfl[min_j] > 0 ) ; j++ )
-                if ( weight[j] < avg_weight && ( min_j < -1 || nconfl[j] < nconfl[min_j] ) )
+                if ( weight[j] < avg_weight && ( min_j < 0 || nconfl[j] < nconfl[min_j] ) )
                     min_j = j;
             }
                     
