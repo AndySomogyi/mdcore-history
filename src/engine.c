@@ -1536,7 +1536,7 @@ int engine_step ( struct engine *e ) {
             
         /* Store the timing. */
         e->timers[engine_timer_verlet] += getticks() - tic;
-            
+        
         }
         
     /* Otherwise, if async MPI, move the particles accross the
@@ -1573,6 +1573,10 @@ int engine_step ( struct engine *e ) {
     if ( engine_nonbond_eval( e ) < 0 )
         return error(engine_err);
     e->timers[engine_timer_nonbond] += getticks() - tic;
+    
+    /* Clear the verlet-rebuild flag if it was set. */
+    if ( e->flags & engine_flag_verlet && e->s.verlet_rebuild )
+        e->s.verlet_rebuild = 0;
             
     /* Do bonded interactions. */
     tic = getticks();
