@@ -410,7 +410,7 @@ int engine_exchange_rigid_async_run ( struct engine *e ) {
             return error(engine_err_mpi); */
 
         /* Unpack the received data. */
-        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+        for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
 
             /* Wait for this recv to come in. */
             res = MPI_Waitany( e->nr_nodes , reqs_recv , &ind , MPI_STATUS_IGNORE );
@@ -467,7 +467,7 @@ int engine_exchange_wait ( struct engine *e ) {
         
     /* If the async exchange was started but is not running,
        wait for a signal. */
-    while ( e->xchg_started && ~e->xchg_running )
+    while ( e->xchg_started && !( e->xchg_running ) )
         if ( pthread_cond_wait( &e->xchg_cond , &e->xchg_mutex ) != 0 )
             return error(engine_err_pthread);
         
@@ -640,7 +640,7 @@ int engine_exchange_async_run ( struct engine *e ) {
             return error(engine_err_mpi); */
 
         /* Unpack the received data. */
-        for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+        for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
 
             /* Wait for this recv to come in. */
             res = MPI_Waitany( e->nr_nodes , reqs_recv2 , &ind , MPI_STATUS_IGNORE );
@@ -828,7 +828,7 @@ int engine_exchange ( struct engine *e ) {
         
     /* Send and receive data for each neighbour as the counts trickle in. */
     #pragma omp parallel for schedule(static), private(i,finger,k,c,res)
-    for ( ind = 0 ; ind < e->nr_nodes ; ind++ ) {
+    for ( ind = 0 ; ind < e->nr_nodes-1 ; ind++ ) {
     
         /* Wait for this recv to come in. */
         #pragma omp critical
@@ -883,7 +883,7 @@ int engine_exchange ( struct engine *e ) {
         
     /* Unpack the received data. */
     #pragma omp parallel for schedule(static), private(i,ind,res,finger,k,c)
-    for ( i = 0 ; i < e->nr_nodes ; i++ ) {
+    for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
     
         /* Wait for this recv to come in. */
         #pragma omp critical

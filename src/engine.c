@@ -1361,8 +1361,14 @@ int engine_nonbond_eval ( struct engine *e ) {
 
     /* open the door for the runners */
     e->barrier_count = -e->barrier_count;
-    if (pthread_cond_broadcast(&e->barrier_cond) != 0)
-        return error(engine_err_pthread);
+    if ( e->nr_runners == 1 ) {
+        if (pthread_cond_signal(&e->barrier_cond) != 0)
+            return error(engine_err_pthread);
+        }
+    else {
+        if (pthread_cond_broadcast(&e->barrier_cond) != 0)
+            return error(engine_err_pthread);
+        }
 
     /* wait for the runners to come home */
     while (e->barrier_count < e->nr_runners)
