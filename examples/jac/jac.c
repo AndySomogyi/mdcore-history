@@ -78,7 +78,7 @@ int main ( int argc , char *argv[] ) {
 
     /* Local variables. */
     int res = 0, myrank, prov;
-    int step, incr, i, j, k, cid;
+    int step, incr, i, j, k, cid, w_min, w_max;
     FPTYPE ee, eff;
     double temp, v[3];
     FILE *dump, *psf, *pdb, *cpf;
@@ -140,8 +140,8 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
-    // if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    // if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_sets ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         abort();
@@ -189,7 +189,7 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
-    printf( "main[%i]: done reading parameters.\n" , myrank );
+    printf( "main[%i]: done reading parameters.\n" , myrank ); fflush(stdout);
     fclose( cpf );
     
     
@@ -222,6 +222,7 @@ int main ( int argc , char *argv[] ) {
         /* for ( k = 0 ; k < e.nr_types ; k++ )
             printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
         printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
+        fflush(stdout);
         }
         
     
@@ -295,7 +296,26 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
-    printf( "main[%i]: generated %i exclusions.\n" , myrank , e.nr_exclusions );
+    printf( "main[%i]: generated %i exclusions.\n" , myrank , e.nr_exclusions ); fflush(stdout);
+    
+    
+    /* Make the bonded sets. */
+    if ( e.flags & engine_flag_sets ) {
+        printf( "main[%i]: computing bonded sets...\n" , myrank ); fflush(stdout);
+        if ( engine_bonded_sets( &e , 10*nr_runners ) < 0 ) {
+            printf("main[%i]: engine_bonded_sets failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+        w_min = w_max = e.sets[0].weight;
+        for ( k = 1 ; k < e.nr_sets ; k++ )
+            if ( e.sets[k].weight > w_max )
+                w_max = e.sets[k].weight;
+            else if ( e.sets[k].weight < w_min )
+                w_min = e.sets[k].weight;
+        printf( "main[%i]: have %i bonded sets, weights in [%i,%i].\n" , myrank , e.nr_sets , w_min , w_max ); fflush(stdout);
+        }    
+        
     
     /* Assign all particles a random initial velocity. */
     vcom[0] = 0.0; vcom[1] = 0.0; vcom[2] = 0.0; mass_tot = 0.0;
