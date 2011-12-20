@@ -582,10 +582,11 @@ int engine_exchange_async_run ( struct engine *e ) {
             }
 
         /* Send and receive data. */
-        #pragma omp parallel for schedule(static), private(i,finger,k,c)
+        #pragma omp parallel for schedule(static), private(i,ind,finger,k,c)
         for ( ind = 0 ; ind < e->nr_nodes-1 ; ind++ ) {
 
             /* Wait for this recv to come in. */
+            #pragma omp critical
             MPI_Waitany( e->nr_nodes , reqs_recv , &i , MPI_STATUS_IGNORE );
             if ( i == MPI_UNDEFINED )
                 continue;
@@ -638,6 +639,7 @@ int engine_exchange_async_run ( struct engine *e ) {
         for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
 
             /* Wait for this recv to come in. */
+            #pragma omp critical
             MPI_Waitany( e->nr_nodes , reqs_recv2 , &ind , MPI_STATUS_IGNORE );
 
             /* Did we get a propper index? */
@@ -820,10 +822,11 @@ int engine_exchange ( struct engine *e ) {
         }
         
     /* Send and receive data for each neighbour as the counts trickle in. */
-    #pragma omp parallel for schedule(static), private(i,finger,k,c,res)
+    #pragma omp parallel for schedule(static), private(i,ind,finger,k,c,res)
     for ( ind = 0 ; ind < e->nr_nodes-1 ; ind++ ) {
     
         /* Wait for this recv to come in. */
+        #pragma omp critical
         { res = MPI_Waitany( e->nr_nodes , reqs_recv , &i , MPI_STATUS_IGNORE ); }
         if ( i == MPI_UNDEFINED )
             continue;
@@ -876,6 +879,7 @@ int engine_exchange ( struct engine *e ) {
     for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
     
         /* Wait for this recv to come in. */
+        #pragma omp critical
         { res = MPI_Waitany( e->nr_nodes , reqs_recv2 , &ind , MPI_STATUS_IGNORE ); }
         
         /* Did we get a propper index? */
