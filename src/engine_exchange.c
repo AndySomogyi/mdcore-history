@@ -501,7 +501,7 @@ int engine_exchange_wait ( struct engine *e ) {
 #ifdef HAVE_MPI 
 int engine_exchange_async_run ( struct engine *e ) {
 
-    int i, k, ind, res, cid;
+    int i, k, ind, cid, res;
     int *counts_in[ e->nr_nodes ], *counts_out[ e->nr_nodes ];
     int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
     MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
@@ -546,14 +546,14 @@ int engine_exchange_async_run ( struct engine *e ) {
             return error(engine_err_pthread);
         
         /* Start by packing and sending/receiving a counts array for each send queue. */
+        #pragma omp parallel for schedule(static), private(i,k)
         for ( i = 0 ; i < e->nr_nodes ; i++ ) {
 
             /* Do we have anything to send? */
             if ( e->send[i].count > 0 ) {
 
                 /* Allocate a new lengths array. */
-                if ( ( counts_out[i] = (int *)malloc( sizeof(int) * e->send[i].count ) ) == NULL )
-                    return error(engine_err_malloc);
+                counts_out[i] = (int *)malloc( sizeof(int) * e->send[i].count );
 
                 /* Pack the array with the counts. */
                 totals_send[i] = 0;
@@ -562,8 +562,7 @@ int engine_exchange_async_run ( struct engine *e ) {
                 /* printf( "engine_exchange[%i]: totals_send[%i]=%i.\n" , e->nodeID , i , totals_send[i] ); */
 
                 /* Ship it off to the correct node. */
-                if ( ( res = MPI_Isend( counts_out[i] , e->send[i].count , MPI_INT , i , e->nodeID , e->comm , &reqs_send[i] ) ) != MPI_SUCCESS )
-                    return error(engine_err_mpi);
+                MPI_Isend( counts_out[i] , e->send[i].count , MPI_INT , i , e->nodeID , e->comm , &reqs_send[i] );
                 /* printf( "engine_exchange[%i]: sending %i counts to node %i.\n" , e->nodeID , e->send[i].count , i ); */
 
                 }
@@ -572,12 +571,10 @@ int engine_exchange_async_run ( struct engine *e ) {
             if ( e->recv[i].count > 0 ) {
 
                 /* Allocate a new lengths array for the incomming data. */
-                if ( ( counts_in[i] = (int *)malloc( sizeof(int) * e->recv[i].count ) ) == NULL )
-                    return error(engine_err_malloc);
+                counts_in[i] = (int *)malloc( sizeof(int) * e->recv[i].count );
 
                 /* Dispatch a recv request. */
-                if ( ( res = MPI_Irecv( counts_in[i] , e->recv[i].count , MPI_INT , i , i , e->comm , &reqs_recv[i] ) ) != MPI_SUCCESS )
-                    return error(engine_err_mpi);
+                MPI_Irecv( counts_in[i] , e->recv[i].count , MPI_INT , i , i , e->comm , &reqs_recv[i] );
                 /* printf( "engine_exchange[%i]: recving %i counts from node %i.\n" , e->nodeID , e->recv[i].count , i ); */
 
                 }
@@ -585,19 +582,19 @@ int engine_exchange_async_run ( struct engine *e ) {
             }
 
         /* Send and receive data. */
-        while ( 1 ) {
+        #pragma omp parallel for schedule(static), private(i,finger,k,c)
+        for ( ind = 0 ; ind < e->nr_nodes-1 ; ind++ ) {
 
             /* Wait for this recv to come in. */
-            res = MPI_Waitany( e->nr_nodes , reqs_recv , &i , MPI_STATUS_IGNORE );
+            MPI_Waitany( e->nr_nodes , reqs_recv , &i , MPI_STATUS_IGNORE );
             if ( i == MPI_UNDEFINED )
-                break;
+                continue;
             
             /* Do we have anything to send? */
             if ( e->send[i].count > 0 ) {
 
                 /* Allocate a buffer for the send queue. */
-                if ( ( buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] ) ) == NULL )
-                    return error(engine_err_malloc);
+                buff_send[i] = (struct part *)malloc( sizeof(struct part) * totals_send[i] );
 
                 /* Fill the send buffer. */
                 finger = buff_send[i];
@@ -608,8 +605,7 @@ int engine_exchange_async_run ( struct engine *e ) {
                     }
 
                 /* File a send. */
-                if ( ( res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send2[i] ) ) != MPI_SUCCESS )
-                    return error(engine_err_mpi);
+                MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send2[i] );
                 /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
 
                 }
@@ -623,12 +619,10 @@ int engine_exchange_async_run ( struct engine *e ) {
                     totals_recv[i] += counts_in[i][k];
 
                 /* Allocate a buffer for the send and recv queues. */
-                if ( ( buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] ) ) == NULL )
-                    return error(engine_err_malloc);
+                buff_recv[i] = (struct part *)malloc( sizeof(struct part) * totals_recv[i] );
 
                 /* File a recv. */
-                if ( ( res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv2[i] ) ) != MPI_SUCCESS )
-                    return error(engine_err_mpi);
+                MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv2[i] );
                 /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
 
                 }
@@ -640,10 +634,11 @@ int engine_exchange_async_run ( struct engine *e ) {
             return error(engine_err_mpi); */
 
         /* Unpack the received data. */
+        #pragma omp parallel for schedule(static), private(i,ind,finger,k,c,cid)
         for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
 
             /* Wait for this recv to come in. */
-            res = MPI_Waitany( e->nr_nodes , reqs_recv2 , &ind , MPI_STATUS_IGNORE );
+            MPI_Waitany( e->nr_nodes , reqs_recv2 , &ind , MPI_STATUS_IGNORE );
 
             /* Did we get a propper index? */
             if ( ind != MPI_UNDEFINED ) {
@@ -806,7 +801,6 @@ int engine_exchange ( struct engine *e ) {
 
             /* Ship it off to the correct node. */
             /* printf( "engine_exchange[%i]: sending %i counts to node %i.\n" , e->nodeID , e->send[i].count , i ); */
-            #pragma omp critical
             { res = MPI_Isend( counts_out[i] , e->send[i].count , MPI_INT , i , e->nodeID , e->comm , &reqs_send[i] ); }
             
             }
@@ -819,7 +813,6 @@ int engine_exchange ( struct engine *e ) {
 
             /* Dispatch a recv request. */
             /* printf( "engine_exchange[%i]: recving %i counts from node %i.\n" , e->nodeID , e->recv[i].count , i ); */
-            #pragma omp critical
             { res = MPI_Irecv( counts_in[i] , e->recv[i].count , MPI_INT , i , i , e->comm , &reqs_recv[i] ); }
             
             }
@@ -831,7 +824,6 @@ int engine_exchange ( struct engine *e ) {
     for ( ind = 0 ; ind < e->nr_nodes-1 ; ind++ ) {
     
         /* Wait for this recv to come in. */
-        #pragma omp critical
         { res = MPI_Waitany( e->nr_nodes , reqs_recv , &i , MPI_STATUS_IGNORE ); }
         if ( i == MPI_UNDEFINED )
             continue;
@@ -852,7 +844,6 @@ int engine_exchange ( struct engine *e ) {
 
             /* File a send. */
             /* printf( "engine_exchange[%i]: sending %i parts to node %i.\n" , e->nodeID , totals_send[i] , i ); */
-            #pragma omp critical
             { res = MPI_Isend( buff_send[i] , totals_send[i]*sizeof(struct part) , MPI_BYTE , i , e->nodeID , e->comm , &reqs_send2[i] ); }
             
             }
@@ -870,7 +861,6 @@ int engine_exchange ( struct engine *e ) {
 
             /* File a recv. */
             /* printf( "engine_exchange[%i]: recving %i parts from node %i.\n" , e->nodeID , totals_recv[i] , i ); */
-            #pragma omp critical
             { res = MPI_Irecv( buff_recv[i] , totals_recv[i]*sizeof(struct part) , MPI_BYTE , i , i , e->comm , &reqs_recv2[i] ); }
             
             }
@@ -886,7 +876,6 @@ int engine_exchange ( struct engine *e ) {
     for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
     
         /* Wait for this recv to come in. */
-        #pragma omp critical
         { res = MPI_Waitany( e->nr_nodes , reqs_recv2 , &ind , MPI_STATUS_IGNORE ); }
         
         /* Did we get a propper index? */
