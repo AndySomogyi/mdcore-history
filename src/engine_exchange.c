@@ -296,7 +296,7 @@ int engine_exchange_rigid ( struct engine *e ) {
 #ifdef HAVE_MPI
 int engine_exchange_rigid_async_run ( struct engine *e ) {
 
-    int i, j, k, ind, res;
+    int i, j, k, ind, res, nr_neigh;
     int counts[ e->nr_nodes ], next[ e->nr_nodes ];
     int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
     MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
@@ -314,7 +314,9 @@ int engine_exchange_rigid_async_run ( struct engine *e ) {
         }
         
     /* Set the number of concurrent threads in this context. */
-    omp_set_num_threads( 2 );
+    for ( nr_neigh = 0, k = 0 ; k < e->nr_nodes ; k++ )
+        nr_neigh += ( e->recv[k].count > 0 );
+    omp_set_num_threads( nr_neigh );
         
     /* Start by acquiring the xchg_mutex. */
     if ( pthread_mutex_lock( &e->xchg2_mutex ) != 0 )
@@ -414,7 +416,7 @@ int engine_exchange_rigid_async_run ( struct engine *e ) {
 
         /* Unpack the received data. */
         #pragma omp parallel for schedule(static), private(i,ind,res,k)
-        for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
+        for ( i = 0 ; i < nr_neigh ; i++ ) {
 
             /* Wait for this recv to come in. */
             #pragma omp critical
@@ -506,7 +508,7 @@ int engine_exchange_wait ( struct engine *e ) {
 #ifdef HAVE_MPI 
 int engine_exchange_async_run ( struct engine *e ) {
 
-    int i, k, ind, cid, res;
+    int i, k, ind, cid, res, nr_neigh;
     int *counts_in[ e->nr_nodes ], *counts_out[ e->nr_nodes ];
     int totals_send[ e->nr_nodes ], totals_recv[ e->nr_nodes ];
     MPI_Request reqs_send[ e->nr_nodes ], reqs_recv[ e->nr_nodes ];
@@ -531,7 +533,9 @@ int engine_exchange_async_run ( struct engine *e ) {
         }
         
     /* Set the number of concurrent threads in this context. */
-    omp_set_num_threads( 2 );
+    for ( nr_neigh = 0, k = 0 ; k < e->nr_nodes ; k++ )
+        nr_neigh += ( e->recv[k].count > 0 );
+    omp_set_num_threads( nr_neigh );
         
     /* Start by acquiring the xchg_mutex. */
     if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
@@ -588,7 +592,7 @@ int engine_exchange_async_run ( struct engine *e ) {
 
         /* Send and receive data. */
         #pragma omp parallel for schedule(static), private(i,ind,finger,k,c)
-        for ( ind = 0 ; ind < e->nr_nodes-1 ; ind++ ) {
+        for ( ind = 0 ; ind < nr_neigh ; ind++ ) {
 
             /* Wait for this recv to come in. */
             #pragma omp critical
@@ -641,7 +645,7 @@ int engine_exchange_async_run ( struct engine *e ) {
 
         /* Unpack the received data. */
         #pragma omp parallel for schedule(static), private(i,ind,finger,k,c,cid)
-        for ( i = 0 ; i < e->nr_nodes-1 ; i++ ) {
+        for ( i = 0 ; i < nr_neigh ; i++ ) {
 
             /* Wait for this recv to come in. */
             #pragma omp critical
