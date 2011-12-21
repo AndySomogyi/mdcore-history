@@ -229,7 +229,7 @@ int engine_verlet_update ( struct engine *e ) {
         /* Collect the maximum displacement from other nodes. */
         if ( ( e->flags & engine_flag_mpi ) && ( e->nr_nodes > 1 ) ) {
             /* Do not use in-place as it is buggy when async is going on in the background. */
-            if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE_PRECISION , MPI_MAX , e->comm ) != MPI_SUCCESS )
+            if ( MPI_Allreduce( MPI_IN_PLACE , &maxdx , 1 , MPI_DOUBLE , MPI_MAX , e->comm ) != MPI_SUCCESS )
                 return error(engine_err_mpi);
             }
         #endif
