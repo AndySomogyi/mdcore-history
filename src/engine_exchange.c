@@ -313,6 +313,9 @@ int engine_exchange_rigid_async_run ( struct engine *e ) {
         reqs_send[k] = MPI_REQUEST_NULL;
         }
         
+    /* Set the number of concurrent threads in this context. */
+    omp_set_num_threads( 2 );
+        
     /* Start by acquiring the xchg_mutex. */
     if ( pthread_mutex_lock( &e->xchg2_mutex ) != 0 )
         return error(engine_err_pthread);
@@ -526,6 +529,9 @@ int engine_exchange_async_run ( struct engine *e ) {
         reqs_send[k] = MPI_REQUEST_NULL;
         reqs_send2[k] = MPI_REQUEST_NULL;
         }
+        
+    /* Set the number of concurrent threads in this context. */
+    omp_set_num_threads( 2 );
         
     /* Start by acquiring the xchg_mutex. */
     if ( pthread_mutex_lock( &e->xchg_mutex ) != 0 )
