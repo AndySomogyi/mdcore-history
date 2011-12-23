@@ -349,7 +349,7 @@ int engine_rigid_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
         // int k;
         int nr_threads, count = nr_rigids - nr_local;
-        int finger_global = 0, finger;
+        int finger_global = 0, finger, chunk;
     #endif
     
     /* Do we have asynchronous communication going on, e.g. are we waiting
@@ -360,12 +360,14 @@ int engine_rigid_eval ( struct engine *e ) {
 
             /* Is it worth parallelizing? */
             // #pragma omp parallel private(k)
-            #pragma omp parallel private(finger,count)
+            #pragma omp parallel private(finger,count,chunk)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
             
-                /* k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[k*nr_local/nr_threads] , (k+1)*nr_local/nr_threads - k*nr_local/nr_threads , e ); */
-
+                /* Get a sensible chunk size. */
+                chunk = nr_local / ( nr_threads * ceil( log2(nr_threads) + 1 ) );
+                if ( chunk > engine_rigids_chunk )
+                    chunk = engine_rigids_chunk;
+                
                 /* Main loop. */
                 while ( finger_global < nr_local ) {
                 
@@ -374,7 +376,7 @@ int engine_rigid_eval ( struct engine *e ) {
                     {
                         if ( finger_global < nr_local ) {
                             finger = finger_global;
-                            count = engine_rigids_chunk;
+                            count = chunk;
                             if ( finger + count > nr_local )
                                 count = nr_local - finger;
                             finger_global += count;
@@ -398,9 +400,8 @@ int engine_rigid_eval ( struct engine *e ) {
                 
             /* Wait for the async data to come in. */
             tic = getticks();
-            if ( e->flags & engine_flag_async )
-                if ( engine_exchange_rigid_wait( e ) < 0 )
-                    return error(engine_err);
+            if ( engine_exchange_rigid_wait( e ) < 0 )
+                return error(engine_err);
             tic = getticks() - tic;
             e->timers[engine_timer_exchange1] += tic;
             e->timers[engine_timer_rigid] -= tic;
@@ -408,12 +409,14 @@ int engine_rigid_eval ( struct engine *e ) {
                 
             /* Is it worth parallelizing? */
             // #pragma omp parallel private(k)
-            #pragma omp parallel private(finger,count)
+            #pragma omp parallel private(finger,count,chunk)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
-                /* k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[nr_local+k*count/nr_threads] , (k+1)*count/nr_threads - k*count/nr_threads , e ); */
-
+                /* Get a sensible chunk size. */
+                chunk = (nr_rigids - nr_local) / ( nr_threads * ceil( log2(nr_threads) + 1 ) );
+                if ( chunk > engine_rigids_chunk )
+                    chunk = engine_rigids_chunk;
+                
                 /* Main loop. */
                 while ( finger_global < nr_rigids ) {
                 
@@ -422,7 +425,7 @@ int engine_rigid_eval ( struct engine *e ) {
                     {
                         if ( finger_global < nr_rigids ) {
                             finger = finger_global;
-                            count = engine_rigids_chunk;
+                            count = chunk;
                             if ( finger + count > nr_rigids )
                                 count = nr_rigids - finger;
                             finger_global += count;
@@ -473,12 +476,14 @@ int engine_rigid_eval ( struct engine *e ) {
 
             /* Is it worth parallelizing? */
             // #pragma omp parallel private(k)
-            #pragma omp parallel private(finger,count)
+            #pragma omp parallel private(finger,count,chunk)
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
-                /* k = omp_get_thread_num();
-                rigid_eval_shake( &e->rigids[k*nr_rigids/nr_threads] , (k+1)*nr_rigids/nr_threads - k*nr_rigids/nr_threads , e ); */
-
+                /* Get a sensible chunk size. */
+                chunk = nr_rigids / ( nr_threads * ceil( log2(nr_threads) + 1 ) );
+                if ( chunk > engine_rigids_chunk )
+                    chunk = engine_rigids_chunk;
+                
                 /* Main loop. */
                 while ( finger_global < nr_rigids ) {
                 
@@ -487,7 +492,7 @@ int engine_rigid_eval ( struct engine *e ) {
                     {
                         if ( finger_global < nr_rigids ) {
                             finger = finger_global;
-                            count = engine_rigids_chunk;
+                            count = chunk;
                             if ( finger + count > nr_rigids )
                                 count = nr_rigids - finger;
                             finger_global += count;
