@@ -140,7 +140,7 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise | engine_flag_sets , MPI_COMM_WORLD , myrank ) != 0 ) {
     // if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_sets ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
@@ -426,6 +426,28 @@ int main ( int argc , char *argv[] ) {
         abort();
         }
         
+    /* Dump the engine flags. */
+    if ( myrank == 0 ) {
+        printf( "main[%i]: engine flags:" , myrank );
+        if ( e.flags & engine_flag_tuples ) printf( " engine_flag_tuples" );
+        if ( e.flags & engine_flag_static ) printf( " engine_flag_static" );
+        if ( e.flags & engine_flag_localparts ) printf( " engine_flag_localparts" );
+        if ( e.flags & engine_flag_GPU ) printf( " engine_flag_GPU" );
+        if ( e.flags & engine_flag_explepot ) printf( " engine_flag_explepot" );
+        if ( e.flags & engine_flag_verlet ) printf( " engine_flag_verlet" );
+        if ( e.flags & engine_flag_verlet_pairwise ) printf( " engine_flag_verlet_pairwise" );
+        if ( e.flags & engine_flag_affinity ) printf( " engine_flag_affinity" );
+        if ( e.flags & engine_flag_prefetch ) printf( " engine_flag_prefetch" );
+        if ( e.flags & engine_flag_verlet_pairwise2 ) printf( " engine_flag_verlet_pairwise2" );
+        if ( e.flags & engine_flag_partlist ) printf( " engine_flag_partlist" );
+        if ( e.flags & engine_flag_unsorted ) printf( " engine_flag_unsorted" );
+        if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );
+        if ( e.flags & engine_flag_parbonded ) printf( " engine_flag_parbonded" );
+        if ( e.flags & engine_flag_async ) printf( " engine_flag_async" );
+        if ( e.flags & engine_flag_sets ) printf( " engine_flag_sets" );
+        printf( "\n" );
+        }
+        
         
     /* Timing. */    
     toc = getticks();
@@ -491,7 +513,7 @@ int main ( int argc , char *argv[] ) {
             es[0] = epot; es[1] = ekin;
             es[2] = vcom[0]; es[3] = vcom[1]; es[4] = vcom[2];
             es[5] = mass_tot;
-            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , es , 6 , MPI_DOUBLE_PRECISION , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
+            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , es , 6 , MPI_DOUBLE , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
                 printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
                 abort();
                 }
