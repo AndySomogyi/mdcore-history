@@ -421,9 +421,9 @@ int space_gettuple ( struct space *s , struct celltuple **out , int wait ) {
  
 int space_maketuples ( struct space *s ) {
 
-    int size, *w, w_max, iw_max;
+    int size, incr, *w, w_max, iw_max;
     int i, j, k, kk, pid;
-    int *c2p, *c2p_count;
+    int ppc, *c2p, *c2p_count;
     struct celltuple *t;
     struct cellpair *p, *p2;
     
@@ -436,7 +436,7 @@ int space_maketuples ( struct space *s ) {
         free( s->tuples );
         
     /* Guess the size of the tuple array and allocate it. */
-    size = s->nr_pairs / space_maxtuples;
+    size = 1.2 * s->nr_pairs / space_maxtuples;
     if ( ( s->tuples = (struct celltuple *)malloc( sizeof(struct celltuple) * size ) ) == NULL )
         return error(space_err_malloc);
     bzero( s->tuples , sizeof(struct celltuple) * size );
@@ -448,16 +448,17 @@ int space_maketuples ( struct space *s ) {
     s->next_pair = 0;
     
     /* Allocate and fill the cell-to-pair array. */
-    if ( ( c2p = (int *)alloca( sizeof(int) * s->nr_cells * 27 ) ) == NULL ||
+    ppc = ( 2*ceil( s->cutoff * s->ih[0] ) + 1 ) * ( 2*ceil( s->cutoff * s->ih[1] ) + 1 ) * ( 2*ceil( s->cutoff * s->ih[2] ) + 1 );
+    if ( ( c2p = (int *)alloca( sizeof(int) * s->nr_cells * ppc ) ) == NULL ||
          ( c2p_count = (int *)alloca( sizeof(int) * s->nr_cells ) ) == NULL )
         return error(space_err_malloc);
     bzero( c2p_count , sizeof(int) * s->nr_cells );
     for ( k = 0 ; k < s->nr_pairs ; k++ ) {
         i = s->pairs[k].i; j = s->pairs[k].j;
-        c2p[ i*27 + c2p_count[i] ] = k;
+        c2p[ i*ppc + c2p_count[i] ] = k;
         c2p_count[i] += 1;
         if ( i != j ) {
-            c2p[ j*27 + c2p_count[j] ] = k;
+            c2p[ j*ppc + c2p_count[j] ] = k;
             c2p_count[j] += 1;
             }
         }
@@ -467,11 +468,12 @@ int space_maketuples ( struct space *s ) {
     
         /* Is the array of tuples long enough? */
         if ( s->nr_tuples >= size ) {
-            if ( ( t = (struct celltuple *)malloc( sizeof(struct celltuple) * (size + 20) ) ) == NULL )
+            incr = size * 0.2;
+            if ( ( t = (struct celltuple *)malloc( sizeof(struct celltuple) * (size + incr) ) ) == NULL )
                 return error(space_err_malloc);
             memcpy( t , s->tuples , sizeof(struct celltuple) * size );
-            bzero( &t[size] , sizeof(struct celltuple) * 20 );
-            size += 20;
+            bzero( &t[size] , sizeof(struct celltuple) * incr );
+            size += incr;
             free( s->tuples );
             s->tuples = t;
             }
@@ -480,7 +482,7 @@ int space_maketuples ( struct space *s ) {
         for ( i = 0 ; i < s->nr_cells && c2p_count[i] == 0 ; i++ );
         if ( i == s->nr_cells )
             break;
-        pid = c2p[ i*27 ];
+        pid = c2p[ i*ppc ];
         p = &( s->pairs[ pid ] );
             
         /* Get a pointer on the next free tuple. */
@@ -503,36 +505,36 @@ int space_maketuples ( struct space *s ) {
             
         /* Remove this pair from the c2ps. */
         for ( k = 0 ; k < c2p_count[p->i] ; k++ )
-            if ( c2p[ p->i*27 + k ] == pid ) {
+            if ( c2p[ p->i*ppc + k ] == pid ) {
                 c2p_count[p->i] -= 1;
-                c2p[ p->i*27 + k ] = c2p[ p->i*27 + c2p_count[p->i] ];
+                c2p[ p->i*ppc + k ] = c2p[ p->i*ppc + c2p_count[p->i] ];
                 break;
                 }
         if ( p->i != p->j )
             for ( k = 0 ; k < c2p_count[p->j] ; k++ )
-                if ( c2p[ p->j*27 + k ] == pid ) {
+                if ( c2p[ p->j*ppc + k ] == pid ) {
                     c2p_count[p->j] -= 1;
-                    c2p[ p->j*27 + k ] = c2p[ p->j*27 + c2p_count[p->j] ];
+                    c2p[ p->j*ppc + k ] = c2p[ p->j*ppc + c2p_count[p->j] ];
                     break;
                     }
                     
         /* Add self-interactions, if any. */
         if ( p->i != p->j ) {
             for ( k = 0 ; k < c2p_count[p->i] ; k++ ) {
-                p2 = &( s->pairs[ c2p[ p->i*27 + k ] ] );
+                p2 = &( s->pairs[ c2p[ p->i*ppc + k ] ] );
                 if ( p2->i == p2->j ) {
-                    t->pairid[ space_pairind(0,0) ] = c2p[ p->i*27 + k ];
+                    t->pairid[ space_pairind(0,0) ] = c2p[ p->i*ppc + k ];
                     c2p_count[p->i] -= 1;
-                    c2p[ p->i*27 + k ] = c2p[ p->i*27 + c2p_count[p->i] ];
+                    c2p[ p->i*ppc + k ] = c2p[ p->i*ppc + c2p_count[p->i] ];
                     break;
                     }
                 }
             for ( k = 0 ; k < c2p_count[p->j] ; k++ ) {
-                p2 = &( s->pairs[ c2p[ p->j*27 + k ] ] );
+                p2 = &( s->pairs[ c2p[ p->j*ppc + k ] ] );
                 if ( p2->i == p2->j ) {
-                    t->pairid[ space_pairind(1,1) ] = c2p[ p->j*27 + k ];
+                    t->pairid[ space_pairind(1,1) ] = c2p[ p->j*ppc + k ];
                     c2p_count[p->j] -= 1;
-                    c2p[ p->j*27 + k ] = c2p[ p->j*27 + c2p_count[p->j] ];
+                    c2p[ p->j*ppc + k ] = c2p[ p->j*ppc + c2p_count[p->j] ];
                     break;
                     }
                 }
@@ -544,7 +546,7 @@ int space_maketuples ( struct space *s ) {
             w[ t->cellid[k] ] = -1;
         for ( i = 0 ; i < t->n ; i++ ) {
             for ( k = 0 ; k < c2p_count[ t->cellid[i] ] ; k++ ) {
-                p = &( s->pairs[ c2p[ t->cellid[i]*27 + k ] ] );
+                p = &( s->pairs[ c2p[ t->cellid[i]*ppc + k ] ] );
                 if ( p->i == t->cellid[i] && w[ p->j ] >= 0 )
                     w[ p->j ] += 1;
                 if ( p->j == t->cellid[i] && w[ p->i ] >= 0 )
@@ -573,7 +575,7 @@ int space_maketuples ( struct space *s ) {
             while ( k < c2p_count[w_max] ) {
             
                 /* Get this pair. */
-                pid = c2p[ w_max*27 + k ];
+                pid = c2p[ w_max*ppc + k ];
                 p = &( s->pairs[ pid ] );
                 
                 /* Get the tuple indices of the cells in this pair. */
@@ -603,16 +605,16 @@ int space_maketuples ( struct space *s ) {
 
                     /* Remove this pair from the c2ps. */
                     for ( kk = 0 ; kk < c2p_count[p->i] ; kk++ )
-                        if ( c2p[ p->i*27 + kk ] == pid ) {
+                        if ( c2p[ p->i*ppc + kk ] == pid ) {
                             c2p_count[p->i] -= 1;
-                            c2p[ p->i*27 + kk ] = c2p[ p->i*27 + c2p_count[p->i] ];
+                            c2p[ p->i*ppc + kk ] = c2p[ p->i*ppc + c2p_count[p->i] ];
                             break;
                             }
                     if ( p->i != p->j )
                         for ( kk = 0 ; kk < c2p_count[p->j] ; kk++ )
-                            if ( c2p[ p->j*27 + kk ] == pid ) {
+                            if ( c2p[ p->j*ppc + kk ] == pid ) {
                                 c2p_count[p->j] -= 1;
-                                c2p[ p->j*27 + kk ] = c2p[ p->j*27 + c2p_count[p->j] ];
+                                c2p[ p->j*ppc + kk ] = c2p[ p->j*ppc + c2p_count[p->j] ];
                                 break;
                                 }
                     }
@@ -622,7 +624,7 @@ int space_maketuples ( struct space *s ) {
             /* Update the weights and get the ID of the new max. */
             w[ w_max ] = -1;
             for ( k = 0 ; k < c2p_count[w_max] ; k++ ) {
-                p = &( s->pairs[ c2p[ w_max*27 + k ] ] );
+                p = &( s->pairs[ c2p[ w_max*ppc + k ] ] );
                 if ( p->i == w_max && w[ p->j ] >= 0 )
                     w[ p->j ] += 1;
                 if ( p->j == w_max && w[ p->i ] >= 0 )
@@ -1160,9 +1162,8 @@ struct cellpair *space_getpair ( struct space *s , int owner , int count , struc
 int space_init ( struct space *s , const double *origin , const double *dim , double L , double cutoff , unsigned int period ) {
 
     int i, j, k, l[3], ii, jj, kk;
-    int id1, id2;
-    double o[3];
-    float shift[3];
+    int pairs_size, span[3], id1, id2;
+    double o[3], shift[3], lh[3];
 
     /* check inputs */
     if ( s == NULL || origin == NULL || dim == NULL )
@@ -1250,8 +1251,13 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
             }
         }
         
+    /* Get the span of the cells we will search for pairs. */
+    for ( k = 0 ; k < 3 ; k++ )
+        span[k] = ceil( cutoff * s->ih[k] );
+        
     /* allocate the cell pairs array (pessimistic guess) */
-    if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * s->nr_cells * 14 )) == NULL )
+    pairs_size = s->nr_cells * 14 * span[0] * span[1] * span[2];
+    if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * pairs_size )) == NULL )
         return error(space_err_malloc);
     
     /* fill the cell pairs array */
@@ -1269,7 +1275,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                     continue;
             
                 /* for every neighbouring cell in the x-axis... */
-                for ( l[0] = -1 ; l[0] < 2 ; l[0]++ ) {
+                for ( l[0] = -span[0] ; l[0] <= span[0] ; l[0]++ ) {
                 
                     /* get coords of neighbour */
                     ii = i + l[0];
@@ -1277,13 +1283,13 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                     /* wrap or abort if not periodic */
                     if ( ii < 0 ) {
                         if (s->period & space_periodic_x)
-                            ii = s->cdim[0] - 1;
+                            ii += s->cdim[0];
                         else
                             continue;
                         }
                     else if ( ii >= s->cdim[0] ) {
                         if (s->period & space_periodic_x)
-                            ii = 0;
+                            ii -= s->cdim[0];
                         else
                             continue;
                         }
@@ -1292,7 +1298,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                     shift[0] = l[0] * s->h[0];
                         
                     /* for every neighbouring cell in the y-axis... */
-                    for ( l[1] = -1 ; l[1] < 2 ; l[1]++ ) {
+                    for ( l[1] = -span[1] ; l[1] <= span[1] ; l[1]++ ) {
                     
                         /* get coords of neighbour */
                         jj = j + l[1];
@@ -1300,13 +1306,13 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                         /* wrap or abort if not periodic */
                         if ( jj < 0 ) {
                             if (s->period & space_periodic_y)
-                                jj = s->cdim[1] - 1;
+                                jj += s->cdim[1];
                             else
                                 continue;
                             }
                         else if ( jj >= s->cdim[1] ) {
                             if (s->period & space_periodic_y)
-                                jj = 0;
+                                jj -= s->cdim[1];
                             else
                                 continue;
                             }
@@ -1315,7 +1321,14 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                         shift[1] = l[1] * s->h[1];
 
                         /* for every neighbouring cell in the z-axis... */
-                        for ( l[2] = -1 ; l[2] < 2 ; l[2]++ ) {
+                        for ( l[2] = -span[2] ; l[2] <= span[2] ; l[2]++ ) {
+                        
+                            /* Are these cells within the cutoff of each other? */
+                            lh[0] = s->h[0]*fmax( abs(l[0])-1 , 0 );
+                            lh[1] = s->h[1]*fmax( abs(l[1])-1 , 0 ); 
+                            lh[2] = s->h[2]*fmax( abs(l[2])-1 , 0 );
+                            if ( lh[0]*lh[0] + lh[1]*lh[1] + lh[2]*lh[2] > s->cutoff2 )
+                                continue;
 
                             /* get coords of neighbour */
                             kk = k + l[2];
@@ -1323,13 +1336,13 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                             /* wrap or abort if not periodic */
                             if ( kk < 0 ) {
                                 if (s->period & space_periodic_z)
-                                    kk = s->cdim[2] - 1;
+                                    kk += s->cdim[2];
                                 else
                                     continue;
                                 }
                             else if ( kk >= s->cdim[2] ) {
                                 if (s->period & space_periodic_z)
-                                    kk = 0;
+                                    kk -= s->cdim[2];
                                 else
                                     continue;
                                 }
