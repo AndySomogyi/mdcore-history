@@ -78,6 +78,10 @@ struct potential {
     };
     
 
+/** Fictitious null potential. */
+extern struct potential potential_null;
+
+
 /* associated functions */
 int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol );
 int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYPE *xi , int n , FPTYPE *c , FPTYPE *err );

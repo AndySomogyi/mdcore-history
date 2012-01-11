@@ -31,7 +31,19 @@ SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
     btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
     engine_bonded.c engine_rigid.c engine_exchange.c
 
-# Build the libchebfun libraries
+# CUDA sources
+if HAVECUDA
+    SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
+.cu.o:
+	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -O3 --use_fast_math --prec-sqrt=true -arch sm_13 -DFPTYPE_SINGLE $< -o $@
+.cu.lo:
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -arch sm_13 -DFPTYPE_SINGLE $<
+else
+    SOURCES_CUDA =
+endif
+
+
+# Build the libmdcore libraries
 lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
 
@@ -40,9 +52,11 @@ libmdcore_la_SOURCES = $(SOURCES)
 
 
 # Set-up for single-precision case
-libmdcore_single_la_SOURCES = $(SOURCES)
+libmdcore_single_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 libmdcore_single_la_SHORTNAME = sp
-libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
+libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS) $(CUDA_CFLAGS)
+
+# R
 
 
 # Dummy target to make the Cell/BE version

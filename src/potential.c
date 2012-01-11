@@ -57,6 +57,11 @@
 int potential_err = potential_err_ok;
 
 
+/** The null potential */
+FPTYPE c_null[] = { FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO };
+struct potential potential_null = { { FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO , FPTYPE_ZERO } , c_null , 0.0 , DBL_MAX , potential_flag_none , 1 };
+
+
 /* the error macro. */
 #define error(id)				( potential_err = errs_register( id , potential_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 

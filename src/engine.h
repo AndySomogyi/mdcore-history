@@ -44,6 +44,8 @@
 #define engine_err_exclusion             -18
 #define engine_err_sets                  -19
 #define engine_err_dihedral              -20
+#define engine_err_cuda                  -21
+#define engine_err_nocuda                -22
 
 
 /* some constants */
@@ -51,7 +53,7 @@
 #define engine_flag_tuples               1
 #define engine_flag_static               2
 #define engine_flag_localparts           4
-#define engine_flag_GPU                  8
+#define engine_flag_cuda                 8
 #define engine_flag_explepot             16
 #define engine_flag_verlet               32
 #define engine_flag_verlet_pairwise      64
@@ -64,6 +66,7 @@
 #define engine_flag_parbonded            8192
 #define engine_flag_async                16384
 #define engine_flag_sets                 32768
+#define engine_flag_nullpart             65536
 
 #define engine_bonds_chunk               100
 #define engine_angles_chunk              100
@@ -198,6 +201,14 @@ struct engine {
         pthread_t thread_exchg2;
     #endif
     
+    /** Pointers to device data for CUDA. */
+    #ifdef HAVE_CUDA
+        struct potential **p_cuda;
+        struct potential *pots_cuda;
+        float *coeffs_cuda;
+        int nrpots_cuda;
+    #endif
+    
     /** Timers. */
     ticks timers[engine_timer_last];
     
@@ -303,4 +314,17 @@ int engine_verlet_update ( struct engine *e );
     int engine_exchange_rigid_async_run ( struct engine *e );
     int engine_exchange_rigid_wait ( struct engine *e );
     int engine_exchange_wait ( struct engine *e );
+#endif
+#ifdef HAVE_CUDA
+    #ifdef __cplusplus
+        extern "C" int engine_nonbond_cuda ( struct engine *e );
+        extern "C" int engine_cuda_load ( struct engine *e );
+        extern "C" int engine_cuda_load_parts ( struct engine *e );
+        extern "C" int engine_cuda_unload_parts ( struct engine *e );
+    #else
+        int engine_nonbond_cuda ( struct engine *e );
+        int engine_cuda_load ( struct engine *e );
+        int engine_cuda_load_parts ( struct engine *e );
+        int engine_cuda_unload_parts ( struct engine *e );
+    #endif
 #endif

@@ -124,14 +124,14 @@ AC_ARG_WITH([cuda],
         if test "x$with_cuda" != "xyes"
         then
             CUDA_CFLAGS="-I$with_cuda/include"
-            CUDA_LIBS="-L$with_cuda/lib -lcuda -lcudart"
+            CUDA_LIBS="-L$with_cuda/lib -lcudart"
             NVCC="$with_cuda/bin/nvcc"
         else
             AC_CHECK_PROG([NVCC],nvcc)
             if test -n "$NVCC"
             then
                 CUDA_CFLAGS="-I/usr/local/cuda/include"
-                CUDA_LIBS="-L/usr/local/cuda/lib -lcuda -lcudart"
+                CUDA_LIBS="-L/usr/local/cuda/lib -lcudart"
             fi
         fi
         if test -n "$NVCC"; then
@@ -141,6 +141,7 @@ AC_ARG_WITH([cuda],
 AC_SUBST(CUDA_CFLAGS)
 AC_SUBST(CUDA_LIBS)
 AC_SUBST(NVCC)
+AM_CONDITIONAL([HAVECUDA],[test -n "$NVCC"])
 
 
 # Check for CELL

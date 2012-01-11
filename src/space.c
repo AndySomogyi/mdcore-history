@@ -1251,6 +1251,12 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
             }
         }
         
+    #ifdef HAVE_CUDA
+    /* Allocate the particle list pointer arrays for the CUDA device. */
+    if ( ( s->parts_cuda_local = (struct part **)malloc( sizeof(struct part *) * s->nr_cells ) ) == NULL )
+        return error(space_err_malloc);
+    #endif
+        
     /* Get the span of the cells we will search for pairs. */
     for ( k = 0 ; k < 3 ; k++ )
         span[k] = ceil( cutoff * s->ih[k] );

@@ -70,13 +70,13 @@ int main ( int argc , char *argv[] ) {
     int res = 0, prov, myrank = 0;
     double *xp = NULL, *vp = NULL, x[3], v[3];
     int *pid = NULL, *vid = NULL, *ptype = NULL;
-    int step, i, j, k, nx, ny, nz, id, cid;
+    int step, i, j, k, nx, ny, nz, id, cid, w_min, w_max;
     double hx, hy, hz, temp;
     double vtot[3] = { 0.0 , 0.0 , 0.0 };
     FILE *dump;
     char fname[100];
     double vcom_tot[7], vcom_tot_x, vcom_tot_y, vcom_tot_z, ekin, epot, vcom[3], w, v2;
-    ticks tic, toc;
+    ticks tic, tic_step, tic_temp, toc;
     double itpms = 1000.0 / CPU_TPS;
     struct part *p_O, *p_H1, *p_H2;
     int nr_nodes = 1, count = 0;
@@ -202,7 +202,7 @@ int main ( int argc , char *argv[] ) {
         
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
     // if ( engine_init( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
@@ -305,6 +305,24 @@ int main ( int argc , char *argv[] ) {
         }
         
         
+    /* Make the bonded sets. */
+    if ( e.flags & engine_flag_sets ) {
+        printf( "main[%i]: computing bonded sets...\n" , myrank ); fflush(stdout);
+        if ( engine_bonded_sets( &e , 10*nr_runners ) < 0 ) {
+            printf("main[%i]: engine_bonded_sets failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            abort();
+            }
+        w_min = w_max = e.sets[0].weight;
+        for ( k = 1 ; k < e.nr_sets ; k++ )
+            if ( e.sets[k].weight > w_max )
+                w_max = e.sets[k].weight;
+            else if ( e.sets[k].weight < w_min )
+                w_min = e.sets[k].weight;
+        printf( "main[%i]: have %i bonded sets, weights in [%i,%i].\n" , myrank , e.nr_sets , w_min , w_max ); fflush(stdout);
+        }    
+        
+    
     /* Split the engine over the processors. */
     if ( engine_split_bisect( &e , nr_nodes ) < 0 ) {
         printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
@@ -355,6 +373,7 @@ int main ( int argc , char *argv[] ) {
     
 
         /* Compute a step. */
+        tic_step = getticks();
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
@@ -363,7 +382,7 @@ int main ( int argc , char *argv[] ) {
             
                     
         /* Compute the system temperature. */
-        tic = getticks();
+        tic_temp = getticks();
         
         /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
         ekin = 0.0; epot = e.s.epot;
@@ -431,7 +450,7 @@ int main ( int argc , char *argv[] ) {
                     p_H2->v[k] += vcom[k];
                     }
                 }
-        toc = getticks() - tic;
+        toc = getticks();
                         
         
         /* Drop a line. */
@@ -439,9 +458,9 @@ int main ( int argc , char *argv[] ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
             printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, (toc - tic_step) * itpms,
                 e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_rigid]*itpms,
-                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, toc*itpms ); fflush(stdout);
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, (toc - tic_temp)*itpms ); fflush(stdout);
             }
         
         /* Re-set the timers. */

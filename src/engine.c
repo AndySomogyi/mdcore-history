@@ -64,7 +64,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[21] = {
+char *engine_err_msg[23] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -86,6 +86,8 @@ char *engine_err_msg[21] = {
     "An error occured when calling an exclusion function.", 
     "An error occured while computing the bonded sets.", 
     "An error occured when calling a dihedral funtion.", 
+    "An error occured when calling a CUDA funtion.", 
+    "mdcore was not compiled with CUDA support.", 
 	};
 
 
@@ -1246,29 +1248,46 @@ int engine_start ( struct engine *e , int nr_runners ) {
     /* Is MPI really needed? */
     if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
         e->flags &= ~engine_flag_mpi;
-
-    /* (re)allocate the runners */
-    if ( e->nr_runners == 0 ) {
-        if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
-            return error(engine_err_malloc);
+        
+    /* Do we even need runners? */
+    if ( e->flags & engine_flag_cuda ) {
+    
+        #ifdef HAVE_CUDA
+            /* Load the potentials and pairs to the CUDA device. */
+            if ( engine_cuda_load( e ) < 0 )
+                return error(engine_err);
+        #else
+            /* Was not compiled with CUDA support. */
+            return error(engine_err_nocuda);
+        #endif
+    
         }
     else {
-        if ( ( temp = (struct runner *)malloc( sizeof(struct runner) * (e->nr_runners + nr_runners) )) == NULL )
-            return error(engine_err_malloc);
-        memcpy( temp , e->runners , sizeof(struct runner) * e->nr_runners );
-        e->runners = temp;
+
+        /* (re)allocate the runners */
+        if ( e->nr_runners == 0 ) {
+            if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
+                return error(engine_err_malloc);
+            }
+        else {
+            if ( ( temp = (struct runner *)malloc( sizeof(struct runner) * (e->nr_runners + nr_runners) )) == NULL )
+                return error(engine_err_malloc);
+            memcpy( temp , e->runners , sizeof(struct runner) * e->nr_runners );
+            e->runners = temp;
+            }
+
+        /* initialize the runners. */
+        for ( i = 0 ; i < nr_runners ; i++ )
+            if ( runner_init(&e->runners[e->nr_runners + i],e,e->nr_runners + i) < 0 )
+                return error(engine_err_runner);
+        e->nr_runners += nr_runners;
+
+        /* wait for the runners to be in place */
+        while (e->barrier_count != e->nr_runners)
+            if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
+                return error(engine_err_pthread);
+                
         }
-        
-    /* initialize the runners. */
-    for ( i = 0 ; i < nr_runners ; i++ )
-        if ( runner_init(&e->runners[e->nr_runners + i],e,e->nr_runners + i) < 0 )
-            return error(engine_err_runner);
-    e->nr_runners += nr_runners;
-            
-    /* wait for the runners to be in place */
-    while (e->barrier_count != e->nr_runners)
-        if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-            return error(engine_err_pthread);
         
     /* all is well... */
     return engine_err_ok;
@@ -1576,6 +1595,13 @@ int engine_step ( struct engine *e ) {
             
     /* Compute the non-bonded interactions. */
     tic = getticks();
+    #ifdef HAVE_CUDA
+        if ( e->flags & engine_flag_cuda ) {
+            if ( engine_nonbond_cuda( e ) < 0 )
+                return error(engine_err);
+            }
+        else
+    #endif
     if ( engine_nonbond_eval( e ) < 0 )
         return error(engine_err);
     e->timers[engine_timer_nonbond] += getticks() - tic;
@@ -1770,6 +1796,8 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         flags |= engine_flag_verlet;
     if ( flags & engine_flag_verlet )
         flags |= engine_flag_tuples;
+    if ( flags & engine_flag_cuda )
+        flags |= engine_flag_nullpart;
         
     /* Set the flags. */
     e->flags = flags;
@@ -1819,10 +1847,21 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     e->nr_dihedrals = 0;
     
     /* set the maximum nr of types */
-    e->max_type = max_type;
+    if ( flags & engine_flag_nullpart )
+        e->max_type = max_type + 1;
+    else
+        e->max_type = max_type;
     e->nr_types = 0;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )
         return error(engine_err_malloc);
+    if ( flags & engine_flag_nullpart ) {
+        e->types[0].id = 0;
+        e->types[0].mass = 0.0;
+        e->types[0].imass = 0.0;
+        e->types[0].charge = 0.0;
+        strcpy( e->types[0].name , "NULL" );
+        strcpy( e->types[0].name2 , "NULL" );
+        }
         
     /* Init the sets. */
     e->sets = NULL;
@@ -1845,7 +1884,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         return error(engine_err_malloc);
     bzero( e->p_dihedral , sizeof(struct potential *) * e->dihedralpots_size );
     e->nr_dihedralpots = 0;
-        
+    
     /* init the barrier variables */
     e->barrier_count = 0;
 	if ( pthread_mutex_init( &e->barrier_mutex , NULL ) != 0 ||

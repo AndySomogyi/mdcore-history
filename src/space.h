@@ -146,6 +146,14 @@ struct space {
     /** Potential energy collected by the space itself. */
     double epot;
 
+    /** Pointers to device data for CUDA. */
+    #ifdef HAVE_CUDA
+        struct part **parts_cuda, **parts_cuda_local;
+        int *counts_cuda;
+        struct cellpair_cuda *pairs_cuda;
+        int *taboo_cuda;
+    #endif
+    
     };
     
     
@@ -167,6 +175,20 @@ struct cellpair {
     struct cellpair *next;
     
     };
+    
+    
+#ifdef HAVE_CUDA
+/** Struct for each cellpair (compact). */
+struct cellpair_cuda {
+
+    /** Indices of the cells involved. */
+    int i, j;
+    
+    /** Relative shift between cell centres. */
+    float shift[3];
+    
+    };
+#endif
     
     
 /** Struct for groups of cellpairs. */

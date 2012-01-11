@@ -30,6 +30,12 @@ extern const char *errs_err_msg[];
 
 
 /* Functions. */
+#ifdef __cplusplus
+extern "C" int errs_register( int id , const char *msg , int line , const char *func , char *file );
+extern "C" int errs_dump( FILE *out );
+extern "C" void errs_clear( );
+#else
 int errs_register( int id , const char *msg , int line , const char *func , char *file );
 int errs_dump( FILE *out );
 void errs_clear( );
+#endif
