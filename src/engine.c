@@ -1252,6 +1252,9 @@ int engine_start ( struct engine *e , int nr_runners ) {
     /* Do we even need runners? */
     if ( e->flags & engine_flag_cuda ) {
     
+        /* Set the number of runners. */
+        e->nr_runners = nr_runners;
+    
         #ifdef HAVE_CUDA
             /* Load the potentials and pairs to the CUDA device. */
             if ( engine_cuda_load( e ) < 0 )
@@ -1260,7 +1263,7 @@ int engine_start ( struct engine *e , int nr_runners ) {
             /* Was not compiled with CUDA support. */
             return error(engine_err_nocuda);
         #endif
-    
+        
         }
     else {
 
@@ -1289,6 +1292,9 @@ int engine_start ( struct engine *e , int nr_runners ) {
                 
         }
         
+        /* Set the number of runners. */
+        e->nr_runners = nr_runners;
+    
     /* all is well... */
     return engine_err_ok;
     

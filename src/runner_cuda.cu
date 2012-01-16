@@ -50,7 +50,7 @@
 
 
 /* Set the max number of parts for shared buffers. */
-#define cuda_maxparts 128
+#define cuda_maxparts 160
 #define cuda_frame 32
 
 
@@ -76,8 +76,6 @@ __constant__ float cuda_cutoff2 = 0.0f;
 __constant__ struct potential **cuda_p;
 __constant__ int cuda_maxtype = 0;
 
-/* The part and count vectors. */
-__device__
 
 
 /**
@@ -157,8 +155,10 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
 /**
  * @brief Compute the pairwise interactions for the given pair on a CUDA device.
  *
- * @param cell_i The first cell.
- * @param cell_j The second cell.
+ * @param iparts_i Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param iparts_j Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
  * @param pshift A pointer to an array of three floating point values containing
  *      the vector separating the centers of @c cell_i and @c cell_j.
  *
@@ -167,12 +167,12 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
  
 __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struct part *iparts_j , int count_j, float *pshift ) {
 
-    int k, pid, pjd, threadID;
+    int k, pid, pjd, ind, wrap, threadID;
     int pjoff;
     struct part_cuda *pi, *pj;
     struct part *temp;
     struct potential *pot;
-    float epot = 0.0f, dx[3], pjx[3], pjf[3], r2, w, ee, eff;
+    float epot = 0.0f, dx[3], pjx[3], pjf[3], shift[3], r2, w, ee, eff;
     __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
@@ -182,6 +182,10 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         temp = iparts_i; iparts_i = iparts_j; iparts_j = temp;
         k = count_i; count_i = count_j; count_j = k;
+        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
+        }
+    else {
+        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
     
     /* Copy the particle data to the local buffers */
@@ -203,7 +207,14 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
         parts_j[k].f[2] = iparts_j[k].f[2];
         parts_j[k].type = iparts_j[k].type;
         }
+        
+    /* Get the wrap. */
+    if ( ( wrap = count_i ) < cuda_frame )
+        wrap = cuda_frame;
     
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
     /* Loop over the particles in cell_j, frame-wise. */
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
     
@@ -211,61 +222,191 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
         pj = &parts_j[pjd];
         pjoff = pj->type * cuda_maxtype;
         for ( k = 0 ; k < 3 ; k++ ) {
-            pjx[k] = pj->x[k] + pshift[k];
+            pjx[k] = pj->x[k] + shift[k];
             pjf[k] = 0.0f;
             }
         
         /* Loop over the particles in cell_i. */
         for ( pid = 0 ; pid < count_i ; pid++ ) {
         
-            /* Get a handle on the wrapped particle pid in cell_i. */
-            pi = &parts_i[ (pid + threadID) % count_i ];
+            /* Wrap the particle index correctly. */
+            if ( ( ind = pid + threadID ) >= wrap )
+                ind -= wrap;
             
-            /* Compute the radius between pi and pj. */
-            for ( r2 = 0.0f , k = 0 ; k < 3 ; k++ ) {
-                dx[k] = pi->x[k] - pjx[k];
-                r2 += dx[k] * dx[k];
-                }
+            /* Do we have a pair? */
+            if ( ind < count_i ) {
+            
+                /* Get a handle on the wrapped particle pid in cell_i. */
+                pi = &parts_i[ ind ];
+                // printf( "runner_dopair_cuda: doing pair [%i,%i].\n" , pjd , ind );
+
+                /* Compute the radius between pi and pj. */
+                for ( r2 = 0.0f , k = 0 ; k < 3 ; k++ ) {
+                    dx[k] = pi->x[k] - pjx[k];
+                    r2 += dx[k] * dx[k];
+                    }
+
+                /* Set the null potential if anything is bad. */
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
+
+                    /* Interact particles pi and pj. */
+                    potential_eval_cuda( pot , r2 , &ee , &eff );
+
+                    /* Store the interaction force and energy. */
+                    epot += ee;
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff * dx[k];
+                        pi->f[k] -= w;
+                        pjf[k] += w;
+                        }
+
+                    /* Sync the shared memory values. */
+                    __threadfence_block();
                 
-            /* Set the null potential if anything is bad. */
-            if ( r2 > cuda_cutoff2 || ( pot = cuda_p[ pjoff + pi->type ] ) == potential_null_cuda )
-                continue;
-            
-            /* Interact particles pi and pj. */
-            potential_eval_cuda( pot , r2 , &ee , &eff );
-            
-            /* Store the interaction force and energy. */
-            epot += ee;
-            for ( k = 0 ; k < 3 ; k++ ) {
-                w = eff * dx[k];
-                pi->f[k] -= w;
-                pjf[k] += w;
-                }
+                    } /* in range and potential. */
+
+                } /* do we have a pair? */
         
             } /* loop over parts in cell_i. */
             
-            /* Update the force on pj. */
-            for ( k = 0 ; k < 3 ; k++ )
-                pj->f[k] += pjf[k];
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            pj->f[k] += pjf[k];
     
+        /* Sync the shared memory values. */
+        __threadfence_block();
+        
         } /* loop over the particles in cell_j. */
     
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
     /* Copy the particle data back from the local buffers */
     for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        iparts_i[k].x[0] = parts_i[k].x[0];
-        iparts_i[k].x[1] = parts_i[k].x[1];
-        iparts_i[k].x[2] = parts_i[k].x[2];
         iparts_i[k].f[0] = parts_i[k].f[0];
         iparts_i[k].f[1] = parts_i[k].f[1];
         iparts_i[k].f[2] = parts_i[k].f[2];
         }
     for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        iparts_j[k].x[0] = parts_j[k].x[0];
-        iparts_j[k].x[1] = parts_j[k].x[1];
-        iparts_j[k].x[2] = parts_j[k].x[2];
         iparts_j[k].f[0] = parts_j[k].f[0];
         iparts_j[k].f[1] = parts_j[k].f[1];
         iparts_j[k].f[2] = parts_j[k].f[2];
+        }
+        
+    }
+
+
+/**
+ * @brief Compute the self interactions for the given cell on a CUDA device.
+ *
+ * @param iparts Array of parts in this cell.
+ * @param count Number of parts in the cell.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+__device__ void runner_doself_cuda ( struct part *iparts , int count ) {
+
+    int k, ind, wrap, pid, pjd, threadID;
+    int pjoff;
+    struct part_cuda *pi, *pj;
+    struct potential *pot;
+    float epot = 0.0f, dx[3], pjx[3], pjf[3], r2, w, ee, eff;
+    __shared__ struct part_cuda parts[ cuda_maxparts ];
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Copy the particle data to the local buffers */
+    for ( k = threadID ; k < count ; k += cuda_frame ) {
+        parts[k].x[0] = iparts[k].x[0];
+        parts[k].x[1] = iparts[k].x[1];
+        parts[k].x[2] = iparts[k].x[2];
+        parts[k].f[0] = iparts[k].f[0];
+        parts[k].f[1] = iparts[k].f[1];
+        parts[k].f[2] = iparts[k].f[2];
+        parts[k].type = iparts[k].type;
+        }
+    
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
+    /* Loop over the particles in the cell, frame-wise. */
+    for ( pjd = threadID ; pjd < count ; pjd += cuda_frame ) {
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        pj = &parts[pjd];
+        pjoff = pj->type * cuda_maxtype;
+        for ( k = 0 ; k < 3 ; k++ ) {
+            pjx[k] = pj->x[k];
+            pjf[k] = 0.0f;
+            }
+            
+        /* Set the wrapping. */
+        wrap = (pjd + (cuda_frame - 1)) & ~(cuda_frame - 1);
+        
+        /* Loop over the particles in cell_i. */
+        for ( pid = 0 ; pid < wrap ; pid++ ) {
+        
+            /* Get the correct wrapped id. */
+            if ( ( ind = pid + threadID ) >= wrap )
+                ind -= wrap;
+                
+            /* Valid particle pair? */
+            if ( ind < pjd ) {
+                
+                // if ( threadID == 0 )
+                // printf( "runner_doself_cuda: doing pair [%i,%i].\n" , pjd , ind );
+
+                /* Get a handle on the wrapped particle pid in cell_i. */
+                pi = &parts[ ind ];
+
+                /* Compute the radius between pi and pj. */
+                for ( r2 = 0.0f , k = 0 ; k < 3 ; k++ ) {
+                    dx[k] = pi->x[k] - pjx[k];
+                    r2 += dx[k] * dx[k];
+                    }
+
+                /* Set the null potential if anything is bad. */
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
+
+                    /* Interact particles pi and pj. */
+                    potential_eval_cuda( pot , r2 , &ee , &eff );
+
+                    /* Store the interaction force and energy. */
+                    epot += ee;
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff * dx[k];
+                        pi->f[k] -= w;
+                        pjf[k] += w;
+                        }
+
+                    /* Sync the shared memory values. */
+                    __threadfence_block();
+
+                    } /* range and potential? */
+
+                } /* valid particle pair? */
+        
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            pj->f[k] += pjf[k];
+    
+        /* Sync the shared memory values. */
+        __threadfence_block();
+
+        } /* loop over the particles in cell_j. */
+    
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
+    /* Copy the particle data back from the local buffers */
+    for ( k = threadID ; k < count ; k += cuda_frame ) {
+        iparts[k].f[0] = parts[k].f[0];
+        iparts[k].f[1] = parts[k].f[1];
+        iparts[k].f[2] = parts[k].f[2];
         }
         
     }
@@ -286,13 +427,28 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
     __shared__ int finger, cid, cjd;
     
     /* Get the block and thread ids. */
-    blockID = threadIdx.x / 32;
-    threadID = threadIdx.x % 32;
+    blockID = threadIdx.y;
+    threadID = threadIdx.x;
+    
+    /* Check that we've got the correct warp size! */
+    if ( warpSize != cuda_frame ) {
+        if ( blockID == 0 && threadID == 0 )
+            printf( "runner_run_cuda: error: the warp size of the device (%i) does not match the warp size mdcore was compiled for (%i).\n" ,
+                warpSize , cuda_frame );
+        return;
+        }
+    
+    /* Greetings, earthling. */
+    // if ( threadID == 0 )
+        printf( "runner_run_cuda: thread %i of block %i says hi.\n" , threadID , blockID );
     
     /* If I'm the first thread in the first block, re-set the next pair. */
     if ( blockID == 0 && threadID == 0 )
-        atomicExch( &cuda_pair_next , 0 );
+        cuda_pair_next = 0;
         
+    /* Make sure everybody is on the same page. */
+    __threadfence();
+            
     /* Main loop... */
     while ( cuda_pair_next < cuda_nr_pairs ) {
     
@@ -316,36 +472,50 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
                 cuda_pairs[ cuda_pair_next ] = temp;
                 finger = cuda_pair_next;
                 cid = cuda_pairs[finger].i; cjd = cuda_pairs[finger].j;
-                atomicExch( &cuda_pair_next , cuda_pair_next + 1 );
-                atomicExch( &cuda_taboo[ cid ] , 1 );
-                atomicExch( &cuda_taboo[ cjd ] , 1 );
+                cuda_pair_next += 1;
+                cuda_taboo[ cid ] = 1;
+                cuda_taboo[ cjd ] = 1;
                 }
             else
                 finger = -1;
             
-            /* Un-lock the mutex. */
-            cuda_mutex_unlock( &cuda_cell_mutex );
-            
             /* Make sure everybody is on the same page. */
             __threadfence();
         
+            /* Un-lock the mutex. */
+            cuda_mutex_unlock( &cuda_cell_mutex );
+            
             }
+            
+        /* Get everybody together. */
+        __syncthreads();
             
         /* If we actually got a pair, do it! */
         if ( finger >= 0 ) {
         
+            if ( threadID == 0 )
+                printf( "runner_run_cuda: block %i working on pair [%i,%i] (finger = %i).\n" , blockID , cid , cjd , finger );
+        
             /* Do the pair. */
-            runner_dopair_cuda( parts[cid] , counts[cid] , parts[cjd] , counts[cjd] , cuda_pairs[finger].shift );
+            if ( cid != cjd )
+                runner_dopair_cuda( parts[cid] , counts[cid] , parts[cjd] , counts[cjd] , cuda_pairs[finger].shift );
+            else
+                runner_doself_cuda( parts[cid] , counts[cid] );
         
             /* Release the cells in the taboo list. */
-            atomicExch( &cuda_taboo[ cid ] , 0 );
-            atomicExch( &cuda_taboo[ cjd ] , 0 );
+            if ( threadID == 0 ) {
+                cuda_taboo[ cid ] = 0;
+                cuda_taboo[ cjd ] = 0;
+                }
             
             /* Make sure everybody is on the same page. */
             __threadfence();
         
             }
     
+        /* Get everybody together. */
+        __syncthreads();
+            
         } /* main loop. */
 
     }

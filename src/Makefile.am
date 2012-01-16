@@ -35,9 +35,9 @@ SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
 if HAVECUDA
     SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
 .cu.o:
-	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -O3 --use_fast_math --prec-sqrt=true -arch sm_13 -DFPTYPE_SINGLE $< -o $@
+	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -g -O0 --use_fast_math --prec-sqrt=true -arch sm_22 -DFPTYPE_SINGLE $< -o $@
 .cu.lo:
-	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -arch sm_13 -DFPTYPE_SINGLE $<
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -g -c $(NVCCFLAGS) $(CUDA_CFLAGS) -arch sm_22 -DFPTYPE_SINGLE $<
 else
     SOURCES_CUDA =
 endif

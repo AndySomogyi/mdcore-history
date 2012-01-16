@@ -22,7 +22,7 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS) $(CUDA_LIBS)
+AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
 
 # Set-up the library
 bin_PROGRAMS = jac
@@ -30,5 +30,5 @@ bin_PROGRAMS = jac
 # Sources for jac
 jac_SOURCES = jac.c
 jac_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
-jac_LDADD = ../../src/.libs/libmdcore_single.a
+jac_LDADD = ../../src/.libs/libmdcore_single.a -locelot
 

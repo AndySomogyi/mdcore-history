@@ -45,7 +45,7 @@
 
 /* Engine flags? */
 #ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS (engine_flag_tuples | engine_flag_parbonded)
+    #define ENGINE_FLAGS (engine_flag_parbonded)
 #endif
 
 /* Enumeration for the different timers */
@@ -108,7 +108,7 @@ int main ( int argc , char *argv[] ) {
     
     
     /* Start by initializing MPI. */
-    if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
+    /* if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Init failed with error %i.\n" , res );
         abort();
         }
@@ -128,7 +128,7 @@ int main ( int argc , char *argv[] ) {
     if ( myrank == 0 ) {
         printf( "main[%i]: MPI is up and running...\n" , myrank );
         fflush(stdout);
-        }
+        } */
     
     
     /* Initialize our own input parameters. */
@@ -341,11 +341,11 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Ignore angles for now. */
-    // e.nr_bonds = 0;
-    // e.nr_angles = 0;
-    // e.nr_rigids = 0;
-    // e.nr_dihedrals = 0;
-    // e.nr_exclusions = 0;
+    e.nr_bonds = 0;
+    e.nr_angles = 0;
+    e.nr_rigids = 0;
+    e.nr_dihedrals = 0;
+    e.nr_exclusions = 0;
     
     /* Dump a potential to make sure its ok... */
     /* pot = e.p[0];
@@ -391,6 +391,19 @@ int main ( int argc , char *argv[] ) {
             printf( "%i " , e.recv[k].cellid[j] );
         printf( "]\n" );
         } */
+        
+        
+    /* Just do a single cell pair. */
+    /* for ( k = 0 ; k < e.s.nr_pairs ; k++ )
+        if ( e.s.pairs[k].i != e.s.pairs[k].j )
+            e.s.pairs[k--] = e.s.pairs[ --e.s.nr_pairs ]; */
+    // e.s.nr_pairs = 10;
+    // e.s.cells[ e.s.pairs[0].i ].count = 32; e.s.cells[ e.s.pairs[0].j ].count = 32;
+    /* for ( k = 0 ; k < e.s.nr_cells ; k++ )
+        if ( k != e.s.pairs[0].i && k != e.s.pairs[0].j )
+            cell_flush( &e.s.cells[k] , e.s.partlist , e.s.celllist );
+    printf( "main[%i]: restricting myself to the pair [%i,%i].\n" , myrank ,
+        e.s.pairs[0].i , e.s.pairs[0].j ); */
         
         
     /* Start the engine. */
@@ -447,7 +460,7 @@ int main ( int argc , char *argv[] ) {
         if ( e.flags & engine_flag_sets ) printf( " engine_flag_sets" );
         printf( "\n" );
         }
-        
+       
         
     /* Timing. */    
     toc = getticks();
@@ -592,10 +605,10 @@ int main ( int argc , char *argv[] ) {
         
     
     /* Exit gracefuly. */
-    if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
+    /* if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
         printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
         abort();
-        }
+        } */
     fflush(stdout);
     printf( "main[%i]: exiting.\n" , myrank );
     return 0;

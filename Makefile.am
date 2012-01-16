@@ -17,6 +17,7 @@
 
 # Automake stuff
 AUTOMAKE_OPTIONS = gnu
+ACLOCAL_AMFLAGS = -I m4
 
 # Show the way...
 SUBDIRS = src examples doc

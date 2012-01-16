@@ -76,12 +76,15 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts );
  
 extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
+    dim3 nr_threads( 32 , 1 );
+    dim3 nr_blocks( e->nr_runners , 1 );
+
     /* Load the particle data onto the device. */
     if ( engine_cuda_load_parts( e ) < 0 )
         return error(engine_err);
         
     /* Start the kernel. */
-    runner_run_cuda<<<e->nr_runners,32>>>( e->s.parts_cuda , e->s.counts_cuda );
+    runner_run_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda );
     
     /* Check for CUDA errors. */
     if ( cudaGetLastError() != cudaSuccess )
@@ -90,7 +93,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     /* Unload the particle data from the device. */
     if ( engine_cuda_unload_parts( e ) < 0 )
         return error(engine_err);
-        
+
     /* Go away. */
     return engine_err_ok;
     
@@ -258,7 +261,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Pack the potential matrix. */
     for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
         if ( e->p[i] == NULL )
-            p_cuda[i] = &(e->pots_cuda[0]);
+            p_cuda[i] = NULL;
         else {
             for ( j = 0 ; j < nr_pots && pots[j] != e->p[i] ; j++ );
             p_cuda[i] = &(e->pots_cuda[j]);
@@ -305,7 +308,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Allocate and fill the pairs list on the device. */
     if ( cudaMalloc( &e->s.pairs_cuda , sizeof(struct cellpair_cuda) * e->s.nr_pairs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpy( e->s.pairs_cuda , pairs_cuda , sizeof(struct cellpair_cuda) , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpy( e->s.pairs_cuda , pairs_cuda , sizeof(struct cellpair_cuda) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_pairs" , &(e->s.pairs_cuda) , sizeof(struct cellpair_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
