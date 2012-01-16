@@ -76,6 +76,8 @@ __constant__ float cuda_cutoff2 = 0.0f;
 __constant__ struct potential **cuda_p;
 __constant__ int cuda_maxtype = 0;
 
+/* The potential coefficients, as a texture. */
+texture< float , cudaTextureType1D > tex_pots;
 
 
 /**

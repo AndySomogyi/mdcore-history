@@ -284,6 +284,12 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpy( e->coeffs_cuda , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
+    /* Bind the potential coefficients to a texture. */
+    const textureReference* texRefPtr;
+    cudaGetTextureReference( &texRefPtr , "tex_pots");
+    cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<float>( );
+    cudaBindTexture( NULL , texRefPtr , e->coeffs_cuda , &channelDesc , nr_coeffs * potential_chunk );
+        
     /* Set the constant pointer to the null potential and other useful values. */
     if ( cudaMemcpyToSymbol( "potential_null_cuda" , &(e->pots_cuda) , sizeof(struct potential *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
