@@ -527,15 +527,18 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaA
 
     /* Bind the coeffs. */
     if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs ) != cudaSuccess )
-        return error_cuda(engine_err_cuda);
+        return cuda_error(engine_err_cuda);
     
     /* Bind the offsets. */
     if ( cudaBindTextureToArray( tex_offsets , cuArray_offsets ) != cudaSuccess )
-        return error_cuda(engine_err_cuda);
+        return cuda_error(engine_err_cuda);
         
     /* Bind the alphas. */
     if ( cudaBindTextureToArray( tex_alphas , cuArray_alphas ) != cudaSuccess )
-        return error_cuda(engine_err_cuda);
+        return cuda_error(engine_err_cuda);
+        
+    /* Rock and roll. */
+    return runner_err_ok;
 
     }
 

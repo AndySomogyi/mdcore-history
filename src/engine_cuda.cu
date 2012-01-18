@@ -64,6 +64,7 @@
 
 /* Forward declaration of runner kernel. */
 __global__ void runner_run_cuda ( struct part *parts[] , int *counts );
+int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas );
 
 
 /**
@@ -223,6 +224,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     struct cellpair_cuda *pairs_cuda;
     float *finger, *coeffs_cuda, *alphas_cuda, cutoff2 = e->s.cutoff2;
     cudaArray *cuArray_coeffs, *cuArray_offsets, *cuArray_alphas;
+    cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
+    cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -309,7 +312,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         
         
     /* Bind the potential coefficients to a texture. */
-    if ( cudaMallocArray( &cuArray_coeffs , &tex_coeffs.channelDesc , nr_coeffs , potential_chunk ) != cudaSuccess )
+    if ( cudaMallocArray( &cuArray_coeffs , &channelDesc_float , nr_coeffs , potential_chunk ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_coeffs , 0 , 0 , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
@@ -321,7 +324,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     offsets_cuda[0] = 0;
     for ( i = 1 ; i < nr_pots ; i++ )
         offsets_cuda[i] = offsets_cuda[i-1] + pots_cuda[i-1].n + 1;
-    if ( cudaMallocArray( &cuArray_offsets , &tex_offsets.channelDesc , nr_pots , 1 ) != cudaSuccess )
+    if ( cudaMallocArray( &cuArray_offsets , &channelDesc_int , nr_pots , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_offsets , 0 , 0 , offsets_cuda , sizeof(int) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
@@ -335,7 +338,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         alphas_cuda[ 3*i + 1 ] = pots_cuda[i].alpha[1];
         alphas_cuda[ 3*i + 2 ] = pots_cuda[i].alpha[2];
         }
-    if ( cudaMallocArray( &cuArray_alphas , &tex_alphas.channelDesc , nr_pots , 3 ) != cudaSuccess )
+    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , nr_pots , 3 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 3 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
