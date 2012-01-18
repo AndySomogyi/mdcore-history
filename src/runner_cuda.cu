@@ -84,9 +84,9 @@ __constant__ int cuda_maxtype = 0;
 __constant__ struct potential *cuda_pots;
 
 /* The potential coefficients, as a texture. */
-texture< float , cudaTextureType1D > tex_coeffs;
+texture< float , cudaTextureType2D > tex_coeffs;
 __constant__ float *cuda_coeffs;
-texture< float , cudaTextureType1D > tex_alphas;
+texture< float , cudaTextureType2D > tex_alphas;
 __constant__ float *cuda_alphas;
 texture< int , cudaTextureType1D > tex_offsets;
 __constant__ int *cuda_offsets;
@@ -140,39 +140,39 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
 
     int ind, k;
     float x, ee, eff, r;
-    struct potential *p = &cuda_pots[pid];
+    // struct potential *p = &cuda_pots[pid];
     
     /* Get r for the right type. */
     r = sqrtf(r2);
     
     /* compute the interval index */
-    ind = fmaxf( 0.0f , tex1D( tex_alphas , 3*pid+0 ) + r * ( tex1D( tex_alphas , 3*pid+1 ) + r * tex1D( tex_alphas , 3*pid+2 ) ) );
+    ind = fmaxf( 0.0f , tex2D( tex_alphas , pid , 0 ) + r * ( tex2D( tex_alphas , pid , 1 ) + r * tex2D( tex_alphas , pid , 2 ) ) );
     // ind = fmaxf( 0.0f , cuda_alphas[3*pid+0] + r * ( cuda_alphas[3*pid+1] + r * cuda_alphas[3*pid+2] ) );
     /* printf( "potential_eval_cuda_tex: ind=%i, ind=%i.\n" , 
         (int)fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) ) , 
         (int)fmaxf( 0.0f , tex1D( tex_alphas , 3.0*pid+0 ) + r * ( tex1D( tex_alphas , 3.0*pid+1 ) + r * tex1D( tex_alphas , 3.0*pid+2 ) ) ) ); */
     // ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    ind = (ind + cuda_offsets[pid]) * potential_chunk;
-    // ind = ( ind + tex1D( tex_offsets , pid ) ) * potential_chunk;
+    // ind += cuda_offsets[pid];
+    ind += tex1D( tex_offsets , pid );
     
     /* adjust x to the interval */
-    // x = (r - tex1D( tex_coeffs , ind ) ) * tex1D( tex_coeffs , ind+1 );
-    x = (r - cuda_coeffs[ind] ) * cuda_coeffs[ind+1];
+    x = (r - tex2D( tex_coeffs , ind , 0 ) ) * tex2D( tex_coeffs , ind , 1 );
+    // x = (r - cuda_coeffs[ind] ) * cuda_coeffs[ind+1];
     
     /* compute the potential and its derivative */
-    // ee = tex1D( tex_coeffs , ind+2 ) * x + tex1D( tex_coeffs , ind+3 );
-    // eff = tex1D( tex_coeffs , ind+2 );
-    ee = cuda_coeffs[ind+2] * x + cuda_coeffs[ind+3];
-    eff = cuda_coeffs[ind+2];
+    ee = tex2D( tex_coeffs , ind , 2 ) * x + tex2D( tex_coeffs , ind , 3 );
+    eff = tex2D( tex_coeffs , ind , 2 );
+    // ee = cuda_coeffs[ind+2] * x + cuda_coeffs[ind+3];
+    // eff = cuda_coeffs[ind+2];
     for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
-        // ee = ee * x + tex1D( tex_coeffs , ind+k );
-        ee = ee * x + cuda_coeffs[ind+k];
+        ee = ee * x + tex2D( tex_coeffs , ind , k );
+        // ee = ee * x + cuda_coeffs[ind+k];
         }
 
     /* store the result */
-    // *e = ee; *f = eff * tex1D( tex_coeffs , ind+1 ) / r;
-    *e = ee; *f = eff * cuda_coeffs[ind+1] / r;
+    *e = ee; *f = eff * tex2D( tex_coeffs , ind , 1 ) / r;
+    // *e = ee; *f = eff * cuda_coeffs[ind+1] / r;
         
     }
 
