@@ -312,10 +312,12 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         
         
     /* Bind the potential coefficients to a texture. */
-    if ( cudaMallocArray( &cuArray_coeffs , &channelDesc_float , nr_coeffs , potential_chunk ) != cudaSuccess )
+    if ( cudaMallocArray( &cuArray_coeffs , &channelDesc_float , potential_chunk , nr_coeffs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_coeffs , 0 , 0 , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    printf( "engine_cuda_load: second set of coeffs is [ %f , %f , %f ].\n" ,
+        coeffs_cuda[potential_chunk] , coeffs_cuda[potential_chunk+1] , coeffs_cuda[potential_chunk+2] );
     
     /* Pack the potential offsets into a newly allocated array and 
        copy to the device. */
@@ -324,6 +326,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     offsets_cuda[0] = 0;
     for ( i = 1 ; i < nr_pots ; i++ )
         offsets_cuda[i] = offsets_cuda[i-1] + pots_cuda[i-1].n + 1;
+    printf( "engine_cuda_load: first three offsets are [ %i , %i , %i ].\n" ,
+        offsets_cuda[0] , offsets_cuda[1] , offsets_cuda[2] );
     if ( cudaMallocArray( &cuArray_offsets , &channelDesc_int , nr_pots , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_offsets , 0 , 0 , offsets_cuda , sizeof(int) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -338,7 +342,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         alphas_cuda[ 3*i + 1 ] = pots_cuda[i].alpha[1];
         alphas_cuda[ 3*i + 2 ] = pots_cuda[i].alpha[2];
         }
-    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , nr_pots , 3 ) != cudaSuccess )
+    printf( "engine_cuda_load: first set of alphas is [ %f , %f , %f ].\n" ,
+        alphas_cuda[0] , alphas_cuda[1] , alphas_cuda[2] );
+    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , 3 , nr_pots ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 3 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
@@ -346,10 +352,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Bind the textures on the device. */
     if ( runner_bind( cuArray_coeffs , cuArray_offsets , cuArray_alphas ) < 0 )
         return error(engine_err_runner);
-    
-    /* Dump the device pointers. */
-    /* printf( "engine_cuda_load: e->alphas_cuda = 0x%x, e->offsets_cuda = 0x%x, e->coeffs_cuda = 0x%x.\n",
-        e->alphas_cuda , e->offsets_cuda , e->coeffs_cuda ); */
         
         
     /* Set the constant pointer to the null potential and other useful values. */

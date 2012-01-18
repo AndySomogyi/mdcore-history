@@ -89,15 +89,13 @@ __constant__ struct potential *cuda_pots;
 
 /* The potential coefficients, as a texture. */
 texture< float , cudaTextureType2D > tex_coeffs;
-__constant__ float *cuda_coeffs;
 texture< float , cudaTextureType2D > tex_alphas;
-__constant__ float *cuda_alphas;
 texture< int , cudaTextureType1D > tex_offsets;
-__constant__ int *cuda_offsets;
+cudaArray *cuda_coeffs, *cuda_alphas, *cuda_offsets;
 
 /* Use a set of variables to communicate with the outside world. */
 __device__ float cuda_fio[10];
-__device__ float cuda_io[10];
+__device__ int cuda_io[10];
 
 
 /**
@@ -154,33 +152,22 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     r = sqrtf(r2);
     
     /* compute the interval index */
-    ind = fmaxf( 0.0f , tex2D( tex_alphas , pid , 0 ) + r * ( tex2D( tex_alphas , pid , 1 ) + r * tex2D( tex_alphas , pid , 2 ) ) );
-    // ind = fmaxf( 0.0f , cuda_alphas[3*pid+0] + r * ( cuda_alphas[3*pid+1] + r * cuda_alphas[3*pid+2] ) );
-    // printf( "potential_eval_cuda_tex: ind=%i, ind=%i.\n" , 
-    //     (int)fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) ) , 
-    //     (int)fmaxf( 0.0f , tex2D( tex_alphas , pid , 0 ) + r * ( tex2D( tex_alphas , pid , 1 ) + r * tex2D( tex_alphas , pid , 2 ) ) ) );
-    // ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    // ind += cuda_offsets[pid];
+    ind = fmaxf( 0.0f , tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) );
     ind += tex1D( tex_offsets , pid );
     
     /* adjust x to the interval */
-    x = (r - tex2D( tex_coeffs , ind , 0 ) ) * tex2D( tex_coeffs , ind , 1 );
-    // x = (r - cuda_coeffs[ind] ) * cuda_coeffs[ind+1];
+    x = (r - tex2D( tex_coeffs , 0 , ind ) ) * tex2D( tex_coeffs , 1 , ind );
     
     /* compute the potential and its derivative */
-    ee = tex2D( tex_coeffs , ind , 2 ) * x + tex2D( tex_coeffs , ind , 3 );
-    eff = tex2D( tex_coeffs , ind , 2 );
-    // ee = cuda_coeffs[ind+2] * x + cuda_coeffs[ind+3];
-    // eff = cuda_coeffs[ind+2];
+    ee = tex2D( tex_coeffs , 2 , ind ) * x + tex2D( tex_coeffs , 3 , ind );
+    eff = tex2D( tex_coeffs , 2 , ind );
     for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
-        ee = ee * x + tex2D( tex_coeffs , ind , k );
-        // ee = ee * x + cuda_coeffs[ind+k];
+        ee = ee * x + tex2D( tex_coeffs , k , ind );
         }
 
     /* store the result */
-    *e = ee; *f = eff * tex2D( tex_coeffs , ind , 1 ) / r;
-    // *e = ee; *f = eff * cuda_coeffs[ind+1] / r;
+    *e = ee; *f = eff * tex2D( tex_coeffs , 1 , ind ) / r;
         
     }
 
@@ -526,14 +513,17 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas ) {
 
     /* Bind the coeffs. */
+    cuda_coeffs = cuArray_coeffs;
     if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
     /* Bind the offsets. */
+    cuda_offsets = cuArray_offsets;
     if ( cudaBindTextureToArray( tex_offsets , cuArray_offsets ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Bind the alphas. */
+    cuda_alphas = cuArray_alphas;
     if ( cudaBindTextureToArray( tex_alphas , cuArray_alphas ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
@@ -572,6 +562,19 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
     /* Greetings, earthling. */
     // if ( threadID == 0 )
     //     printf( "runner_run_cuda: thread %i of block %i says hi.\n" , threadID , blockID );
+    
+    /* Get some values from the textures to make sure they're ok. */
+    if ( blockID == 0 && threadID == 0 ) {
+        cuda_fio[0] = tex2D( tex_alphas , 0 , 0 );
+        cuda_fio[1] = tex2D( tex_alphas , 1 , 0 );
+        cuda_fio[2] = tex2D( tex_alphas , 2 , 0 );
+        cuda_fio[3] = tex2D( tex_coeffs , 0 , 1 );
+        cuda_fio[4] = tex2D( tex_coeffs , 1 , 1 );
+        cuda_fio[5] = tex2D( tex_coeffs , 2 , 1 );
+        cuda_io[0] = tex1D( tex_offsets , 0 );
+        cuda_io[1] = tex1D( tex_offsets , 1 );
+        cuda_io[2] = tex1D( tex_offsets , 2 );
+        }
     
     /* If I'm the first thread in the first block, re-set the next pair. */
     if ( blockID == 0 && threadID == 0 )
