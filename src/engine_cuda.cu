@@ -65,6 +65,11 @@
 /* Forward declaration of runner kernel. */
 __global__ void runner_run_cuda ( struct part *parts[] , int *counts );
 
+/* The potential coefficients, as a texture. */
+extern texture< float , cudaTextureType1D > tex_coeffs;
+extern texture< float , cudaTextureType1D > tex_alphas;
+extern texture< int , cudaTextureType1D > tex_offsets;
+
 
 /**
  * @brief Offload and compute the nonbonded interactions on a CUDA device.
@@ -203,12 +208,14 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
  
 extern "C" int engine_cuda_load ( struct engine *e ) {
 
-    int i, j, nr_pots = 1, nr_coeffs = 1;
+    int i, j, nr_pots, nr_coeffs;
+    int pind_cuda[ e->max_type * e->max_type ], *offsets_cuda;
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
     struct potential *p_cuda[ e->max_type * e->max_type ];
     struct potential *pots_cuda;
     struct cellpair_cuda *pairs_cuda;
-    float *finger, *coeffs_cuda, cutoff2 = e->s.cutoff2;
+    float *finger, *coeffs_cuda, *alphas_cuda, cutoff2 = e->s.cutoff2;
+    cudaArray *cuArray;
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -220,11 +227,12 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( ( pots[0]->c = (float *)alloca( sizeof(float) * potential_chunk ) ) == NULL )
         return error(engine_err_malloc);
     bzero( pots[0]->c , sizeof(float) * potential_chunk );
+    nr_pots = 1; nr_coeffs = 1;
     
     /* Start by identifying the unique potentials in the engine. */
-    for ( i = 0 ; i < e->nr_types * e->max_type ; i++ ) {
+    for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
     
-        /* Skip if there is no potential. */
+        /* Skip if there is no potential or no parts of this type. */
         if ( e->p[i] == NULL )
             continue;
             
@@ -244,6 +252,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
        and the coefficient tables. */
     if ( cudaMalloc( &(e->p_cuda) , sizeof(struct potential *) * e->max_type * e->max_type ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    if ( cudaMalloc( &(e->pind_cuda) , sizeof(int) * e->max_type * e->max_type ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     if ( cudaMalloc( &(e->pots_cuda) , sizeof(struct potential) * nr_pots ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMalloc( &(e->coeffs_cuda) , sizeof(float) * nr_coeffs * potential_chunk ) != cudaSuccess )
@@ -260,11 +270,14 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         
     /* Pack the potential matrix. */
     for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
-        if ( e->p[i] == NULL )
+        if ( e->p[i] == NULL ) {
             p_cuda[i] = NULL;
+            pind_cuda[i] = 0;
+            }
         else {
             for ( j = 0 ; j < nr_pots && pots[j] != e->p[i] ; j++ );
             p_cuda[i] = &(e->pots_cuda[j]);
+            pind_cuda[i] = j;
             }
         }
         
@@ -275,25 +288,76 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         memcpy( finger , pots[i]->c , sizeof(float) * potential_chunk * (pots[i]->n + 1) );
         finger = &finger[ (pots[i]->n + 1) * potential_chunk ];
         }
+    printf( "engine_cuda_load: packed %i potentials with %i coefficient chunks.\n" , nr_pots , nr_coeffs );
         
     /* Copy the data to the device. */
     if ( cudaMemcpy( e->p_cuda , p_cuda , sizeof(struct potential *) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpy( e->pind_cuda , pind_cuda , sizeof(int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpy( e->pots_cuda , pots_cuda , sizeof(struct potential) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpy( e->coeffs_cuda , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
+        
     /* Bind the potential coefficients to a texture. */
-    const textureReference* texRefPtr;
-    cudaGetTextureReference( &texRefPtr , "tex_pots");
-    cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<float>( );
-    cudaBindTexture( NULL , texRefPtr , e->coeffs_cuda , &channelDesc , nr_coeffs * potential_chunk );
+    if ( cudaMallocArray( &cuArray , &tex_coeffs.channelDesc , sizeof(float) * nr_coeffs * potential_chunk , 1 ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToArray( cuArray , 0 , 0 , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaBindTextureToArray( tex_alphas , cuArray ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    // if ( cudaMemcpyToSymbol( "cuda_coeffs" , &(e->coeffs_cuda) , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    //     return cuda_error(engine_err_cuda);
+    
+    /* Pack the potential offsets into a newly allocated array and 
+       copy to the device. */
+    if ( ( offsets_cuda = (int *)alloca( sizeof(int) * nr_pots ) ) == NULL )
+        return error(engine_err_malloc);
+    offsets_cuda[0] = 0;
+    for ( i = 1 ; i < nr_pots ; i++ )
+        offsets_cuda[i] = offsets_cuda[i-1] + pots_cuda[i-1].n + 1;
+    if ( cudaMallocArray( &cuArray , &tex_offsets.channelDesc , sizeof(int) * nr_pots , 1 ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToArray( cuArray , 0 , 0 , offsets_cuda , sizeof(int) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaBindTextureToArray( tex_offsets , cuArray ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    // if ( cudaMemcpyToSymbol( "cuda_offsets" , & , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    //     return cuda_error(engine_err_cuda);
+    
+    /* Pack the potential alphas into a newly allocated array and copy
+       to the device as a texture. */
+    if ( ( alphas_cuda = (float *)alloca( sizeof(float) * nr_pots * 3 ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( i = 0 ; i < nr_pots ; i++ ) {
+        alphas_cuda[ 3*i ] = pots_cuda[i].alpha[0];
+        alphas_cuda[ 3*i + 1 ] = pots_cuda[i].alpha[1];
+        alphas_cuda[ 3*i + 2 ] = pots_cuda[i].alpha[2];
+        }
+    if ( cudaMallocArray( &cuArray , &tex_alphas.channelDesc , sizeof(float) * nr_pots * 3 , 1 ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToArray( cuArray , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 3 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaBindTextureToArray( tex_alphas , cuArray ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    // if ( cudaMemcpyToSymbol( "cuda_alphas" , & , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    //     return cuda_error(engine_err_cuda);
+    
+    /* Dump the device pointers. */
+    /* printf( "engine_cuda_load: e->alphas_cuda = 0x%x, e->offsets_cuda = 0x%x, e->coeffs_cuda = 0x%x.\n",
+        e->alphas_cuda , e->offsets_cuda , e->coeffs_cuda ); */
+        
         
     /* Set the constant pointer to the null potential and other useful values. */
     if ( cudaMemcpyToSymbol( "potential_null_cuda" , &(e->pots_cuda) , sizeof(struct potential *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_p" , &(e->p_cuda) , sizeof(struct potential **) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_pots" , &(e->pots_cuda) , sizeof(struct potential *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_pind" , &(e->pind_cuda) , sizeof(struct potential **) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_cutoff2" , &cutoff2 , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);

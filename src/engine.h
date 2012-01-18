@@ -205,8 +205,8 @@ struct engine {
     #ifdef HAVE_CUDA
         struct potential **p_cuda;
         struct potential *pots_cuda;
-        float *coeffs_cuda;
-        int nrpots_cuda;
+        float *coeffs_cuda, *alphas_cuda;
+        int nrpots_cuda, *pind_cuda, *offsets_cuda;
     #endif
     
     /** Timers. */

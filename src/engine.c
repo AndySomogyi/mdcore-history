@@ -1854,9 +1854,8 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     
     /* set the maximum nr of types */
     if ( flags & engine_flag_nullpart )
-        e->max_type = max_type + 1;
-    else
-        e->max_type = max_type;
+        max_type += 1;
+    e->max_type = max_type;
     e->nr_types = 0;
     if ( ( e->types = (struct part_type *)malloc( sizeof(struct part_type) * max_type ) ) == NULL )
         return error(engine_err_malloc);
@@ -1867,6 +1866,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         e->types[0].charge = 0.0;
         strcpy( e->types[0].name , "NULL" );
         strcpy( e->types[0].name2 , "NULL" );
+        e->nr_types = 1;
         }
         
     /* Init the sets. */
