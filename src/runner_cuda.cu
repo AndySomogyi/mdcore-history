@@ -148,9 +148,9 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     /* compute the interval index */
     ind = fmaxf( 0.0f , tex1D( tex_alphas , 3*pid+0 ) + r * ( tex1D( tex_alphas , 3*pid+1 ) + r * tex1D( tex_alphas , 3*pid+2 ) ) );
     // ind = fmaxf( 0.0f , cuda_alphas[3*pid+0] + r * ( cuda_alphas[3*pid+1] + r * cuda_alphas[3*pid+2] ) );
-    printf( "potential_eval_cuda_tex: ind=%i, ind=%i.\n" , 
+    /* printf( "potential_eval_cuda_tex: ind=%i, ind=%i.\n" , 
         (int)fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) ) , 
-        (int)fmaxf( 0.0f , tex1D( tex_alphas , 3.0*pid+0 ) + r * ( tex1D( tex_alphas , 3.0*pid+1 ) + r * tex1D( tex_alphas , 3.0*pid+2 ) ) ) );
+        (int)fmaxf( 0.0f , tex1D( tex_alphas , 3.0*pid+0 ) + r * ( tex1D( tex_alphas , 3.0*pid+1 ) + r * tex1D( tex_alphas , 3.0*pid+2 ) ) ) ); */
     // ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     ind = (ind + cuda_offsets[pid]) * potential_chunk;
     // ind = ( ind + tex1D( tex_offsets , pid ) ) * potential_chunk;
@@ -527,9 +527,9 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
     
     /* Check that we've got the correct warp size! */
     if ( warpSize != cuda_frame ) {
-        if ( blockID == 0 && threadID == 0 )
+        /* if ( blockID == 0 && threadID == 0 )
             printf( "runner_run_cuda: error: the warp size of the device (%i) does not match the warp size mdcore was compiled for (%i).\n" ,
-                warpSize , cuda_frame );
+                warpSize , cuda_frame ); */
         return;
         }
     
