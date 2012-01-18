@@ -55,6 +55,10 @@
 #define cuda_maxpots 100
 
 
+/* the error macro. */
+#define cuda_error(id)			( engine_err = errs_register( id , cudaGetErrorString(cudaGetLastError()) , __LINE__ , __FUNCTION__ , __FILE__ ) )
+
+
 /* Use textured or global potential data? */
 #define USETEX 1
 
@@ -90,6 +94,10 @@ texture< float , cudaTextureType2D > tex_alphas;
 __constant__ float *cuda_alphas;
 texture< int , cudaTextureType1D > tex_offsets;
 __constant__ int *cuda_offsets;
+
+/* Use a set of variables to communicate with the outside world. */
+__device__ float cuda_fio[10];
+__device__ float cuda_io[10];
 
 
 /**
@@ -140,7 +148,7 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
 
     int ind, k;
     float x, ee, eff, r;
-    // struct potential *p = &cuda_pots[pid];
+    struct potential *p = &cuda_pots[pid];
     
     /* Get r for the right type. */
     r = sqrtf(r2);
@@ -148,9 +156,9 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     /* compute the interval index */
     ind = fmaxf( 0.0f , tex2D( tex_alphas , pid , 0 ) + r * ( tex2D( tex_alphas , pid , 1 ) + r * tex2D( tex_alphas , pid , 2 ) ) );
     // ind = fmaxf( 0.0f , cuda_alphas[3*pid+0] + r * ( cuda_alphas[3*pid+1] + r * cuda_alphas[3*pid+2] ) );
-    /* printf( "potential_eval_cuda_tex: ind=%i, ind=%i.\n" , 
-        (int)fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) ) , 
-        (int)fmaxf( 0.0f , tex1D( tex_alphas , 3.0*pid+0 ) + r * ( tex1D( tex_alphas , 3.0*pid+1 ) + r * tex1D( tex_alphas , 3.0*pid+2 ) ) ) ); */
+    // printf( "potential_eval_cuda_tex: ind=%i, ind=%i.\n" , 
+    //     (int)fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) ) , 
+    //     (int)fmaxf( 0.0f , tex2D( tex_alphas , pid , 0 ) + r * ( tex2D( tex_alphas , pid , 1 ) + r * tex2D( tex_alphas , pid , 2 ) ) ) );
     // ind = fmaxf( 0.0f , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
     // ind += cuda_offsets[pid];
     ind += tex1D( tex_offsets , pid );
@@ -504,6 +512,31 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
         iparts[k].f[2] = parts[k].f[2];
         }
         
+    }
+    
+    
+/**
+ * @brief Bind textures to the given cuda Arrays.
+ *
+ *
+ * Hack to get around the fact that textures are static and can thus no
+ * be externalized.
+ */
+ 
+int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas ) {
+
+    /* Bind the coeffs. */
+    if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs ) != cudaSuccess )
+        return error_cuda(engine_err_cuda);
+    
+    /* Bind the offsets. */
+    if ( cudaBindTextureToArray( tex_offsets , cuArray_offsets ) != cudaSuccess )
+        return error_cuda(engine_err_cuda);
+        
+    /* Bind the alphas. */
+    if ( cudaBindTextureToArray( tex_alphas , cuArray_alphas ) != cudaSuccess )
+        return error_cuda(engine_err_cuda);
+
     }
 
 
