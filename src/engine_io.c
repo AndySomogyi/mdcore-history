@@ -83,7 +83,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
     struct reader r;
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
     int tid, tjd, wc[4];
-    int res, j, k, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
+    int res, j, k, jj, kk, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
     double K, Kr0, r0, r2, r6, *eps, *rmin, A, B, q, al, ar, am, vl, vr, vm;
     struct potential *p;
     
@@ -501,6 +501,15 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
                  ( kappa < 0.0 || e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
                 continue;
                 
+            /* Has this potential already been specified? */
+            for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
+            for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+            if ( jj < j && kk < k ) {
+                if ( e->p[ jj + e->max_type*kk ] != NULL && engine_addpot( e , e->p[ jj + e->max_type*kk ] , j , k ) < 0 )
+                    return error(engine_err);
+                continue;
+                }
+                    
             /* Construct the common LJ parameters. */
             K = 4.184 * sqrt( eps[j] * eps[k] );
             r0 = 0.05 * ( rmin[j] + rmin[k] );
@@ -623,7 +632,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
     struct reader r;
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
     int tid, tjd, wc[4];
-    int j, k, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
+    int j, k, jj, kk, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
     double K, Kr0, r0, r2, r6, *eps, *rmin;
     double al, ar, am, vl, vr, vm, A, B, q;
     struct potential *p;
@@ -1099,6 +1108,15 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                  ( kappa < 0.0 || e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
                 continue;
                 
+            /* Has this potential already been specified? */
+            for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
+            for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+            if ( jj < j && kk < k ) {
+                if ( e->p[ jj + e->max_type*kk ] != NULL && engine_addpot( e , e->p[ jj + e->max_type*kk ] , j , k ) < 0 )
+                    return error(engine_err);
+                continue;
+                }
+                    
             /* Construct the common LJ parameters. */
             K = 4.184 * sqrt( eps[j] * eps[k] );
             r0 = 0.1 * ( rmin[j] + rmin[k] );
