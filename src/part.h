@@ -74,23 +74,6 @@ struct part {
     
 
 
-#ifdef HAVE_CUDA    
-/** Reduced part struct for CUDA. */
-struct part_cuda {
-
-    /** Particle position */
-    float x[3];
-    
-    /** Particle force */
-    float f[3];
-    
-    /** particle type. */
-    int type;
-    
-    };
-#endif
-    
-    
 /** Structure containing information on each particle species. */
 struct part_type {
 
