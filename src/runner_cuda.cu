@@ -61,8 +61,29 @@
 
 /* Use textured or global potential data? */
 #define USETEX 1
+// #define USETEX_E 1
 
 
+/** Reduced part struct for CUDA. */
+struct part_cuda {
+
+    /** Particle position */
+    float x[3];
+    
+    /** Particle force */
+    float f[3];
+    
+    /** particle type. */
+    int type;
+    
+    /** particle charge. */
+    #ifdef USETEX_E
+    float q;
+    #endif
+    
+    };
+    
+    
 /* The constant null potential. */
 __constant__ struct potential *potential_null_cuda = NULL;
 
@@ -128,6 +149,60 @@ __device__ inline void cuda_mutex_unlock ( int *m ) {
 
 /** 
  * @brief Evaluates the given potential at the given point (interpolated) using
+ *      texture memory on the device and explicit electrostatics.
+ *
+ * @param pid The index of the #potential to be evaluated.
+ * @param r2 The radius at which it is to be evaluated, squared.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force divided by r.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ */
+
+__device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 , float *e , float *f ) {
+
+    int ind, k;
+    float x, ee, eff, r, ir, qir, c[potential_chunk];
+    
+    /* Get r for the right type. */
+    ir = rsqrtf(r2);
+    r = r2*ir;
+    qir = q*ir;
+    
+    /* compute the interval index */
+    // ind = fmaxf( 0.0f , tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) );
+    if ( ( ind = tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) ) < 0 )
+        ind = 0;
+    ind += tex1D( tex_offsets , pid );
+    
+    /* pre-load the coefficients. */
+    for ( k = 0 ; k < potential_chunk ; k++ )
+        c[k] = tex2D( tex_coeffs , k , ind );
+    
+    /* adjust x to the interval */
+    x = (r - c[0]) * c[1];
+    
+    /* compute the potential and its derivative */
+    eff = c[2];
+    ee = c[2] * x + c[3];
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
+        eff = eff * x + ee;
+        ee = ee * x + c[k];
+        }
+
+    /* store the result */
+    *e = ee + qir;
+    *f = ( eff * c[1] + qir ) * ir;
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at the given point (interpolated) using
  *      texture memory on the device.
  *
  * @param pid The index of the #potential to be evaluated.
@@ -145,29 +220,35 @@ __device__ inline void cuda_mutex_unlock ( int *m ) {
 __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e , float *f ) {
 
     int ind, k;
-    float x, ee, eff, r;
-    struct potential *p = &cuda_pots[pid];
+    float x, ee, eff, r, ir, c[potential_chunk];
     
     /* Get r for the right type. */
-    r = sqrtf(r2);
+    ir = rsqrtf(r2);
+    r = r2*ir;
     
     /* compute the interval index */
-    ind = fmaxf( 0.0f , tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) );
+    // ind = fmaxf( 0.0f , tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) );
+    if ( ( ind = tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) ) < 0 )
+        ind = 0;
     ind += tex1D( tex_offsets , pid );
     
+    /* pre-load the coefficients. */
+    for ( k = 0 ; k < potential_chunk ; k++ )
+        c[k] = tex2D( tex_coeffs , k , ind );
+    
     /* adjust x to the interval */
-    x = (r - tex2D( tex_coeffs , 0 , ind ) ) * tex2D( tex_coeffs , 1 , ind );
+    x = (r - c[0]) * c[1];
     
     /* compute the potential and its derivative */
-    ee = tex2D( tex_coeffs , 2 , ind ) * x + tex2D( tex_coeffs , 3 , ind );
-    eff = tex2D( tex_coeffs , 2 , ind );
+    eff = c[2];
+    ee = c[2] * x + c[3];
     for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
-        ee = ee * x + tex2D( tex_coeffs , k , ind );
+        ee = ee * x + c[k];
         }
 
     /* store the result */
-    *e = ee; *f = eff * tex2D( tex_coeffs , 1 , ind ) / r;
+    *e = ee; *f = eff * c[1] * ir;
         
     }
 
@@ -237,7 +318,10 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
     int pjoff;
     struct part_cuda *pi, *pj;
     struct part *temp;
-    #ifdef USETEX
+    #ifdef USETEX_E
+        float qj, q;
+    #endif
+    #if defined(USETEX) || defined(USETEX_E)
         int pot;
     #else
         struct potential *pot;
@@ -267,6 +351,9 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
         parts_i[k].f[1] = iparts_i[k].f[1];
         parts_i[k].f[2] = iparts_i[k].f[2];
         parts_i[k].type = iparts_i[k].type;
+        #ifdef USETEX_E
+        parts_i[k].q = iparts_i[k].q;
+        #endif
         }
     for ( k = threadID ; k < count_j ; k += cuda_frame ) {
         parts_j[k].x[0] = iparts_j[k].x[0];
@@ -276,6 +363,9 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
         parts_j[k].f[1] = iparts_j[k].f[1];
         parts_j[k].f[2] = iparts_j[k].f[2];
         parts_j[k].type = iparts_j[k].type;
+        #ifdef USETEX_E
+        parts_j[k].q = iparts_j[k].q;
+        #endif
         }
         
     /* Get the wrap. */
@@ -295,6 +385,9 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
             pjx[k] = pj->x[k] + shift[k];
             pjf[k] = 0.0f;
             }
+        #ifdef USETEX_E
+        qj = pj->q;
+        #endif
         
         /* Loop over the particles in cell_i. */
         for ( pid = 0 ; pid < count_i ; pid++ ) {
@@ -317,14 +410,18 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
                     }
 
                 /* Set the null potential if anything is bad. */
-                #ifdef USETEX
+                #ifdef USETEX_E
+                if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+                #elif defined(USETEX)
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
                 #else
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
                 #endif
 
                     /* Interact particles pi and pj. */
-                    #ifdef USETEX
+                    #ifdef USETEX_E
+                    potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
+                    #elif defined(USETEX)
                     potential_eval_cuda_tex( pot , r2 , &ee , &eff );
                     #else
                     potential_eval_cuda( pot , r2 , &ee , &eff );
@@ -388,7 +485,10 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
     int k, ind, wrap, pid, pjd, threadID;
     int pjoff;
     struct part_cuda *pi, *pj;
-    #ifdef USETEX
+    #ifdef USETEX_E
+        float qj, q;
+    #endif
+    #if defined(USETEX) || defined(USETEX_E)
         int pot;
     #else
         struct potential *pot;
@@ -408,6 +508,9 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
         parts[k].f[1] = iparts[k].f[1];
         parts[k].f[2] = iparts[k].f[2];
         parts[k].type = iparts[k].type;
+        #ifdef USETEX_E
+        parts[k].q = iparts[k].q;
+        #endif
         }
     
     /* Make sure everybody is in the same place. */
@@ -423,6 +526,9 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
             pjx[k] = pj->x[k];
             pjf[k] = 0.0f;
             }
+        #ifdef USETEX_E
+        qj = pj->q;
+        #endif
             
         /* Set the wrapping. */
         wrap = (pjd + (cuda_frame - 1)) & ~(cuda_frame - 1);
@@ -450,14 +556,18 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
                     }
 
                 /* Set the null potential if anything is bad. */
-                #ifdef USETEX
+                #ifdef USETEX_E
+                if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+                #elif defined(USETEX)
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
                 #else
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
                 #endif
 
                     /* Interact particles pi and pj. */
-                    #ifdef USETEX
+                    #ifdef USETEX_E
+                    potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
+                    #elif defined(USETEX)
                     potential_eval_cuda_tex( pot , r2 , &ee , &eff );
                     #else
                     potential_eval_cuda( pot , r2 , &ee , &eff );
@@ -488,6 +598,131 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
         __threadfence_block();
 
         } /* loop over the particles in cell_j. */
+    
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
+    /* Copy the particle data back from the local buffers */
+    for ( k = threadID ; k < count ; k += cuda_frame ) {
+        iparts[k].f[0] = parts[k].f[0];
+        iparts[k].f[1] = parts[k].f[1];
+        iparts[k].f[2] = parts[k].f[2];
+        }
+        
+    }
+    
+    
+/**
+ * @brief Compute the self interactions for the given cell on a CUDA device.
+ *
+ * @param iparts Array of parts in this cell.
+ * @param count Number of parts in the cell.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+__device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
+
+    int diag, k, k_max, step, pid, pjd, threadID;
+    int pjoff;
+    struct part_cuda *pi, *pj;
+    #ifdef USETEX_E
+        float qj, q;
+    #endif
+    #if defined(USETEX) || defined(USETEX_E)
+        int pot;
+    #else
+        struct potential *pot;
+    #endif
+    float epot = 0.0f, dx[3], r2, w, ee, eff;
+    __shared__ struct part_cuda parts[ cuda_maxparts ];
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Copy the particle data to the local buffers */
+    for ( k = threadID ; k < count ; k += cuda_frame ) {
+        parts[k].x[0] = iparts[k].x[0];
+        parts[k].x[1] = iparts[k].x[1];
+        parts[k].x[2] = iparts[k].x[2];
+        parts[k].f[0] = iparts[k].f[0];
+        parts[k].f[1] = iparts[k].f[1];
+        parts[k].f[2] = iparts[k].f[2];
+        parts[k].type = iparts[k].type;
+        #ifdef USETEX_E
+        parts[k].q = iparts[k].q;
+        #endif
+        }
+    
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+    
+    /* Step along the number of diagonal entries. */
+    k_max = count * (count - 1) / 2; step = 1;
+    for ( k = 0 ; k < k_max ; k += step ) {
+    
+        /* is it time for this thread to step in? */
+        if ( k == threadID ) {
+            step = k;
+            k = (k + 2) * (k + 1) / 2 - 1;
+            }
+            
+        /* If running, continue with the interactions. */
+        if ( k >= threadID ) {
+        
+            /* Increase the step if necessary. */
+            if ( step < cuda_frame )
+                step += 1;
+    
+            /* Get the location of the kth entry on the diagonal. */
+            diag = ( sqrtf( 8*k + 1 ) - 1 ) / 2;
+            pid = k - diag*(diag+1)/2;
+            pjd = diag - pid;
+            
+            /* Get a handle on the particles. */
+            pi = &parts[ pid ];
+            pj = &parts[ pjd ];
+
+            /* Compute the radius between pi and pj. */
+            for ( r2 = 0.0f , k = 0 ; k < 3 ; k++ ) {
+                dx[k] = pi->x[k] - pj->x[k];
+                r2 += dx[k] * dx[k];
+                }
+
+            /* Set the null potential if anything is bad. */
+            #ifdef USETEX_E
+            if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+            #elif defined(USETEX)
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
+            #else
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
+            #endif
+
+                /* Interact particles pi and pj. */
+                #ifdef USETEX_E
+                potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
+                #elif defined(USETEX)
+                potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+                #else
+                potential_eval_cuda( pot , r2 , &ee , &eff );
+                #endif
+
+                /* Store the interaction force and energy. */
+                epot += ee;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w = eff * dx[k];
+                    pi->f[k] -= w;
+                    pj->f[k] += w;
+                    }
+
+                /* Sync the shared memory values. */
+                __threadfence_block();
+
+                } /* range and potential? */
+
+            } /* is it this thread's turn? */
+    
+        } /* Loop over diagonal indices. */
     
     /* Make sure everybody is in the same place. */
     __syncthreads();
@@ -563,19 +798,6 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
     // if ( threadID == 0 )
     //     printf( "runner_run_cuda: thread %i of block %i says hi.\n" , threadID , blockID );
     
-    /* Get some values from the textures to make sure they're ok. */
-    if ( blockID == 0 && threadID == 0 ) {
-        cuda_fio[0] = tex2D( tex_alphas , 0 , 0 );
-        cuda_fio[1] = tex2D( tex_alphas , 1 , 0 );
-        cuda_fio[2] = tex2D( tex_alphas , 2 , 0 );
-        cuda_fio[3] = tex2D( tex_coeffs , 0 , 1 );
-        cuda_fio[4] = tex2D( tex_coeffs , 1 , 1 );
-        cuda_fio[5] = tex2D( tex_coeffs , 2 , 1 );
-        cuda_io[0] = tex1D( tex_offsets , 0 );
-        cuda_io[1] = tex1D( tex_offsets , 1 );
-        cuda_io[2] = tex1D( tex_offsets , 2 );
-        }
-    
     /* If I'm the first thread in the first block, re-set the next pair. */
     if ( blockID == 0 && threadID == 0 )
         cuda_pair_next = 0;
@@ -634,7 +856,7 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
             if ( cid != cjd )
                 runner_dopair_cuda( parts[cid] , counts[cid] , parts[cjd] , counts[cjd] , cuda_pairs[finger].shift );
             else
-                runner_doself_cuda( parts[cid] , counts[cid] );
+                runner_doself_diag_cuda( parts[cid] , counts[cid] );
         
             /* Release the cells in the taboo list. */
             if ( threadID == 0 ) {
