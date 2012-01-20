@@ -502,8 +502,14 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
                 continue;
                 
             /* Has this potential already been specified? */
-            for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
-            for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+            if ( kappa < 0.0 ) {
+                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] ) ; kk++ );
+                }
+            else {
+                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+                }
             if ( jj < j && kk < k ) {
                 if ( e->p[ jj + e->max_type*kk ] != NULL && engine_addpot( e , e->p[ jj + e->max_type*kk ] , j , k ) < 0 )
                     return error(engine_err);
@@ -1109,8 +1115,14 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                 continue;
                 
             /* Has this potential already been specified? */
-            for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
-            for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+            if ( kappa < 0.0 ) {
+                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] ) ; kk++ );
+                }
+            else {
+                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+                }
             if ( jj < j && kk < k ) {
                 if ( e->p[ jj + e->max_type*kk ] != NULL && engine_addpot( e , e->p[ jj + e->max_type*kk ] , j , k ) < 0 )
                     return error(engine_err);
