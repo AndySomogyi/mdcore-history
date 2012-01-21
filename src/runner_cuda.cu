@@ -473,6 +473,253 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
 
 
 /**
+ * @brief Compute the pairwise interactions for the given pair on a CUDA device.
+ *
+ * @param iparts_i Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param iparts_j Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+__device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i , struct part *iparts_j , int count_j, float *pshift ) {
+
+    int k, j, pid, pjd, pidid, pjdid, threadID;
+    int pjoff, swap_i;
+    struct part_cuda *pi, *pj;
+    struct part *temp;
+    #ifdef USETEX_E
+        float qj, q;
+    #endif
+    #if defined(USETEX) || defined(USETEX_E)
+        int pot;
+    #else
+        struct potential *pot;
+    #endif
+    float epot = 0.0f, r2, w, ee, eff, inshift, shiftlen, swap_f, cutoff;
+    float dx[3], pjx[3], pjf[3], shift[3];
+    __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
+    __shared__ struct {
+        float d;
+        int ind;
+        } sort_i[ cuda_maxparts ], sort_j[ cuda_maxparts ];
+    __shared__ int wrap;
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    
+    /* Swap cells? cell_j loops in steps of frame... */
+    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+        temp = iparts_i; iparts_i = iparts_j; iparts_j = temp;
+        k = count_i; count_i = count_j; count_j = k;
+        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
+        }
+    else {
+        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
+        }
+        
+    /* Copy the particle data to the local buffers */
+    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
+        parts_i[k].x[0] = iparts_i[k].x[0];
+        parts_i[k].x[1] = iparts_i[k].x[1];
+        parts_i[k].x[2] = iparts_i[k].x[2];
+        parts_i[k].f[0] = iparts_i[k].f[0];
+        parts_i[k].f[1] = iparts_i[k].f[1];
+        parts_i[k].f[2] = iparts_i[k].f[2];
+        parts_i[k].type = iparts_i[k].type;
+        #ifdef USETEX_E
+        parts_i[k].q = iparts_i[k].q;
+        #endif
+        }
+    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
+        parts_j[k].x[0] = iparts_j[k].x[0];
+        parts_j[k].x[1] = iparts_j[k].x[1];
+        parts_j[k].x[2] = iparts_j[k].x[2];
+        parts_j[k].f[0] = iparts_j[k].f[0];
+        parts_j[k].f[1] = iparts_j[k].f[1];
+        parts_j[k].f[2] = iparts_j[k].f[2];
+        parts_j[k].type = iparts_j[k].type;
+        #ifdef USETEX_E
+        parts_j[k].q = iparts_j[k].q;
+        #endif
+        }
+        
+        
+    /* Pre-compute the inverse norm of the shift. */
+    shiftlen = sqrtf( pshift[0]*pshift[0] + pshift[1]*pshift[1] + pshift[2]*pshift[2] );
+    inshift = 1.0 / shiftlen;
+    cutoff = sqrt( cuda_cutoff2 );
+        
+    /* Pack the parts of i and j into the sort arrays. */
+    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
+        sort_i[k].d = inshift * (parts_i[k].x[0]*pshift[0] + parts_i[k].x[1]*pshift[1] + parts_i[k].x[2]*pshift[2]);
+        sort_i[k].ind = k;
+        }
+    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
+        sort_j[k].d = shiftlen + inshift * (parts_j[k].x[0]*pshift[0] + parts_j[k].x[1]*pshift[1] + parts_j[k].x[2]*pshift[2]);
+        sort_j[k].ind = k;
+        }
+    if ( threadID == 0 ) {
+        sort_i[count_i].d = FLT_MAX;
+        sort_j[count_j].d = FLT_MAX;
+        }
+        
+    /* Make sure all the memory is in the right place. */
+    __threadfence_block();
+            
+    /* Bubble-sort the particles with respect to d. */
+    for ( k = 0 ; k < count_i - 1 ; k++ )
+        for ( j = 2*threadID ; j < count_i-1 ; j += 2*cuda_frame ) {
+            if ( sort_i[j].d < sort_i[j+1].d ) {
+                swap_f = sort_i[j].d; sort_i[j].d = sort_i[j+1].d; sort_i[j+1].d = swap_f;
+                swap_i = sort_i[j].ind; sort_i[j].ind = sort_i[j+1].ind; sort_i[j+1].ind = swap_i;
+                }
+            __threadfence_block();
+            if ( sort_i[j+1].d < sort_i[j+2].d ) {
+                swap_f = sort_i[j+1].d; sort_i[j+1].d = sort_i[j+2].d; sort_i[j+2].d = swap_f;
+                swap_i = sort_i[j+1].ind; sort_i[j+1].ind = sort_i[j+2].ind; sort_i[j+2].ind = swap_i;
+                }
+            __threadfence_block();
+            }
+    for ( k = 0 ; k < count_j - 1 ; k++ )
+        for ( j = 2*threadID ; j < count_j-1 ; j += 2*cuda_frame ) {
+            if ( sort_j[j].d > sort_j[j+1].d ) {
+                swap_f = sort_j[j].d; sort_j[j].d = sort_j[j+1].d; sort_j[j+1].d = swap_f;
+                swap_i = sort_j[j].ind; sort_j[j].ind = sort_j[j+1].ind; sort_j[j+1].ind = swap_i;
+                }
+            __threadfence_block();
+            if ( sort_j[j+1].d > sort_j[j+2].d ) {
+                swap_f = sort_j[j+1].d; sort_j[j+1].d = sort_j[j+2].d; sort_j[j+2].d = swap_f;
+                swap_i = sort_j[j+1].ind; sort_j[j+1].ind = sort_j[j+2].ind; sort_j[j+2].ind = swap_i;
+                }
+            __threadfence_block();
+            }
+            
+    /* Verify that the sorting actually worked. */
+    for ( k = threadID ; k < count_i-1 ; k += cuda_frame )
+        if ( sort_i[k].d < sort_i[k+1].d )
+            printf( "runner_dopair_sorted_cuda: sorting borked on entry %i of sort_i!\n" , k );
+    for ( k = threadID ; k < count_j-1 ; k += cuda_frame )
+        if ( sort_j[k].d > sort_j[k+1].d )
+            printf( "runner_dopair_sorted_cuda: sorting borked on entry %i of sort_j!\n" , k );
+    
+    
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
+    /* Loop over the particles in cell_j, frame-wise. */
+    for ( pjdid = threadID ; pjdid < count_j ; pjdid += cuda_frame ) {
+    
+        /* Get the wrap. */
+        if ( threadID == 0 ) {
+            for ( wrap = 0 ; wrap < count_i && sort_j[pjdid].d - sort_i[wrap].d < cutoff ; wrap++ );
+            if ( wrap > 0 && wrap < cuda_frame )
+                wrap = cuda_frame;
+            }
+        __threadfence_block();
+            
+        /* Get the local particle id. */
+        pjd = sort_j[pjdid].ind;
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        pj = &parts_j[pjd];
+        pjoff = pj->type * cuda_maxtype;
+        for ( k = 0 ; k < 3 ; k++ ) {
+            pjx[k] = pj->x[k] + shift[k];
+            pjf[k] = 0.0f;
+            }
+        #ifdef USETEX_E
+        qj = pj->q;
+        #endif
+        
+        /* Loop over the particles in cell_i. */
+        for ( pidid = 0 ; pidid < wrap ; pidid++ ) {
+        
+            /* Wrap the particle index correctly. */
+            if ( ( pid = pidid + threadID ) >= wrap )
+                pid -= wrap;
+            pid = sort_i[pid].ind;
+            
+            /* Do we have a pair? */
+            if ( pid < count_i ) {
+            
+                /* Get a handle on the wrapped particle pid in cell_i. */
+                pi = &parts_i[ pid ];
+                // printf( "runner_dopair_cuda[%i]: doing pair [%i,%i].\n" , threadID , pjd , pid );
+
+                /* Compute the radius between pi and pj. */
+                for ( r2 = 0.0f , k = 0 ; k < 3 ; k++ ) {
+                    dx[k] = pi->x[k] - pjx[k];
+                    r2 += dx[k] * dx[k];
+                    }
+
+                /* Set the null potential if anything is bad. */
+                #ifdef USETEX_E
+                if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+                #elif defined(USETEX)
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
+                #else
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
+                #endif
+
+                    /* Interact particles pi and pj. */
+                    #ifdef USETEX_E
+                    potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
+                    #elif defined(USETEX)
+                    potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+                    #else
+                    potential_eval_cuda( pot , r2 , &ee , &eff );
+                    #endif
+
+                    /* Store the interaction force and energy. */
+                    epot += ee;
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff * dx[k];
+                        pi->f[k] -= w;
+                        pjf[k] += w;
+                        }
+
+                    /* Sync the shared memory values. */
+                    __threadfence_block();
+                
+                    } /* in range and potential. */
+
+                } /* do we have a pair? */
+        
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            pj->f[k] += pjf[k];
+    
+        /* Sync the shared memory values. */
+        __threadfence_block();
+        
+        } /* loop over the particles in cell_j. */
+    
+    /* Make sure everybody is in the same place. */
+    __syncthreads();
+
+    /* Copy the particle data back from the local buffers */
+    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
+        iparts_i[k].f[0] = parts_i[k].f[0];
+        iparts_i[k].f[1] = parts_i[k].f[1];
+        iparts_i[k].f[2] = parts_i[k].f[2];
+        }
+    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
+        iparts_j[k].f[0] = parts_j[k].f[0];
+        iparts_j[k].f[1] = parts_j[k].f[1];
+        iparts_j[k].f[2] = parts_j[k].f[2];
+        }
+        
+    }
+
+
+/**
  * @brief Compute the self interactions for the given cell on a CUDA device.
  *
  * @param iparts Array of parts in this cell.
@@ -863,7 +1110,7 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
         
             /* Do the pair. */
             if ( cid != cjd )
-                runner_dopair_cuda( parts[cid] , counts[cid] , parts[cjd] , counts[cjd] , cuda_pairs[finger].shift );
+                runner_dopair_sorted_cuda( parts[cid] , counts[cid] , parts[cjd] , counts[cjd] , cuda_pairs[finger].shift );
             else
                 runner_doself_diag_cuda( parts[cid] , counts[cid] );
         
