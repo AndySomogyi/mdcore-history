@@ -79,8 +79,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
     dim3 nr_threads( 32 , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
-    int cuda_io[10];
-    float cuda_fio[10];
+    // int cuda_io[10];
+    // float cuda_fio[10];
 
     /* Load the particle data onto the device. */
     if ( engine_cuda_load_parts( e ) < 0 )
@@ -94,14 +94,14 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
         
     /* Get the IO data. */
-    if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 10 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+    /* if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 10 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyFromSymbol( cuda_fio , "cuda_fio" , sizeof(float) * 10 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     printf( "engine_nonbond_cuda: cuda_io is [ %i , %i , %i , %i , %i , %i , %i , %i , %i , %i ].\n" , 
         cuda_io[0] , cuda_io[1] , cuda_io[2] , cuda_io[3] , cuda_io[4] , cuda_io[5] , cuda_io[6] , cuda_io[7] , cuda_io[8] , cuda_io[9] );
     printf( "engine_nonbond_cuda: cuda_fio is [ %f , %f , %f , %f , %f , %f , %f , %f , %f , %f ].\n" , 
-        cuda_fio[0] , cuda_fio[1] , cuda_fio[2] , cuda_fio[3] , cuda_fio[4] , cuda_fio[5] , cuda_fio[6] , cuda_fio[7] , cuda_fio[8] , cuda_fio[9] );
+        cuda_fio[0] , cuda_fio[1] , cuda_fio[2] , cuda_fio[3] , cuda_fio[4] , cuda_fio[5] , cuda_fio[6] , cuda_fio[7] , cuda_fio[8] , cuda_fio[9] ); */
     
     /* Unload the particle data from the device. */
     if ( engine_cuda_unload_parts( e ) < 0 )
@@ -216,7 +216,7 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
  
 extern "C" int engine_cuda_load ( struct engine *e ) {
 
-    int i, j, nr_pots, nr_coeffs;
+    int i, j, nr_pots, nr_coeffs, *diags, *diags_cuda;
     int pind_cuda[ e->max_type * e->max_type ], *offsets_cuda;
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
     struct potential *p_cuda[ e->max_type * e->max_type ];
@@ -352,6 +352,19 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Bind the textures on the device. */
     if ( runner_bind( cuArray_coeffs , cuArray_offsets , cuArray_alphas ) < 0 )
         return error(engine_err_runner);
+        
+        
+    /* Allocate, fill and send the diagonals. */
+    if ( ( diags = (int *)alloca( sizeof(int) * 12720 ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( i = 0 ; i < 127020 ; i++ )
+        diags[i] = ( sqrt( 8.0*i + 1 ) - 1 ) / 2;
+    if ( cudaMalloc( &diags_cuda , sizeof(int) * 12720 ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpy( diags_cuda , diags , sizeof(int) * 12720 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_diags" , &diags_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
         
         
     /* Set the constant pointer to the null potential and other useful values. */

@@ -107,6 +107,7 @@ __constant__ struct potential **cuda_p;
 __constant__ int *cuda_pind;
 __constant__ int cuda_maxtype = 0;
 __constant__ struct potential *cuda_pots;
+__constant__ int *cuda_diags;
 
 /* The potential coefficients, as a texture. */
 texture< float , cudaTextureType2D > tex_coeffs;
@@ -623,8 +624,7 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
  
 __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
 
-    int diag, k, k_max, step, pid, pjd, threadID;
-    int pjoff;
+    int diag, k, diag_max, step, pid, pjd, threadID;
     struct part_cuda *pi, *pj;
     #ifdef USETEX_E
         float qj, q;
@@ -634,7 +634,7 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
     #else
         struct potential *pot;
     #endif
-    float epot = 0.0f, dx[3], r2, w, ee, eff;
+    float epot = 0.0f, dx[3], r2, w[3], ee, eff;
     __shared__ struct part_cuda parts[ cuda_maxparts ];
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
@@ -658,26 +658,26 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
     __syncthreads();
     
     /* Step along the number of diagonal entries. */
-    k_max = count * (count - 1) / 2; step = 1;
-    for ( k = 0 ; k < k_max ; k += step ) {
+    diag_max = count * (count - 1) / 2; step = 1;
+    for ( diag = 0 ; diag < diag_max ; diag += step ) {
     
         /* is it time for this thread to step in? */
-        if ( k == threadID ) {
-            step = k;
-            k = (k + 2) * (k + 1) / 2 - 1;
+        if ( diag == threadID ) {
+            step = diag;
+            diag = (diag + 2) * (diag + 1) / 2 - 1;
             }
             
         /* If running, continue with the interactions. */
-        if ( k >= threadID ) {
+        if ( diag >= threadID && diag < diag_max ) {
         
             /* Increase the step if necessary. */
             if ( step < cuda_frame )
                 step += 1;
     
             /* Get the location of the kth entry on the diagonal. */
-            diag = ( sqrtf( 8*k + 1 ) - 1 ) / 2;
-            pid = k - diag*(diag+1)/2;
-            pjd = diag - pid;
+            k = cuda_diags[ diag ]; // ( sqrt( 8.0*diag + 1 ) - 1 ) / 2;
+            pid = diag - k*(k+1)/2;
+            pjd = count - 1 - k + pid;
             
             /* Get a handle on the particles. */
             pi = &parts[ pid ];
@@ -691,11 +691,11 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
 
             /* Set the null potential if anything is bad. */
             #ifdef USETEX_E
-            if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+            if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pj->type*cuda_maxtype + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
             #elif defined(USETEX)
-            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pj->type*cuda_maxtype + pi->type ] ) != 0 ) {
             #else
-            if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pj->type*cuda_maxtype + pi->type ] ) != NULL ) {
             #endif
 
                 /* Interact particles pi and pj. */
@@ -707,18 +707,27 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
                 potential_eval_cuda( pot , r2 , &ee , &eff );
                 #endif
 
-                /* Store the interaction force and energy. */
+                /* Store the interaction force on pi and energy. */
                 epot += ee;
                 for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff * dx[k];
-                    pi->f[k] -= w;
-                    pj->f[k] += w;
+                    w[k] = eff * dx[k];
+                    pi->f[k] -= w[k];
                     }
 
                 /* Sync the shared memory values. */
                 __threadfence_block();
 
+                /* Store the interaction force on pj. */
+                for ( k = 0 ; k < 3 ; k++ )
+                    pj->f[k] += w[k];
+
+                /* Sync the shared memory values. */
+                __threadfence_block();
+
                 } /* range and potential? */
+
+            /* printf( "runner_doself_diag_cuda[%i]: diag=%i, step=%i, i=%i, j=%i.\n" ,
+                threadID , diag , step , pid , pjd ); */
 
             } /* is it this thread's turn? */
     
