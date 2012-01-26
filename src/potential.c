@@ -1253,9 +1253,9 @@ inline double potential_LJ126 ( double r , double A , double B ) {
 
 inline double potential_LJ126_p ( double r , double A , double B ) {
 
-    double ir = 1.0/r, ir2 = ir * ir, ir4 = ir2*ir2, ir12 = ir4 * ir4 * ir4;
+    double ir = 1.0/r, ir2 = ir*ir, ir4 = ir2*ir2, ir12 = ir4*ir4*ir4;
 
-    return 6 * ir * ( -2 * A * ir12 + B * ir4 * ir2 );
+    return 6.0 * ir * ( -2.0 * A * ir12 + B * ir4 * ir2 );
 
     }
     
@@ -1275,7 +1275,7 @@ inline double potential_LJ126_6p ( double r , double A , double B ) {
 
     double r2 = r * r, ir2 = 1.0 / r2, ir6 = ir2*ir2*ir2, ir12 = ir6 * ir6;
 
-    return 10080 * ir12 * ( 884 * A * ir6 - 33 * B );
+    return 10080.0 * ir12 * ( 884.0 * A * ir6 - 33.0 * B );
         
     }
     
@@ -1355,11 +1355,11 @@ inline double potential_Ewald ( double r , double kappa ) {
 
 inline double potential_Ewald_p ( double r , double kappa ) {
 
-    double r2 = r * r, ir = 1.0 / r, ir2 = ir * ir;
+    double r2 = r*r, ir = 1.0 / r, ir2 = ir*ir;
     const double isqrtpi = 0.56418958354775628695;
 
-    return -2 * potential_escale * exp( -kappa*kappa * r2 ) * kappa * ir * isqrtpi -
-        erfc( kappa * r ) * ir2;
+    return potential_escale * ( -2.0 * exp( -kappa*kappa * r2 ) * kappa * ir * isqrtpi -
+        erfc( kappa * r ) * ir2 );
 
     }
     
@@ -1382,7 +1382,7 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
 
     t6 = erfc(kappa*r);
     t23 = exp(-kappa2*r2);
-    return potential_escale * 720.0*t6/r*ir6+(1440.0*ir6+(960.0*ir4+(384.0*ir2+(144.0+(-128.0*r2+64.0*kappa2*r4)*kappa2)*kappa2)*kappa2)*kappa2)*kappa*isqrtpi*t23;
+    return potential_escale * ( 720.0*t6/r*ir6+(1440.0*ir6+(960.0*ir4+(384.0*ir2+(144.0+(-128.0*r2+64.0*kappa2*r4)*kappa2)*kappa2)*kappa2)*kappa2)*kappa*isqrtpi*t23 );
     
     }
         
@@ -2425,8 +2425,10 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         }
         
     /* Get fx and fpx. */
-    for ( k = 0 ; k <= n ; k++ )
+    for ( k = 0 ; k <= n ; k++ ) {
         fix[k] = f( xi[k] );
+        fpx[k] = fp( xi[k] );
+        }
         
     /* Compute the optimal fpx. */
     if ( potential_getfp( f , n , xi , fpx ) < 0 )
