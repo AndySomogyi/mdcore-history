@@ -426,7 +426,7 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
                     potential_eval_cuda_tex( pot , r2 , &ee , &eff );
                     #else
                     potential_eval_cuda( pot , r2 , &ee , &eff );
-                    #endif */
+                    #endif
 
                     /* Store the interaction force and energy. */
                     epot += ee;
