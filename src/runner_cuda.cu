@@ -487,7 +487,7 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
  
 __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i , struct part *iparts_j , int count_j, float *pshift ) {
 
-    int k, j, pid, pjd, pjdid, threadID;
+    int k, j, i, ind, jnd, pid, pjd, pjdid, threadID, wrap_local;
     int pioff, swap_i;
     struct part_cuda *pi, *pj;
     struct part *temp;
@@ -562,41 +562,13 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
         sort_j[k].d = inshift * ((shift[0]+parts_j[k].x[0])*shift[0] + (shift[1]+parts_j[k].x[1])*shift[1] + (shift[2]+parts_j[k].x[2])*shift[2]);
         sort_j[k].ind = k;
         }
-    if ( threadID == 0 ) {
-        sort_i[count_i].d = -FLT_MAX;
-        sort_j[count_j].d = FLT_MAX;
-        }
+    for ( k = count_i + threadID ; k < cuda_maxparts ; k += cuda_frame )
+        sort_i[k].d = -FLT_MAX;
+    for ( k = count_j + threadID ; k < cuda_maxparts ; k += cuda_frame )
+        sort_j[k].d = FLT_MAX;
         
     /* Make sure all the memory is in the right place. */
     __threadfence_block();
-            
-    /* Bubble-sort the particles with respect to d. */
-    for ( k = 0 ; k < count_i - 1 ; k++ )
-        for ( j = 2*threadID ; j < count_i-1 ; j += 2*cuda_frame ) {
-            if ( sort_i[j].d < sort_i[j+1].d ) {
-                swap_f = sort_i[j].d; sort_i[j].d = sort_i[j+1].d; sort_i[j+1].d = swap_f;
-                swap_i = sort_i[j].ind; sort_i[j].ind = sort_i[j+1].ind; sort_i[j+1].ind = swap_i;
-                }
-            __threadfence_block();
-            if ( sort_i[j+1].d < sort_i[j+2].d ) {
-                swap_f = sort_i[j+1].d; sort_i[j+1].d = sort_i[j+2].d; sort_i[j+2].d = swap_f;
-                swap_i = sort_i[j+1].ind; sort_i[j+1].ind = sort_i[j+2].ind; sort_i[j+2].ind = swap_i;
-                }
-            __threadfence_block();
-            }
-    for ( k = 0 ; k < count_j - 1 ; k++ )
-        for ( j = 2*threadID ; j < count_j-1 ; j += 2*cuda_frame ) {
-            if ( sort_j[j].d > sort_j[j+1].d ) {
-                swap_f = sort_j[j].d; sort_j[j].d = sort_j[j+1].d; sort_j[j+1].d = swap_f;
-                swap_i = sort_j[j].ind; sort_j[j].ind = sort_j[j+1].ind; sort_j[j+1].ind = swap_i;
-                }
-            __threadfence_block();
-            if ( sort_j[j+1].d > sort_j[j+2].d ) {
-                swap_f = sort_j[j+1].d; sort_j[j+1].d = sort_j[j+2].d; sort_j[j+2].d = swap_f;
-                swap_i = sort_j[j+1].ind; sort_j[j+1].ind = sort_j[j+2].ind; sort_j[j+2].ind = swap_i;
-                }
-            __threadfence_block();
-            }
             
     /* Verify that the sorting actually worked. */
     /* for ( k = threadID ; k < count_i-1 ; k += cuda_frame )
@@ -615,25 +587,74 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
         sort_j[k].ind , (int)(sort_j[k].d*1000) ); */
         
     
-    /* Make sure everybody is in the same place. */
-    __syncthreads();
+    /* Sort using normalized bitonic sort. */
+    for ( k = 1 ; k < count_i ; k *= 2 ) {
+        for ( i = threadID ; ( ind = ( i & ~(k-1) ) * 2 + ( i & (k-1) ) ) < count_i ; i += cuda_frame ) {
+            jnd = ( i & ~(k-1) ) * 2 + 2*k - ( i & (k-1) ) - 1;
+            if ( jnd < count_i && sort_i[ind].d < sort_i[jnd].d ) {
+                swap_f = sort_i[ind].d; sort_i[ind].d = sort_i[jnd].d; sort_i[jnd].d = swap_f;
+                swap_i = sort_i[ind].ind; sort_i[ind].ind = sort_i[jnd].ind; sort_i[jnd].ind = swap_i;
+                }
+            }
+        __threadfence_block();
+        for ( j = k/2 ; j > 0 ; j = j / 2 ) {
+            for ( i = threadID ; ( ind = ( i & ~(j-1) ) * 2 + ( i & (j-1) ) ) < count_i ; i += cuda_frame ) {
+                jnd = ind + j;
+                if ( jnd < count_i && sort_i[ind].d < sort_i[jnd].d ) {
+                    swap_f = sort_i[ind].d; sort_i[ind].d = sort_i[jnd].d; sort_i[jnd].d = swap_f;
+                    swap_i = sort_i[ind].ind; sort_i[ind].ind = sort_i[jnd].ind; sort_i[jnd].ind = swap_i;
+                    }
+                }
+            __threadfence_block();
+            }
+        }
+    for ( k = 1 ; k < count_j ; k *= 2 ) {
+        for ( i = threadID ; ( ind = ( i & ~(k-1) ) * 2 + ( i & (k-1) ) ) < count_j ; i += cuda_frame ) {
+            jnd = ( i & ~(k-1) ) * 2 + 2*k - ( i & (k-1) ) - 1;
+            if ( jnd < count_j && sort_j[ind].d > sort_j[jnd].d ) {
+                swap_f = sort_j[ind].d; sort_j[ind].d = sort_j[jnd].d; sort_j[jnd].d = swap_f;
+                swap_i = sort_j[ind].ind; sort_j[ind].ind = sort_j[jnd].ind; sort_j[jnd].ind = swap_i;
+                }
+            }
+        __threadfence_block();
+        for ( j = k/2 ; j > 0 ; j = j / 2 ) {
+            for ( i = threadID ; ( ind = ( i & ~(j-1) ) * 2 + ( i & (j-1) ) ) < count_j ; i += cuda_frame ) {
+                jnd = ind + j;
+                if ( jnd < count_j && sort_j[ind].d > sort_j[jnd].d ) {
+                    swap_f = sort_j[ind].d; sort_j[ind].d = sort_j[jnd].d; sort_j[jnd].d = swap_f;
+                    swap_i = sort_j[ind].ind; sort_j[ind].ind = sort_j[jnd].ind; sort_j[jnd].ind = swap_i;
+                    }
+                }
+            __threadfence_block();
+            }
+        }
 
+
+    /* Set the initial wrap. */
+    if ( threadID == 0 ) {
+        wrap = count_j;
+        __threadfence_block();
+        }
+    
     /* Loop over the particles in cell_j, frame-wise. */
     for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
     
         /* Get the wrap. */
         if ( threadID == 0 ) {
-            for ( wrap = 0 ; wrap < count_j && sort_j[wrap].d - sort_i[pid].d < cutoff ; wrap++ );
+            while ( wrap > 0 && sort_j[wrap].d - sort_i[pid].d > cutoff )
+                wrap -= 1;
             /* printf( "runner_dopair_sorted_cuda[%i]: wrap as of pid=%i set to %i (count_i=%i).\n" ,
                 threadID , pid , wrap , count_i ); */
-            if ( wrap > 0 && wrap < cuda_frame )
-                wrap = cuda_frame;
             __threadfence_block();
             }
         
-        /* Early abort? */
+        /* get the local wrapping */
         if ( wrap == 0 )
             break;
+        else if ( wrap < cuda_frame )
+            wrap_local = cuda_frame;
+        else
+            wrap_local = wrap;
             
         /* Get a direct pointer on the pjdth part in cell_j. */
         pi = &parts_i[ sort_i[pid].ind ];
@@ -647,11 +668,11 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
         #endif
         
         /* Loop over the particles in cell_i. */
-        for ( pjdid = 0 ; pjdid < wrap ; pjdid++ ) {
+        for ( pjdid = 0 ; pjdid < wrap_local ; pjdid++ ) {
         
             /* Wrap the particle index correctly. */
-            if ( ( pjd = pjdid + threadID ) >= wrap )
-                pjd -= wrap;
+            if ( ( pjd = pjdid + threadID ) >= wrap_local )
+                pjd -= wrap_local;
             
             /* Do we have a pair? */
             if ( pjd < count_j ) {

@@ -316,8 +316,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_coeffs , 0 , 0 , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    printf( "engine_cuda_load: second set of coeffs is [ %f , %f , %f ].\n" ,
-        coeffs_cuda[potential_chunk] , coeffs_cuda[potential_chunk+1] , coeffs_cuda[potential_chunk+2] );
     
     /* Pack the potential offsets into a newly allocated array and 
        copy to the device. */
@@ -326,8 +324,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     offsets_cuda[0] = 0;
     for ( i = 1 ; i < nr_pots ; i++ )
         offsets_cuda[i] = offsets_cuda[i-1] + pots_cuda[i-1].n + 1;
-    printf( "engine_cuda_load: first three offsets are [ %i , %i , %i ].\n" ,
-        offsets_cuda[0] , offsets_cuda[1] , offsets_cuda[2] );
     if ( cudaMallocArray( &cuArray_offsets , &channelDesc_int , nr_pots , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_offsets , 0 , 0 , offsets_cuda , sizeof(int) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -342,8 +338,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         alphas_cuda[ 3*i + 1 ] = pots_cuda[i].alpha[1];
         alphas_cuda[ 3*i + 2 ] = pots_cuda[i].alpha[2];
         }
-    printf( "engine_cuda_load: first set of alphas is [ %f , %f , %f ].\n" ,
-        alphas_cuda[0] , alphas_cuda[1] , alphas_cuda[2] );
     if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , 3 , nr_pots ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 3 , cudaMemcpyHostToDevice ) != cudaSuccess )
