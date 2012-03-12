@@ -231,6 +231,7 @@ int space_releasepair ( struct space *s , int ci , int cj );
 int space_shuffle ( struct space *s );
 int space_shuffle_local ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
+int space_pairs_sort ( struct space *s );
 int space_prepare ( struct space *s );
 int space_maketuples ( struct space *s );
 int space_gettuple ( struct space *s , struct celltuple **out , int wait );

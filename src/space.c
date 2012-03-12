@@ -63,6 +63,94 @@ char *space_err_msg[7] = {
     
     
 /**
+ * @brief Sort the cell pairs in a space according to their direction.
+ *
+ * @param s The #space.
+ *
+ * @return #engine_err_ok or < 0 on error (see #space_err).
+ */
+ 
+int space_pairs_sort ( struct space *s ) {
+
+    struct {
+        int l, r;
+        } stack[100];
+    int l, r, i, j, npairs, count;
+    FPTYPE b, b2 , d;
+    double pivot;
+    struct cellpair temp;
+    
+    /* Sanity check. */
+    if ( s == NULL )
+        return error(space_err_null);
+        
+    /* Get the basis for the fake space length. */
+    d = s->cutoff;
+    b = 2*d;
+    b2 = b*b;
+    
+    /* Start by shifting all of the self interactions to the end. */
+    i = 0; j = s->nr_pairs - 1;
+    while ( i < j ) {
+        while ( s->pairs[i].i != s->pairs[i].j )
+            i += 1;
+        while ( s->pairs[j].i == s->pairs[j].j )
+            j -= 1;
+        if ( i < j ) {
+            temp = s->pairs[i];
+            s->pairs[i] = s->pairs[j];
+            s->pairs[j] = temp;
+            i += 1; j -= 1;
+            }
+        }
+    npairs = i;
+    
+    /* Now do Quicksort on the remaining genuine pairs. */
+    stack[0].l = 0; stack[0].r = npairs - 1;
+    count = 1;
+    while ( count > 0 ) {
+    
+        /* Get the left and right bounds. */
+        l = stack[count-1].l; r = stack[count-1].r;
+        count -= 1;
+    
+        /* Guess a pivot. */
+        pivot = ( s->pairs[(l+r)/2].shift[0] + d ) + ( s->pairs[(l+r)/2].shift[1] + d ) * b + ( s->pairs[(l+r)/2].shift[2] + d ) * b2;
+
+        /* Quicksort main loop. */
+        i = l; j = r;
+        while ( i < j ) {
+            while ( ( s->pairs[i].shift[0] + d ) + ( s->pairs[i].shift[1] + d ) * b + ( s->pairs[i].shift[2] + d ) * b2 < pivot )
+                i += 1;
+            while ( ( s->pairs[j].shift[0] + d ) + ( s->pairs[j].shift[1] + d ) * b + ( s->pairs[j].shift[2] + d ) * b2 > pivot )
+                j -= 1;
+            if ( i <= j ) {
+                temp = s->pairs[i];
+                s->pairs[i] = s->pairs[j];
+                s->pairs[j] = temp;
+                i += 1; j -= 1;
+                }
+            }
+            
+        /* Split? */
+        if ( l < i - 1 ) {
+            stack[count].l = l; stack[count].r = i - 1;
+            count += 1;
+            }
+        if ( i < r ) {
+            stack[count].l = i; stack[count].r = r;
+            count += 1;
+            }
+    
+        } /* outer quicksort stack loop. */
+        
+    /* All the way to Reno. */
+    return space_err_ok;
+
+    }
+
+    
+/**
  * @brief Collect forces and potential energies
  *
  * @param s The #space.
@@ -1380,6 +1468,10 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                 }
             }
         }
+        
+    /* Sort the pair list. */
+    if ( space_pairs_sort( s ) < 0 )
+        return error(space_err);
         
     /* allocate and init the taboo-list */
     if ( (s->cells_taboo = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )
