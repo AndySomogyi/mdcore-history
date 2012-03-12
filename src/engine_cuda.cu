@@ -79,13 +79,19 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
     dim3 nr_threads( 32 , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
+    int zero = 0;
     // int cuda_io[10];
     // float cuda_fio[10];
 
     /* Load the particle data onto the device. */
     if ( engine_cuda_load_parts( e ) < 0 )
         return error(engine_err);
-        
+
+    /* Init the pointer to the next entry. */    
+    if ( cudaMemcpyToSymbol( "cuda_pair_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_cell_mutex" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     /* Start the kernel. */
     runner_run_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda );
     

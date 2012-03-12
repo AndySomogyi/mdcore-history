@@ -398,6 +398,7 @@ int engine_rigid_eval ( struct engine *e ) {
                 rigid_eval_shake( e->rigids , nr_local , e );
                 
                 
+#ifdef HAVE_MPI
             /* Wait for the async data to come in. */
             tic = getticks();
             if ( engine_exchange_rigid_wait( e ) < 0 )
@@ -405,6 +406,7 @@ int engine_rigid_eval ( struct engine *e ) {
             tic = getticks() - tic;
             e->timers[engine_timer_exchange1] += tic;
             e->timers[engine_timer_rigid] -= tic;
+#endif
                 
                 
             /* Is it worth parallelizing? */

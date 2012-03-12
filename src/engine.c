@@ -101,6 +101,7 @@ char *engine_err_msg[23] = {
  
 int engine_shuffle ( struct engine *e ) {
 
+#ifdef HAVE_MPI
     int cid, k;
     struct cell *c;
     struct space *s = &e->s;
@@ -134,6 +135,11 @@ int engine_shuffle ( struct engine *e ) {
 
     /* return quietly */
     return engine_err_ok;
+#else
+
+    return error(engine_err_nompi);
+    
+#endif
     
     }
 
@@ -249,9 +255,11 @@ int engine_verlet_update ( struct engine *e ) {
         
         /* Wait for any unterminated exchange. */
         tic = getticks();
+#ifdef HAVE_MPI
         if ( e->flags & engine_flag_async )
             if ( engine_exchange_wait( e ) < 0 )
                 return error(engine_err);
+#endif
         tic = getticks() - tic;
         e->timers[engine_timer_exchange1] += tic;
         e->timers[engine_timer_verlet] -= tic;
@@ -1189,6 +1197,7 @@ int engine_start ( struct engine *e , int nr_runners ) {
     if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
         e->flags &= ~( engine_flag_mpi | engine_flag_async );
 
+#ifdef HAVE_MPI
     /* Set up async communication? */
     if ( e->flags & engine_flag_async ) {
     
@@ -1212,6 +1221,7 @@ int engine_start ( struct engine *e , int nr_runners ) {
             return error(engine_err_pthread);
             
         }
+#endif
         
     /* Fill-in the Verlet lists if needed. */
     if ( e->flags & engine_flag_verlet ) {
@@ -1317,6 +1327,7 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
     int i;
     struct runner *temp;
 
+#ifdef HAVE_MPI
     /* Set up async communication? */
     if ( e->flags & engine_flag_async ) {
     
@@ -1334,6 +1345,7 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
             return error(engine_err_pthread);
             
         }
+#endif
         
     /* (re)allocate the runners */
     if ( e->nr_runners == 0 ) {
@@ -1579,6 +1591,7 @@ int engine_step ( struct engine *e ) {
         e->timers[engine_timer_advance] += getticks() - tic;
         }
                     
+#ifdef HAVE_MPI
     /* Re-distribute the particles to the processors. */
     if ( e->flags & engine_flag_mpi ) {
         
@@ -1598,6 +1611,7 @@ int engine_step ( struct engine *e ) {
         e->timers[engine_timer_exchange1] += getticks() - tic;
         
         }
+#endif
             
     /* Compute the non-bonded interactions. */
     tic = getticks();
@@ -1637,6 +1651,7 @@ int engine_step ( struct engine *e ) {
     /* Shake the particle positions? */
     if ( e->nr_rigids > 0 ) {
     
+#ifdef HAVE_MPI
         /* If we have to do some communication first... */
         if ( e->flags & engine_flag_mpi ) {
         
@@ -1662,6 +1677,7 @@ int engine_step ( struct engine *e ) {
             e->timers[engine_timer_exchange2] += getticks() - tic;
             
             }
+#endif
             
         /* Resolve the constraints. */
         tic = getticks();
