@@ -30,7 +30,9 @@
 #include "../config.h"
 
 /* MPI headers. */
-#include <mpi.h>
+#ifdef HAVE_MPI
+    #include <mpi.h>
+#endif
 
 /* OpenMP headers. */
 #include <omp.h>
@@ -77,7 +79,7 @@ int main ( int argc , char *argv[] ) {
 
 
     /* Local variables. */
-    int res = 0, myrank, prov;
+    int res = 0, myrank = 0, prov;
     int step, incr, i, j, k, cid, w_min, w_max;
     FPTYPE ee, eff;
     double temp, v[3];
@@ -107,8 +109,9 @@ int main ( int argc , char *argv[] ) {
     tic = getticks();
     
     
+#ifdef HAVE_MPI
     /* Start by initializing MPI. */
-    /* if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
+    if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Init failed with error %i.\n" , res );
         abort();
         }
@@ -128,7 +131,8 @@ int main ( int argc , char *argv[] ) {
     if ( myrank == 0 ) {
         printf( "main[%i]: MPI is up and running...\n" , myrank );
         fflush(stdout);
-        } */
+        }
+#endif
     
     
     /* Initialize our own input parameters. */
@@ -184,7 +188,7 @@ int main ( int argc , char *argv[] ) {
         printf("main[%i]: could not fopen the file \"par_all22_prot.inp\".\n",myrank);
         abort();
         }
-    if ( engine_read_cpf( &e , cpf , 3.0 , 1e-3 , 1 ) < 0 ) {
+    if ( engine_read_cpf( &e , cpf , 3.0 , 3.5e-3 , 1 ) < 0 ) {
         printf("main[%i]: engine_read_cpf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();
@@ -341,11 +345,11 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Ignore angles for now. */
-    e.nr_bonds = 0;
-    e.nr_angles = 0;
-    e.nr_rigids = 0;
-    e.nr_dihedrals = 0;
-    e.nr_exclusions = 0;
+    // e.nr_bonds = 0;
+    // e.nr_angles = 0;
+    // e.nr_rigids = 0;
+    // e.nr_dihedrals = 0;
+    // e.nr_exclusions = 0;
     
     /* Dump a potential to make sure its ok... */
     /* pot = e.p[0];
@@ -414,7 +418,7 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Set the number of OpenMP threads to the number of runners. */
-    omp_set_num_threads( nr_runners );
+    // omp_set_num_threads( nr_runners );
         
         
     /* Give the system a quick shake before going anywhere. */
@@ -433,11 +437,13 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
+#ifdef HAVE_MPI
     if ( engine_exchange( &e ) != 0 ) {
         printf("main: engine_step failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         abort();
         }
+#endif
         
     /* Dump the engine flags. */
     if ( myrank == 0 ) {
@@ -521,6 +527,7 @@ int main ( int argc , char *argv[] ) {
             }
         // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
             
+#ifdef HAVE_MPI
         /* Collect vcom and ekin from all procs. */
         if ( e.nr_nodes > 1 ) {
             es[0] = epot; es[1] = ekin;
@@ -534,6 +541,7 @@ int main ( int argc , char *argv[] ) {
             vcom[0] = es[2]; vcom[1] = es[3]; vcom[2] = es[4];
             mass_tot = es[5];
             }
+#endif
         vcom[0] /= mass_tot; vcom[1] /= mass_tot; vcom[2] /= mass_tot;
             
         /* Compute the temperature. */
