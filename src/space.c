@@ -75,9 +75,9 @@ int space_pairs_sort ( struct space *s ) {
     struct {
         int l, r;
         } stack[100];
-    int l, r, i, j, npairs, count;
+    int l, r, i, j, npairs, count, pivot_i;
     FPTYPE b, b2 , d;
-    double pivot;
+    double res, pivot;
     struct cellpair temp;
     
     /* Sanity check. */
@@ -116,14 +116,27 @@ int space_pairs_sort ( struct space *s ) {
     
         /* Guess a pivot. */
         pivot = ( s->pairs[(l+r)/2].shift[0] + d ) + ( s->pairs[(l+r)/2].shift[1] + d ) * b + ( s->pairs[(l+r)/2].shift[2] + d ) * b2;
+        pivot_i = s->pairs[(l+r)/2].i;
 
         /* Quicksort main loop. */
         i = l; j = r;
         while ( i < j ) {
-            while ( ( s->pairs[i].shift[0] + d ) + ( s->pairs[i].shift[1] + d ) * b + ( s->pairs[i].shift[2] + d ) * b2 < pivot )
-                i += 1;
-            while ( ( s->pairs[j].shift[0] + d ) + ( s->pairs[j].shift[1] + d ) * b + ( s->pairs[j].shift[2] + d ) * b2 > pivot )
-                j -= 1;
+            while ( 1 ) {
+                res = ( s->pairs[i].shift[0] + d ) + ( s->pairs[i].shift[1] + d ) * b + ( s->pairs[i].shift[2] + d ) * b2;
+                if ( ( res < pivot ) ||
+                     ( res == pivot && s->pairs[i].i < pivot_i ) )
+                    i += 1;
+                else
+                    break;
+                }
+            while ( 1 ) {
+                res = ( s->pairs[j].shift[0] + d ) + ( s->pairs[j].shift[1] + d ) * b + ( s->pairs[j].shift[2] + d ) * b2;
+                if ( ( res > pivot ) ||
+                     ( res == pivot && s->pairs[j].i > pivot_i ) )
+                    j -= 1;
+                else
+                    break;
+                }
             if ( i <= j ) {
                 temp = s->pairs[i];
                 s->pairs[i] = s->pairs[j];
@@ -133,13 +146,25 @@ int space_pairs_sort ( struct space *s ) {
             }
             
         /* Split? */
-        if ( l < i - 1 ) {
-            stack[count].l = l; stack[count].r = i - 1;
-            count += 1;
+        if ( i > (l+r)/2 ) {
+            if ( l < i - 1 ) {
+                stack[count].l = l; stack[count].r = i - 1;
+                count += 1;
+                }
+            if ( i < r ) {
+                stack[count].l = i; stack[count].r = r;
+                count += 1;
+                }
             }
-        if ( i < r ) {
-            stack[count].l = i; stack[count].r = r;
-            count += 1;
+        else {
+            if ( i < r ) {
+                stack[count].l = i; stack[count].r = r;
+                count += 1;
+                }
+            if ( l < i - 1 ) {
+                stack[count].l = l; stack[count].r = i - 1;
+                count += 1;
+                }
             }
     
         } /* outer quicksort stack loop. */
