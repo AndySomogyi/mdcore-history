@@ -75,7 +75,7 @@ int space_pairs_sort ( struct space *s ) {
     struct {
         int l, r;
         } stack[100];
-    int l, r, i, j, npairs, count, pivot_i;
+    int l, r, i, j, count, pivot_i;
     FPTYPE b, b2 , d;
     double res, pivot;
     struct cellpair temp;
@@ -85,28 +85,12 @@ int space_pairs_sort ( struct space *s ) {
         return error(space_err_null);
         
     /* Get the basis for the fake space length. */
-    d = s->cutoff;
+    d = fmax( fmax( s->h[0] , s->h[1] ) , s->h[2] );
     b = 2*d;
     b2 = b*b;
     
-    /* Start by shifting all of the self interactions to the end. */
-    i = 0; j = s->nr_pairs - 1;
-    while ( i < j ) {
-        while ( s->pairs[i].i != s->pairs[i].j )
-            i += 1;
-        while ( s->pairs[j].i == s->pairs[j].j )
-            j -= 1;
-        if ( i < j ) {
-            temp = s->pairs[i];
-            s->pairs[i] = s->pairs[j];
-            s->pairs[j] = temp;
-            i += 1; j -= 1;
-            }
-        }
-    npairs = i;
-    
     /* Now do Quicksort on the remaining genuine pairs. */
-    stack[0].l = 0; stack[0].r = npairs - 1;
+    stack[0].l = 0; stack[0].r = s->nr_pairs - 1;
     count = 1;
     while ( count > 0 ) {
     
