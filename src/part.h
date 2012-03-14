@@ -83,6 +83,9 @@ struct part_type {
     /** Constant physical characteristics */
     double mass, imass, charge;
     
+    /** Nonbonded interaction parameters. */
+    double eps, rmin;
+    
     /** Name of this paritcle type. */
     char name[64], name2[64];
     

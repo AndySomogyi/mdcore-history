@@ -84,7 +84,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
     int tid, tjd, wc[4];
     int res, j, k, jj, kk, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
-    double K, Kr0, r0, r2, r6, *eps, *rmin, A, B, q, al, ar, am, vl, vr, vm;
+    double K, Kr0, r0, r2, r6, A, B, q, al, ar, am, vl, vr, vm;
     struct potential *p;
     
     /* Check inputs. */
@@ -93,12 +93,8 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
         
     /* Allocate some local memory for the index arrays. */
     if ( ( ind1 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL ||
-         ( ind2 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL ||
-         ( eps = (double *)alloca( sizeof(double) * e->nr_types ) ) == NULL ||
-         ( rmin = (double *)alloca( sizeof(double) * e->nr_types ) ) == NULL )
+         ( ind2 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL )
         return error(engine_err_malloc);
-    bzero( eps , sizeof(double) * e->nr_types );
-    bzero( rmin , sizeof(double) * e->nr_types );
         
     /* Init the reader with the XPLOR file. */
     if ( reader_init( &r , xplor , NULL , "!{" , "\n" ) < 0 )
@@ -474,8 +470,8 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
             /* Run through the types and store the parameters for each match. */
             for ( k = 0 ; k < e->nr_types ; k++ )
                 if ( strcmp( e->types[k].name , type1 ) == 0 ) {
-                    eps[k] = K;
-                    rmin[k] = r0;
+                    e->types[k].eps = 4.184 * K;
+                    e->types[k].rmin = 0.05 * r0;
                     }
                 
             } /* non-bonded iteraction. */
@@ -497,18 +493,18 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
         for ( k = j ; k < e->nr_types ; k++ ) {
             
             /* Has a potential been specified for this case? */
-            if ( ( eps[j] == 0.0 || eps[k] == 0.0 ) &&
+            if ( ( e->types[j].eps == 0.0 || e->types[k].eps == 0.0 ) &&
                  ( kappa < 0.0 || e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
                 continue;
                 
             /* Has this potential already been specified? */
             if ( kappa < 0.0 ) {
-                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] ) ; jj++ );
-                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] ) ; kk++ );
+                for ( jj = 0 ; jj < j && ( e->types[jj].eps != e->types[j].eps || e->types[jj].rmin != e->types[j].rmin ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( e->types[kk].eps != e->types[k].eps || e->types[kk].rmin != e->types[k].rmin ) ; kk++ );
                 }
             else {
-                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
-                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+                for ( jj = 0 ; jj < j && ( e->types[jj].eps != e->types[j].eps || e->types[jj].rmin != e->types[j].rmin || e->types[jj].charge != e->types[j].charge ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( e->types[kk].eps != e->types[k].eps || e->types[kk].rmin != e->types[k].rmin || e->types[kk].charge != e->types[k].charge ) ; kk++ );
                 }
             if ( jj < j && kk < k ) {
                 if ( e->p[ jj + e->max_type*kk ] != NULL && engine_addpot( e , e->p[ jj + e->max_type*kk ] , j , k ) < 0 )
@@ -517,8 +513,8 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
                 }
                     
             /* Construct the common LJ parameters. */
-            K = 4.184 * sqrt( eps[j] * eps[k] );
-            r0 = 0.05 * ( rmin[j] + rmin[k] );
+            K = sqrt( e->types[j].eps * e->types[k].eps );
+            r0 = e->types[j].rmin + e->types[k].rmin;
             r2 = r0*r0; r6 = r2*r2*r2;
             A = K*r6*r6; B = 2*K*r6;
             q = e->types[j].charge*e->types[k].charge;
@@ -639,7 +635,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
     int tid, tjd, wc[4];
     int j, k, jj, kk, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
-    double K, Kr0, r0, r2, r6, *eps, *rmin;
+    double K, Kr0, r0, r2, r6;
     double al, ar, am, vl, vr, vm, A, B, q;
     struct potential *p;
     
@@ -649,12 +645,8 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
         
     /* Allocate some local memory for the index arrays. */
     if ( ( ind1 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL ||
-         ( ind2 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL ||
-         ( eps = (double *)alloca( sizeof(double) * e->nr_types ) ) == NULL ||
-         ( rmin = (double *)alloca( sizeof(double) * e->nr_types ) ) == NULL )
+         ( ind2 = (int *)alloca( sizeof(int) * e->nr_types ) ) == NULL )
         return error(engine_err_malloc);
-    bzero( eps , sizeof(double) * e->nr_types );
-    bzero( rmin , sizeof(double) * e->nr_types );
         
     /* Init the reader with the PSF file. */
     if ( reader_init( &r , cpf , NULL , "!" , "\n" ) < 0 )
@@ -1095,8 +1087,8 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
         /* Run through the types and store the parameters for each match. */
         for ( k = 0 ; k < e->nr_types ; k++ )
             if ( strcmp( e->types[k].name , type1 ) == 0 ) {
-                eps[k] = K;
-                rmin[k] = r0;
+                e->types[k].eps = 4.184 * K;
+                e->types[k].rmin = 0.1 * r0;
                 }
                 
         /* Skip the rest of the line. */
@@ -1110,18 +1102,18 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
         for ( k = j ; k < e->nr_types ; k++ ) {
             
             /* Has a potential been specified for this case? */
-            if ( ( eps[j] == 0.0 || eps[k] == 0.0 ) &&
+            if ( ( e->types[j].eps == 0.0 || e->types[k].eps == 0.0 ) &&
                  ( kappa < 0.0 || e->types[j].charge == 0.0 || e->types[k].charge == 0.0 ) )
                 continue;
                 
             /* Has this potential already been specified? */
             if ( kappa < 0.0 ) {
-                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] ) ; jj++ );
-                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] ) ; kk++ );
+                for ( jj = 0 ; jj < j && ( e->types[jj].eps != e->types[j].eps || e->types[jj].rmin != e->types[j].rmin ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( e->types[kk].eps != e->types[k].eps || e->types[kk].rmin != e->types[k].rmin ) ; kk++ );
                 }
             else {
-                for ( jj = 0 ; jj < j && ( eps[jj] != eps[j] || rmin[jj] != rmin[j] || e->types[jj].charge != e->types[j].charge ) ; jj++ );
-                for ( kk = 0 ; kk < k && ( eps[kk] != eps[k] || rmin[kk] != rmin[k] || e->types[kk].charge != e->types[k].charge ) ; kk++ );
+                for ( jj = 0 ; jj < j && ( e->types[jj].eps != e->types[j].eps || e->types[jj].rmin != e->types[j].rmin || e->types[jj].charge != e->types[j].charge ) ; jj++ );
+                for ( kk = 0 ; kk < k && ( e->types[kk].eps != e->types[k].eps || e->types[kk].rmin != e->types[k].rmin || e->types[kk].charge != e->types[k].charge ) ; kk++ );
                 }
             if ( jj < j && kk < k ) {
                 if ( e->p[ jj + e->max_type*kk ] != NULL && engine_addpot( e , e->p[ jj + e->max_type*kk ] , j , k ) < 0 )
@@ -1130,8 +1122,8 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                 }
                     
             /* Construct the common LJ parameters. */
-            K = 4.184 * sqrt( eps[j] * eps[k] );
-            r0 = 0.1 * ( rmin[j] + rmin[k] );
+            K = sqrt( e->types[j].eps * e->types[k].eps );
+            r0 = e->types[j].rmin + e->types[k].rmin;
             r2 = r0*r0; r6 = r2*r2*r2;
             A = K*r6*r6; B = 2*K*r6;
             q = e->types[j].charge*e->types[k].charge;

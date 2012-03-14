@@ -1715,7 +1715,7 @@ struct potential *potential_create_Coulomb ( double a , double b , double q , do
         }
         
     double dfdr ( double r ) {
-        return potential_escale * q / ( r * r );
+        return -potential_escale * q / ( r * r );
         }
         
     double d6fdr6 ( double r ) {

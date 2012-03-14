@@ -47,43 +47,13 @@
 #include "potential.h"
 #include "engine.h"
 #include "runner.h"
-
-
-/* Set the max number of parts for shared buffers. */
-#define cuda_maxparts 160
-#define cuda_frame 32
-#define cuda_maxpots 100
+#include "runner_cuda.h"
 
 
 /* the error macro. */
 #define cuda_error(id)			( engine_err = errs_register( id , cudaGetErrorString(cudaGetLastError()) , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 
-/* Use textured or global potential data? */
-#define USETEX 1
-// #define USETEX_E 1
-
-
-/** Reduced part struct for CUDA. */
-struct part_cuda {
-
-    /** Particle position */
-    float x[3];
-    
-    /** Particle force */
-    float f[3];
-    
-    /** particle type. */
-    int type;
-    
-    /** particle charge. */
-    #ifdef USETEX_E
-    float q;
-    #endif
-    
-    };
-    
-    
 /* The constant null potential. */
 __constant__ struct potential *potential_null_cuda = NULL;
 
@@ -104,20 +74,24 @@ __device__ int cuda_pair_next = 0;
 /* Some constants. */
 __constant__ float cuda_cutoff2 = 0.0f;
 __constant__ struct potential **cuda_p;
-__constant__ int *cuda_pind;
 __constant__ int cuda_maxtype = 0;
 __constant__ struct potential *cuda_pots;
-__constant__ int *cuda_diags;
 
 /* The potential coefficients, as a texture. */
 texture< float , cudaTextureType2D > tex_coeffs;
 texture< float , cudaTextureType2D > tex_alphas;
 texture< int , cudaTextureType1D > tex_offsets;
-cudaArray *cuda_coeffs, *cuda_alphas, *cuda_offsets;
+texture< int , cudaTextureType1D > tex_pind;
+texture< int , cudaTextureType1D > tex_diags;
+cudaArray *cuda_coeffs, *cuda_alphas, *cuda_offsets, *cuda_pind, *cuda_diags;
+
+/* The potential parameters (hard-wired size for now). */
+__constant__ float cuda_eps[ 100 ];
+__constant__ float cuda_rmin[ 100 ];
 
 /* Use a set of variables to communicate with the outside world. */
-__device__ float cuda_fio[10];
-__device__ int cuda_io[10];
+__device__ float cuda_fio[32];
+__device__ int cuda_io[32];
 
 
 /**
@@ -145,6 +119,24 @@ __device__ inline void cuda_mutex_lock ( int *m ) {
 
 __device__ inline void cuda_mutex_unlock ( int *m ) {
     atomicExch( m , 0 );
+    }
+    
+    
+/**
+ * @brief Copy bulk memory in a strided way.
+ *
+ * @param dest Pointer to destination memory.
+ * @param source Pointer to source memory.
+ * @param count Number of bytes to copy, must be a multiple of sizeof(int).
+ */
+ 
+__device__ inline void cuda_memcpy ( void *dest , void *source , int count ) {
+
+    int k, *idest = (int *)dest, *isource = (int *)source;
+    
+    for ( k = 0 + threadIdx.x ; k < count/sizeof(int) ; k += cuda_frame )
+        idest[k] = isource[k];
+
     }
 
 
@@ -300,6 +292,45 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
     }
 
 
+/** 
+ * @brief Evaluates the given potential at the given point (explicit).
+ *
+ * @param type_i The type ID of the first particle.
+ * @param type_j The type ID of the second particle
+ * @param r2 The radius at which it is to be evaluated, squared.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force divided by r.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL.
+ */
+
+__device__ inline void potential_eval_cuda_expl ( int type_i , int type_j , float q , float r2 , float *e , float *f ) {
+
+    float eps, ir, rminr, rminr2, rminr6;
+    
+    /* Get the inverse of r. */
+    ir = rsqrtf(r2);
+    
+    /* Get eps. */
+    eps = cuda_eps[ type_i ] * cuda_eps[ type_j ];
+    
+    /* Get the powers of rminr. */
+    rminr = ( cuda_rmin[ type_i ] + cuda_rmin[ type_j ] ) * ir;
+    rminr2 = rminr * rminr;
+    rminr6 = rminr2 * rminr2 * rminr2;
+    
+    /* Compute the energy. */
+    *e = eps * rminr6 * ( rminr6 - 2 ) + potential_escale * ir;
+    
+    /* Compute the force. */
+    *f = 12.0f * eps * rminr6 * ir * ( 1 - rminr6 ) - potential_escale / r2;
+        
+    }
+
+
 /**
  * @brief Compute the pairwise interactions for the given pair on a CUDA device.
  *
@@ -309,26 +340,27 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
  * @param count_j Number of parts in the second cell.
  * @param pshift A pointer to an array of three floating point values containing
  *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param parts_i Part buffer in local memory.
+ * @param parts_j Part buffer in local memory.
  *
  * @sa #runner_dopair.
  */
  
-__device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struct part *iparts_j , int count_j, float *pshift ) {
+__device__ void runner_dopair_cuda ( struct part_cuda *iparts_i , int count_i , struct part_cuda *iparts_j , int count_j, float *pshift , struct part_cuda *parts_i , struct part_cuda *parts_j ) {
 
     int k, pid, pjd, ind, wrap, threadID;
     int pjoff;
     struct part_cuda *pi, *pj;
-    struct part *temp;
-    #ifdef USETEX_E
+    struct part_cuda *temp;
+    #if defined(USETEX_E) || defined(EXPLPOT)
         float qj, q;
     #endif
     #if defined(USETEX) || defined(USETEX_E)
         int pot;
-    #else
+    #elif !defined(EXPLPOT)
         struct potential *pot;
     #endif
     float epot = 0.0f, dx[3], pjx[3], pjf[3], shift[3], r2, w, ee = 0.0f, eff = 0.0f;
-    __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
@@ -342,39 +374,17 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
     else {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
-    
+
     /* Copy the particle data to the local buffers */
-    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        parts_i[k].x[0] = iparts_i[k].x[0];
-        parts_i[k].x[1] = iparts_i[k].x[1];
-        parts_i[k].x[2] = iparts_i[k].x[2];
-        parts_i[k].f[0] = iparts_i[k].f[0];
-        parts_i[k].f[1] = iparts_i[k].f[1];
-        parts_i[k].f[2] = iparts_i[k].f[2];
-        parts_i[k].type = iparts_i[k].type;
-        #ifdef USETEX_E
-        parts_i[k].q = iparts_i[k].q;
-        #endif
-        }
-    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        parts_j[k].x[0] = iparts_j[k].x[0];
-        parts_j[k].x[1] = iparts_j[k].x[1];
-        parts_j[k].x[2] = iparts_j[k].x[2];
-        parts_j[k].f[0] = iparts_j[k].f[0];
-        parts_j[k].f[1] = iparts_j[k].f[1];
-        parts_j[k].f[2] = iparts_j[k].f[2];
-        parts_j[k].type = iparts_j[k].type;
-        #ifdef USETEX_E
-        parts_j[k].q = iparts_j[k].q;
-        #endif
-        }
+    cuda_memcpy( parts_i , iparts_i , sizeof( struct part_cuda ) * count_i );
+    cuda_memcpy( parts_j , iparts_j , sizeof( struct part_cuda ) * count_j );
         
     /* Get the wrap. */
     if ( ( wrap = count_i ) < cuda_frame )
         wrap = cuda_frame;
     
     /* Make sure everybody is in the same place. */
-    __syncthreads();
+    __threadfence_block();
 
     /* Loop over the particles in cell_j, frame-wise. */
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
@@ -386,7 +396,7 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
             pjx[k] = pj->x[k] + shift[k];
             pjf[k] = 0.0f;
             }
-        #ifdef USETEX_E
+        #if defined(USETEX_E) || defined(EXPLPOT)
         qj = pj->q;
         #endif
         
@@ -412,9 +422,11 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
 
                 /* Set the null potential if anything is bad. */
                 #ifdef USETEX_E
-                if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+                if ( r2 < cuda_cutoff2 && ( ( pot = tex1D( tex_pind , pjoff + pi->type ) ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
                 #elif defined(USETEX)
-                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
+                if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pjoff + pi->type ) ) != 0 ) {
+                #elif defined(EXPLPOT)
+                if ( r2 < cuda_cutoff2 ) {
                 #else
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
                 #endif
@@ -424,6 +436,8 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
                     potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
                     #elif defined(USETEX)
                     potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+                    #elif defined(EXPLPOT)
+                    potential_eval_cuda_expl( pi->type , pj->type , qj*pi->q , r2 , &ee , &eff );
                     #else
                     potential_eval_cuda( pot , r2 , &ee , &eff );
                     #endif
@@ -454,20 +468,9 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
         
         } /* loop over the particles in cell_j. */
     
-    /* Make sure everybody is in the same place. */
-    __syncthreads();
-
     /* Copy the particle data back from the local buffers */
-    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        iparts_i[k].f[0] = parts_i[k].f[0];
-        iparts_i[k].f[1] = parts_i[k].f[1];
-        iparts_i[k].f[2] = parts_i[k].f[2];
-        }
-    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        iparts_j[k].f[0] = parts_j[k].f[0];
-        iparts_j[k].f[1] = parts_j[k].f[1];
-        iparts_j[k].f[2] = parts_j[k].f[2];
-        }
+    cuda_memcpy( iparts_i , parts_i , sizeof( struct part_cuda ) * count_i );
+    cuda_memcpy( iparts_j , parts_j , sizeof( struct part_cuda ) * count_j );
         
     }
 
@@ -481,27 +484,28 @@ __device__ void runner_dopair_cuda ( struct part *iparts_i , int count_i , struc
  * @param count_j Number of parts in the second cell.
  * @param pshift A pointer to an array of three floating point values containing
  *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param parts_i Part buffer in local memory.
+ * @param parts_j Part buffer in local memory.
  *
  * @sa #runner_dopair.
  */
  
-__device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i , struct part *iparts_j , int count_j, float *pshift ) {
+__device__ void runner_dopair_sorted_cuda ( struct part_cuda *iparts_i , int count_i , struct part_cuda *iparts_j , int count_j , float *pshift , struct part_cuda *parts_i , struct part_cuda *parts_j ) {
 
     int k, j, i, ind, jnd, pid, pjd, pjdid, threadID, wrap;
     int pioff, swap_i;
     struct part_cuda *pi, *pj;
-    struct part *temp;
-    #ifdef USETEX_E
+    struct part_cuda *temp;
+    #if defined(USETEX_E) || defined(EXPLPOT)
         float qi, q;
     #endif
     #if defined(USETEX) || defined(USETEX_E)
         int pot;
-    #else
+    #elif !defined(EXPLPOT)
         struct potential *pot;
     #endif
     float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f, inshift, swap_f, cutoff;
     float dx[3], pix[3], pif[3], shift[3];
-    __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     __shared__ struct {
         float d;
         int ind;
@@ -509,7 +513,6 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
-    
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
@@ -520,32 +523,10 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
     else {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
-        
+
     /* Copy the particle data to the local buffers */
-    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        parts_i[k].x[0] = iparts_i[k].x[0];
-        parts_i[k].x[1] = iparts_i[k].x[1];
-        parts_i[k].x[2] = iparts_i[k].x[2];
-        parts_i[k].f[0] = iparts_i[k].f[0];
-        parts_i[k].f[1] = iparts_i[k].f[1];
-        parts_i[k].f[2] = iparts_i[k].f[2];
-        parts_i[k].type = iparts_i[k].type;
-        #ifdef USETEX_E
-        parts_i[k].q = iparts_i[k].q;
-        #endif
-        }
-    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        parts_j[k].x[0] = iparts_j[k].x[0];
-        parts_j[k].x[1] = iparts_j[k].x[1];
-        parts_j[k].x[2] = iparts_j[k].x[2];
-        parts_j[k].f[0] = iparts_j[k].f[0];
-        parts_j[k].f[1] = iparts_j[k].f[1];
-        parts_j[k].f[2] = iparts_j[k].f[2];
-        parts_j[k].type = iparts_j[k].type;
-        #ifdef USETEX_E
-        parts_j[k].q = iparts_j[k].q;
-        #endif
-        }
+    cuda_memcpy( parts_i , iparts_i , sizeof( struct part_cuda ) * count_i );
+    cuda_memcpy( parts_j , iparts_j , sizeof( struct part_cuda ) * count_j );
         
         
     /* Pre-compute the inverse norm of the shift. */
@@ -651,7 +632,7 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
             pix[k] = pi->x[k] - shift[k];
             pif[k] = 0.0f;
             }
-        #ifdef USETEX_E
+        #if defined(USETEX_E) || defined(EXPLPOT)
         qi = pi->q;
         #endif
         
@@ -676,9 +657,11 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
                     
                 /* Set the null potential if anything is bad. */
                 #ifdef USETEX_E
-                if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pioff + pj->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+                if ( r2 < cuda_cutoff2 && ( ( pot = tex1D( tex_pind , pioff + pj->type ) ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
                 #elif defined(USETEX)
-                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pioff + pj->type ] ) != 0 ) {
+                if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pioff + pj->type ) ) != 0 ) {
+                #elif defined(EXPLPOT)
+                if ( r2 < cuda_cutoff2 ) {
                 #else
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pioff + pj->type ] ) != NULL ) {
                 #endif
@@ -691,9 +674,12 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
                     potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
                     #elif defined(USETEX)
                     potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+                    #elif defined(EXPLPOT)
+                    potential_eval_cuda_expl( pi->type , pj->type , qi*pj->q , r2 , &ee , &eff );
                     #else
                     potential_eval_cuda( pot , r2 , &ee , &eff );
                     #endif
+
 
                     /* Store the interaction force and energy. */
                     epot += ee;
@@ -721,20 +707,9 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
         
         } /* loop over the particles in cell_j. */
     
-    /* Make sure everybody is in the same place. */
-    __syncthreads();
-
     /* Copy the particle data back from the local buffers */
-    for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        iparts_i[k].f[0] = parts_i[k].f[0];
-        iparts_i[k].f[1] = parts_i[k].f[1];
-        iparts_i[k].f[2] = parts_i[k].f[2];
-        }
-    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        iparts_j[k].f[0] = parts_j[k].f[0];
-        iparts_j[k].f[1] = parts_j[k].f[1];
-        iparts_j[k].f[2] = parts_j[k].f[2];
-        }
+    cuda_memcpy( iparts_i , parts_i , sizeof( struct part_cuda ) * count_i );
+    cuda_memcpy( iparts_j , parts_j , sizeof( struct part_cuda ) * count_j );
         
     }
 
@@ -744,45 +719,34 @@ __device__ void runner_dopair_sorted_cuda ( struct part *iparts_i , int count_i 
  *
  * @param iparts Array of parts in this cell.
  * @param count Number of parts in the cell.
+ * @param parts Part buffer in local memory.
  *
  * @sa #runner_dopair.
  */
  
-__device__ void runner_doself_cuda ( struct part *iparts , int count ) {
+__device__ void runner_doself_cuda ( struct part_cuda *iparts , int count , struct part_cuda *parts ) {
 
     int k, ind, wrap, pid, pjd, threadID;
     int pjoff;
     struct part_cuda *pi, *pj;
-    #ifdef USETEX_E
+    #if defined(USETEX_E) || defined(EXPLPOT)
         float qj, q;
     #endif
     #if defined(USETEX) || defined(USETEX_E)
         int pot;
-    #else
+    #elif !defined(EXPLPOT)
         struct potential *pot;
     #endif
     float epot = 0.0f, dx[3], pjx[3], pjf[3], r2, w, ee, eff;
-    __shared__ struct part_cuda parts[ cuda_maxparts ];
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
     
     /* Copy the particle data to the local buffers */
-    for ( k = threadID ; k < count ; k += cuda_frame ) {
-        parts[k].x[0] = iparts[k].x[0];
-        parts[k].x[1] = iparts[k].x[1];
-        parts[k].x[2] = iparts[k].x[2];
-        parts[k].f[0] = iparts[k].f[0];
-        parts[k].f[1] = iparts[k].f[1];
-        parts[k].f[2] = iparts[k].f[2];
-        parts[k].type = iparts[k].type;
-        #ifdef USETEX_E
-        parts[k].q = iparts[k].q;
-        #endif
-        }
+    cuda_memcpy( parts , iparts , sizeof( struct part_cuda ) * count );
     
     /* Make sure everybody is in the same place. */
-    __syncthreads();
+    __threadfence_block();
 
     /* Loop over the particles in the cell, frame-wise. */
     for ( pjd = threadID ; pjd < count ; pjd += cuda_frame ) {
@@ -794,7 +758,7 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
             pjx[k] = pj->x[k];
             pjf[k] = 0.0f;
             }
-        #ifdef USETEX_E
+        #if defined(USETEX_E) || defined(EXPLPOT)
         qj = pj->q;
         #endif
             
@@ -825,9 +789,11 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
 
                 /* Set the null potential if anything is bad. */
                 #ifdef USETEX_E
-                if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+                if ( r2 < cuda_cutoff2 && ( ( pot = tex1D( tex_pind , pjoff + pi->type ) ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
                 #elif defined(USETEX)
-                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + pi->type ] ) != 0 ) {
+                if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pjoff + pi->type ) ) != 0 ) {
+                #elif defined(EXPLPOT)
+                if ( r2 < cuda_cutoff2 ) {
                 #else
                 if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pjoff + pi->type ] ) != NULL ) {
                 #endif
@@ -837,6 +803,8 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
                     potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
                     #elif defined(USETEX)
                     potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+                    #elif defined(EXPLPOT)
+                    potential_eval_cuda_expl( pi->type , pj->type , qj*pi->q , r2 , &ee , &eff );
                     #else
                     potential_eval_cuda( pot , r2 , &ee , &eff );
                     #endif
@@ -867,15 +835,8 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
 
         } /* loop over the particles in cell_j. */
     
-    /* Make sure everybody is in the same place. */
-    __syncthreads();
-
     /* Copy the particle data back from the local buffers */
-    for ( k = threadID ; k < count ; k += cuda_frame ) {
-        iparts[k].f[0] = parts[k].f[0];
-        iparts[k].f[1] = parts[k].f[1];
-        iparts[k].f[2] = parts[k].f[2];
-        }
+    cuda_memcpy( iparts , parts , sizeof( struct part_cuda ) * count );
         
     }
     
@@ -885,44 +846,33 @@ __device__ void runner_doself_cuda ( struct part *iparts , int count ) {
  *
  * @param iparts Array of parts in this cell.
  * @param count Number of parts in the cell.
+ * @param parts Part buffer in local memory.
  *
  * @sa #runner_dopair.
  */
  
-__device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
+__device__ void runner_doself_diag_cuda ( struct part_cuda *iparts , int count , struct part_cuda *parts ) {
 
     int diag, k, diag_max, step, pid, pjd, threadID;
     struct part_cuda *pi, *pj;
-    #ifdef USETEX_E
-        float qj, q;
+    #if defined(USETEX_E)
+        float q;
     #endif
     #if defined(USETEX) || defined(USETEX_E)
         int pot;
-    #else
+    #elif !defined(EXPLPOT)
         struct potential *pot;
     #endif
     float epot = 0.0f, dx[3], r2, w[3], ee, eff;
-    __shared__ struct part_cuda parts[ cuda_maxparts ];
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
     
     /* Copy the particle data to the local buffers */
-    for ( k = threadID ; k < count ; k += cuda_frame ) {
-        parts[k].x[0] = iparts[k].x[0];
-        parts[k].x[1] = iparts[k].x[1];
-        parts[k].x[2] = iparts[k].x[2];
-        parts[k].f[0] = iparts[k].f[0];
-        parts[k].f[1] = iparts[k].f[1];
-        parts[k].f[2] = iparts[k].f[2];
-        parts[k].type = iparts[k].type;
-        #ifdef USETEX_E
-        parts[k].q = iparts[k].q;
-        #endif
-        }
+    cuda_memcpy( parts , iparts , sizeof( struct part_cuda ) * count );
     
     /* Make sure everybody is in the same place. */
-    __syncthreads();
+    __threadfence_block();
     
     /* Step along the number of diagonal entries. */
     diag_max = count * (count - 1) / 2; step = 1;
@@ -942,7 +892,7 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
                 step += 1;
     
             /* Get the location of the kth entry on the diagonal. */
-            k = cuda_diags[ diag ]; // ( sqrtf( 8*diag + 1 ) - 1 ) / 2;
+            k = tex1D( tex_diags ,  diag ); // ( sqrtf( 8*diag + 1 ) - 1 ) / 2;
             pid = diag - k*(k+1)/2;
             pjd = count - 1 - k + pid;
             
@@ -958,9 +908,11 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
 
             /* Set the null potential if anything is bad. */
             #ifdef USETEX_E
-            if ( r2 < cuda_cutoff2 && ( ( pot = cuda_pind[ pj->type*cuda_maxtype + pi->type ] ) != 0 || ( q = qj*pi->q ) != 0.0f ) ) {
+            if ( r2 < cuda_cutoff2 && ( ( pot = tex1D( tex_pind , pj->type*cuda_maxtype + pi->type ) ) != 0 || ( q = pj->q*pi->q ) != 0.0f ) ) {
             #elif defined(USETEX)
-            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pj->type*cuda_maxtype + pi->type ] ) != 0 ) {
+            if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pj->type*cuda_maxtype + pi->type ) ) != 0 ) {
+            #elif defined(EXPLPOT)
+            if ( r2 < cuda_cutoff2 ) {
             #else
             if ( r2 < cuda_cutoff2 && ( pot = cuda_p[ pj->type*cuda_maxtype + pi->type ] ) != NULL ) {
             #endif
@@ -970,6 +922,8 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
                 potential_eval_cuda_tex_e( pot , q , r2 , &ee , &eff );
                 #elif defined(USETEX)
                 potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+                #elif defined(EXPLPOT)
+                potential_eval_cuda_expl( pi->type , pj->type , pi->q*pj->q , r2 , &ee , &eff );
                 #else
                 potential_eval_cuda( pot , r2 , &ee , &eff );
                 #endif
@@ -1000,15 +954,8 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
     
         } /* Loop over diagonal indices. */
     
-    /* Make sure everybody is in the same place. */
-    __syncthreads();
-
     /* Copy the particle data back from the local buffers */
-    for ( k = threadID ; k < count ; k += cuda_frame ) {
-        iparts[k].f[0] = parts[k].f[0];
-        iparts[k].f[1] = parts[k].f[1];
-        iparts[k].f[2] = parts[k].f[2];
-        }
+    cuda_memcpy( iparts , parts , sizeof( struct part_cuda ) * count );
         
     }
     
@@ -1017,11 +964,11 @@ __device__ void runner_doself_diag_cuda ( struct part *iparts , int count ) {
  * @brief Bind textures to the given cuda Arrays.
  *
  *
- * Hack to get around the fact that textures are static and can thus no
+ * Hack to get around the fact that textures are static and can thus not
  * be externalized.
  */
  
-int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas ) {
+int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags ) {
 
     /* Bind the coeffs. */
     cuda_coeffs = cuArray_coeffs;
@@ -1038,6 +985,16 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaA
     if ( cudaBindTextureToArray( tex_alphas , cuArray_alphas ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
+    /* Bind the pinds. */
+    cuda_pind = cuArray_pind;
+    if ( cudaBindTextureToArray( tex_pind , cuArray_pind ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
+    /* Bind the diags. */
+    cuda_diags = cuArray_diags;
+    if ( cudaBindTextureToArray( tex_diags , cuArray_diags ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
     /* Rock and roll. */
     return runner_err_ok;
 
@@ -1051,16 +1008,20 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaA
  *
  */
  
-__global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
+__global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind ) {
 
     int blockID, threadID;
-    int i;
+    int i, cpn;
+    unsigned int vote, mybit, submask;
     struct cellpair_cuda temp;
-    __shared__ int finger, cid, cjd;
+    __shared__ int nr_fingers, finger[max_fingers], cid[max_fingers], cjd[max_fingers];
+    __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     
     /* Get the block and thread ids. */
     blockID = blockIdx.x;
     threadID = threadIdx.x;
+    mybit = 1 << threadID;
+    submask = mybit + (mybit - 1);
     
     /* Check that we've got the correct warp size! */
     /* if ( warpSize != cuda_frame ) {
@@ -1069,36 +1030,80 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
                 warpSize , cuda_frame );
         return;
         } */
-    
+        
+
     /* Main loop... */
     while ( cuda_pair_next < cuda_nr_pairs ) {
     
+#ifdef PARSCHED
+
+        /* Lock the mutex. */
+        if ( threadID == 0 )
+            cuda_mutex_lock( &cuda_cell_mutex );
+        
+        /* Loop over the remaining pairs... */
+        vote = 0;
+        for ( i = cuda_pair_next + threadID ; i < cuda_nr_pairs ; i += cuda_frame )
+            if ( ( vote = __ballot( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
+                                    cuda_taboo[ cuda_pairs[i].j ] == 0 ) > 0 )
+                break;
+                
+        /* If we actually got a pair, flip it to the top and decrease
+            cuda_pair_next. */
+        if ( vote == 0 ) {
+            if ( threadID == 0 )
+                finger = -1;
+            }
+        else if ( ( vote & submask ) == mybit ) {
+            temp = cuda_pairs[i];
+            cuda_pairs[i] = cuda_pairs[ cuda_pair_next ];
+            cuda_pairs[ cuda_pair_next ] = temp;
+            finger = cuda_pair_next;
+            cid = cuda_pairs[finger].i; cjd = cuda_pairs[finger].j;
+            cuda_pair_next += 1;
+            cuda_taboo[ cid ] = 1;
+            cuda_taboo[ cjd ] = 1;
+            }
+        
+        /* Make sure everybody is on the same page. */
+        __threadfence();
+    
+        /* Un-lock the mutex. */
+        if ( threadID == 0 )
+            cuda_mutex_unlock( &cuda_cell_mutex );
+
+#else
         /* Try to catch a pair. */
         if ( threadID == 0 ) {
         
             /* Lock the mutex. */
             cuda_mutex_lock( &cuda_cell_mutex );
             
-            /* Loop over the remaining pairs... */
-            for ( i = cuda_pair_next ; i < cuda_nr_pairs ; i++ )
-                if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
-                     cuda_taboo[ cuda_pairs[i].j ] == 0 )
-                    break;
+            /* Get as many fingers as possible. */
+            cpn = cuda_pair_next;
+            for ( i = cuda_pair_next , nr_fingers = 0 ; nr_fingers < max_fingers && i < cuda_nr_pairs ; i++ ) {
                     
-            /* If we actually got a pair, flip it to the top and decrease
-               cuda_pair_next. */
-            if ( i < cuda_nr_pairs ) {
-                temp = cuda_pairs[i];
-                cuda_pairs[i] = cuda_pairs[ cuda_pair_next ];
-                cuda_pairs[ cuda_pair_next ] = temp;
-                finger = cuda_pair_next;
-                cid = cuda_pairs[finger].i; cjd = cuda_pairs[finger].j;
-                cuda_pair_next += 1;
-                cuda_taboo[ cid ] = 1;
-                cuda_taboo[ cjd ] = 1;
+                /* Pick up this pair? */
+                if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
+                     cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
+                    temp = cuda_pairs[i];
+                    cuda_pairs[i] = cuda_pairs[ cpn ];
+                    cuda_pairs[ cpn ] = temp;
+                    finger[nr_fingers] = cpn;
+                    cid[nr_fingers] = cuda_pairs[ cpn ].i;
+                    cjd[nr_fingers] = cuda_pairs[ cpn ].j;
+                    nr_fingers += 1;
+                    cpn += 1;
+                    }
+                
+                } /* get fingers. */
+            cuda_pair_next = cpn;
+                
+            /* Mark the cells. */
+            for ( i = 0 ; i < nr_fingers ; i++ ) {
+                cuda_taboo[ cid[i] ] += 1;
+                cuda_taboo[ cjd[i] ] += 1;
                 }
-            else
-                finger = -1;
             
             /* Make sure everybody is on the same page. */
             __threadfence();
@@ -1107,34 +1112,32 @@ __global__ void runner_run_cuda ( struct part *parts[] , int *counts ) {
             cuda_mutex_unlock( &cuda_cell_mutex );
             
             }
-            
-        /* Get everybody together. */
-        __syncthreads();
+#endif
             
         /* If we actually got a pair, do it! */
-        if ( finger >= 0 ) {
+        for ( i = 0 ; i < nr_fingers ; i++ ) {
         
             // if ( threadID == 0 )
             //     printf( "runner_run_cuda: block %i working on pair [%i,%i] (finger = %i).\n" , blockID , cid , cjd , finger );
         
             /* Do the pair. */
-            if ( cid != cjd )
-                runner_dopair_sorted_cuda( parts[cid] , counts[cid] , parts[cjd] , counts[cjd] , cuda_pairs[finger].shift );
+            if ( cid[i] != cjd[i] )
+                runner_dopair_sorted_cuda( &parts[ind[cid[i]]] , counts[cid[i]] , &parts[ind[cjd[i]]] , counts[cjd[i]] , cuda_pairs[finger[i]].shift , parts_i , parts_j );
             else
-                runner_doself_diag_cuda( parts[cid] , counts[cid] );
+                runner_doself_diag_cuda( &parts[ind[cid[i]]] , counts[cid[i]] , parts_i );
         
             /* Release the cells in the taboo list. */
             if ( threadID == 0 ) {
-                cuda_taboo[ cid ] = 0;
-                cuda_taboo[ cjd ] = 0;
-                __threadfence();
+                cuda_taboo[ cid[i] ] -= 1;
+                cuda_taboo[ cjd[i] ] -= 1;
                 }
             
             }
-    
-        /* Get everybody together. */
-        __syncthreads();
             
+        /* Do we have to sync any memory? */
+        if ( nr_fingers > 0 )
+            __threadfence();
+    
         } /* main loop. */
 
     }
