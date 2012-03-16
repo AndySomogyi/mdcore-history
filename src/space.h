@@ -137,7 +137,7 @@ struct space {
     
     /** Data for the verlet list. */
     struct verlet_entry *verlet_list;
-    FPTYPE *verlet_oldx;
+    FPTYPE *verlet_oldx, verlet_maxdx;
     int *verlet_nrpairs;
     int verlet_size, verlet_next;
     int verlet_rebuild;

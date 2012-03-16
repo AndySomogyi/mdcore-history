@@ -63,6 +63,7 @@
 
 
 /* Forward declaration of runner kernel. */
+__global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild );
 __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind );
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
 
@@ -92,8 +93,12 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_cell_mutex" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    
     /* Start the kernel. */
-    runner_run_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );
+    if ( e->flags & engine_flag_verlet )
+        runner_run_verlet_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+    else
+        runner_run_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );
     
     /* Check for CUDA errors. */
     if ( cudaGetLastError() != cudaSuccess )
@@ -136,6 +141,9 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     struct part *p;
     struct part_cuda *buff;
     struct space *s = &e->s;
+    int *sortlists_ind, sortlists_count;
+    struct cellpair_cuda *cellpairs;
+    FPTYPE maxdist = s->cutoff + 2*s->verlet_maxdx;
     
     /* Clear the counts array. */
     bzero( s->counts_cuda_local , sizeof(int) * s->nr_cells );
@@ -149,6 +157,52 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     for ( k = 1 ; k < s->nr_cells ; k++ )
         s->ind_cuda_local[k] = s->ind_cuda_local[k-1] + s->counts_cuda_local[k-1];
         
+    /* Are we using verlet lists? */
+    if ( e->flags & engine_flag_verlet ) {
+    
+        /* Start by setting the maxdist on the device. */
+        if ( cudaMemcpyToSymbol( "cuda_maxdist" , &maxdist , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+    
+        /* Do we need to re-build the list? */
+        if ( s->verlet_rebuild ) {
+        
+            /* Get a copy of the cellpairs from the device. */
+            if ( ( cellpairs = (struct cellpair_cuda *)alloca( sizeof(struct cellpair_cuda) * s->nr_pairs ) ) == NULL )
+                return engine_err_malloc;
+            if ( cudaMemcpy( cellpairs , s->pairs_cuda , sizeof(struct cellpair_cuda) * s->nr_pairs , cudaMemcpyDeviceToHost ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+        
+            /* Allocate and fill the sortlist. */
+            if ( ( sortlists_ind = (int *)alloca( sizeof(int) * (s->nr_pairs + 1) ) ) == NULL )
+                return error(engine_err_malloc);
+            sortlists_ind[0] = 0;
+            for ( k = 1 ; k <= s->nr_pairs ; k++ )
+                if ( cellpairs[k-1].i != cellpairs[k-1].j )
+                    sortlists_ind[k] = sortlists_ind[k-1] + s->counts_cuda_local[cellpairs[k-1].i] + s->counts_cuda_local[cellpairs[k-1].j];
+                else
+                    sortlists_ind[k] = sortlists_ind[k-1];
+            sortlists_count = sortlists_ind[s->nr_pairs];
+            
+            /* Do we need to re-allocate the sortlists? */
+            if ( e->sortlists_cuda == NULL || e->sortlists_size < sortlists_count ) {
+                e->sortlists_size = sortlists_count * 1.2;
+                if ( e->sortlists_cuda != NULL && cudaFree( e->sortlists_cuda ) != cudaSuccess )
+                    return cuda_error(engine_err_cuda);
+                if ( cudaMalloc( &e->sortlists_cuda , sizeof(struct sortlist) * e->sortlists_size ) != cudaSuccess )
+                    return cuda_error(engine_err_cuda);
+                if ( cudaMemcpyToSymbol( "cuda_sortlists" , &e->sortlists_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+                    return cuda_error(engine_err_cuda);
+                }
+        
+            /* Copy the indices over to the device. */
+            if ( cudaMemcpy( e->sortlists_ind_cuda , sortlists_ind , sizeof(int) * s->nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+        
+            }
+    
+        } /* are we using verlet lists? */
+    
     /* Allocate the particle buffer. */
     if ( ( s->parts_cuda_local = (struct part_cuda *)malloc( sizeof( struct part_cuda ) * s->nr_parts ) ) == NULL )
         return error(engine_err_malloc);
@@ -267,13 +321,14 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
  
 extern "C" int engine_cuda_load ( struct engine *e ) {
 
-    int i, j, nr_pots, nr_coeffs, *diags;
+    int i, j, k, nr_pots, nr_coeffs, *diags;
     int pind_cuda[ e->max_type * e->max_type ], *offsets_cuda;
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
     struct potential *p_cuda[ e->max_type * e->max_type ];
     struct potential *pots_cuda;
     struct cellpair_cuda *pairs_cuda;
-    float *finger, *coeffs_cuda, *alphas_cuda, cutoff2 = e->s.cutoff2, buff[ e->nr_types ];
+    float *finger, *coeffs_cuda, *alphas_cuda;
+    float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, buff[ e->nr_types ];
     cudaArray *cuArray_coeffs, *cuArray_offsets, *cuArray_alphas, *cuArray_pind, *cuArray_diags;
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
@@ -388,13 +443,16 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     
     /* Pack the diagonal offsets into a newly allocated array and 
        copy to the device. */
-    if ( ( diags = (int *)alloca( sizeof(int) * cuda_ndiags ) ) == NULL )
+    if ( ( diags = (int *)alloca( sizeof(int) * 2 * cuda_ndiags ) ) == NULL )
         return error(engine_err_malloc);
-    for ( i = 0 ; i < cuda_ndiags ; i++ )
-        diags[i] = ( sqrt( 8.0*i + 1 ) - 1 ) / 2;
-    if ( cudaMallocArray( &cuArray_diags , &channelDesc_int , cuda_ndiags , 1 ) != cudaSuccess )
+    for ( i = 0 ; i < cuda_ndiags ; i++ ) {
+        k = ( sqrt( 8.0*i + 1 ) - 1 ) / 2;
+        diags[ 2*i  + 0 ] = i - k*(k+1)/2;
+        diags[ 2*i  + 1 ] = 1 + k - i + k*(k+1)/2;
+        }
+    if ( cudaMallocArray( &cuArray_diags , &channelDesc_int , 2 , cuda_ndiags ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( cuArray_diags , 0 , 0 , diags , sizeof(int) * cuda_ndiags , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToArray( cuArray_diags , 0 , 0 , diags , sizeof(int) * 2 * cuda_ndiags , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
     /* Copy the potential indices to the device. */
@@ -431,6 +489,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_cutoff2" , &cutoff2 , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_maxdist" , &cutoff , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_maxtype" , &(e->max_type) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
@@ -452,6 +512,15 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_pairs" , &(e->s.pairs_cuda) , sizeof(struct cellpair_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+
+    /* Allocate the sortlists locally and on the device if needed. */
+    if ( e->flags & engine_flag_verlet ) {
+        e->sortlists_cuda = NULL;
+        if ( cudaMalloc( &e->sortlists_ind_cuda , sizeof(void *) * e->s.nr_pairs ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( "cuda_sortlists_ind" , &e->sortlists_ind_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
 
     /* Set the number of pairs and cells. */
     if ( cudaMemcpyToSymbol( "cuda_nr_pairs" , &(e->s.nr_pairs) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )

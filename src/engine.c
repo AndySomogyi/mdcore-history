@@ -101,7 +101,6 @@ char *engine_err_msg[23] = {
  
 int engine_shuffle ( struct engine *e ) {
 
-#ifdef HAVE_MPI
     int cid, k;
     struct cell *c;
     struct space *s = &e->s;
@@ -115,10 +114,13 @@ int engine_shuffle ( struct engine *e ) {
     if ( space_shuffle_local( s ) < 0 )
         return error(engine_err_space);
 
+
+#ifdef HAVE_MPI
     /* Get the incomming particle from other procs if needed. */
     if ( e->flags & engine_flag_mpi )
         if ( engine_exchange_incomming( e ) < 0 )
             return error(engine_err);
+#endif
 
     /* Welcome the new particles in each cell, unhook the old ones. */
     #pragma omp parallel for schedule(static), private(cid,c,k)
@@ -135,11 +137,6 @@ int engine_shuffle ( struct engine *e ) {
 
     /* return quietly */
     return engine_err_ok;
-#else
-
-    return error(engine_err_nompi);
-    
-#endif
     
     }
 
@@ -243,7 +240,8 @@ int engine_verlet_update ( struct engine *e ) {
         #endif
 
         /* Are we still in the green? */
-        s->verlet_rebuild = ( 2.0*sqrt(maxdx) > skin );
+        maxdx = sqrt(maxdx);
+        s->verlet_rebuild = ( 2.0*maxdx > skin );
 
         }
         
@@ -251,7 +249,7 @@ int engine_verlet_update ( struct engine *e ) {
     if ( s->verlet_rebuild ) {
     
         /* printf("engine_verlet_update: re-building verlet lists next step...\n");
-        printf("engine_verlet_update: maxdx=%e, skin=%e.\n",sqrt(maxdx),skin); */
+        printf("engine_verlet_update: maxdx=%e, skin=%e.\n",maxdx,skin); */
         
         /* Wait for any unterminated exchange. */
         tic = getticks();
@@ -287,8 +285,15 @@ int engine_verlet_update ( struct engine *e ) {
         /* Set the nrpairs to zero. */
         if ( !( e->flags & engine_flag_verlet_pairwise ) && s->verlet_nrpairs != NULL )
             bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
+            
+        /* Set the maximum displacement to zero. */
+        s->verlet_maxdx = 0;
 
         }
+        
+    /* Otherwise, just store the maximum displacement. */
+    else
+        s->verlet_maxdx = maxdx;
             
     /* All done! */
     return engine_err_ok;

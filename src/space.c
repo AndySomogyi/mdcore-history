@@ -1509,6 +1509,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     s->verlet_oldx = NULL;
     s->verlet_size = 0;
     s->verlet_rebuild = 1;
+    s->verlet_maxdx = 0.0;
         
     /* all is well that ends well... */
     return space_err_ok;
