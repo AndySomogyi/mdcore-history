@@ -59,6 +59,7 @@ __constant__ struct potential *potential_null_cuda = NULL;
 
 /* The number of cells and pairs. */
 __constant__ int cuda_nr_pairs = 0;
+__constant__ int cuda_nr_tuples = 0;
 __constant__ int cuda_nr_cells = 0;
 
 /* The mutex for accessing the cell pair list. */
@@ -66,10 +67,12 @@ __device__ int cuda_cell_mutex = 0;
 
 /* The list of cell pairs. */
 __device__ struct cellpair_cuda *cuda_pairs;
+__device__ struct celltuple_cuda *cuda_tuples;
 __device__ int *cuda_taboo;
 
 /* The index of the next free cell pair. */
 __device__ int cuda_pair_next = 0;
+__device__ int cuda_tuple_next = 0;
 
 /* Some constants. */
 __constant__ float cuda_cutoff2 = 0.0f;
@@ -143,9 +146,10 @@ __device__ inline void cuda_memcpy ( void *dest , void *source , int count ) {
 
     int k, *idest = (int *)dest, *isource = (int *)source;
     
+    /* Copy the data in chunks of sizeof(int). */
     for ( k = 0 + threadIdx.x ; k < count/sizeof(int) ; k += cuda_frame )
         idest[k] = isource[k];
-
+        
     }
 
 
@@ -355,7 +359,7 @@ __device__ inline void potential_eval_cuda_expl ( int type_i , int type_j , floa
  * @sa #runner_dopair.
  */
  
-__device__ void runner_dopair_cuda ( struct part_cuda *iparts_i , int count_i , struct part_cuda *iparts_j , int count_j, float *pshift , struct part_cuda *parts_i , struct part_cuda *parts_j ) {
+__device__ void runner_dopair_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j, float *pshift ) {
 
     int k, pid, pjd, ind, jnd, wrap_i, wrap_j, threadID;
     int pjoff;
@@ -376,7 +380,7 @@ __device__ void runner_dopair_cuda ( struct part_cuda *iparts_i , int count_i , 
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        temp = iparts_i; iparts_i = iparts_j; iparts_j = temp;
+        temp = parts_i; parts_i = parts_j; parts_j = temp;
         k = count_i; count_i = count_j; count_j = k;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
@@ -384,10 +388,6 @@ __device__ void runner_dopair_cuda ( struct part_cuda *iparts_i , int count_i , 
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
 
-    /* Copy the particle data to the local buffers */
-    cuda_memcpy( parts_i , iparts_i , sizeof( struct part_cuda ) * count_i );
-    cuda_memcpy( parts_j , iparts_j , sizeof( struct part_cuda ) * count_j );
-        
     /* Get the wraps. */
     wrap_i = (count_i < cuda_frame) ? cuda_frame : count_i;
     wrap_j = (count_j < cuda_frame) ? cuda_frame : count_j;
@@ -482,10 +482,6 @@ __device__ void runner_dopair_cuda ( struct part_cuda *iparts_i , int count_i , 
         
         } /* loop over the particles in cell_j. */
     
-    /* Copy the particle data back from the local buffers */
-    cuda_memcpy( iparts_i , parts_i , sizeof( struct part_cuda ) * count_i );
-    cuda_memcpy( iparts_j , parts_j , sizeof( struct part_cuda ) * count_j );
-        
     }
 
 
@@ -504,7 +500,7 @@ __device__ void runner_dopair_cuda ( struct part_cuda *iparts_i , int count_i , 
  * @sa #runner_dopair.
  */
  
-__device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *iparts_i , int count_i , struct part_cuda *iparts_j , int count_j , float *pshift , struct part_cuda *parts_i , struct part_cuda *parts_j , int verlet_rebuild , struct sortlist *sortlist ) {
+__device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j , float *pshift , int verlet_rebuild , struct sortlist *sortlist ) {
 
     int k, j, i, ind, jnd, pid, pjd, pjdid, threadID, wrap, cj;
     int pioff, swap_i;
@@ -528,7 +524,7 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *iparts_i , 
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        temp = iparts_i; iparts_i = iparts_j; iparts_j = temp;
+        temp = parts_i; parts_i = parts_j; parts_j = temp;
         k = count_i; count_i = count_j; count_j = k;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
@@ -536,13 +532,6 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *iparts_i , 
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
 
-    /* Copy the particle data to the local buffers */
-    cuda_memcpy( parts_i , iparts_i , sizeof( struct part_cuda ) * count_i );
-    cuda_memcpy( parts_j , iparts_j , sizeof( struct part_cuda ) * count_j );
-        
-    /* Make sure all the memory is in the right place. */
-    __threadfence_block();
-        
         
     /* Pre-compute the inverse norm of the shift. */
     inshift = rsqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
@@ -619,6 +608,7 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *iparts_i , 
     else {
         cuda_memcpy( sort_i , sortlist , sizeof(struct sortlist) * count_i );
         cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(struct sortlist) * count_j );
+        __threadfence_block();
         }
         
         
@@ -713,10 +703,6 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *iparts_i , 
         
         } /* loop over the particles in cell_j. */
     
-    /* Copy the particle data back from the local buffers */
-    cuda_memcpy( iparts_i , parts_i , sizeof( struct part_cuda ) * count_i );
-    cuda_memcpy( iparts_j , parts_j , sizeof( struct part_cuda ) * count_j );
-        
     }
 
 
@@ -735,7 +721,7 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *iparts_i , 
  * @sa #runner_dopair.
  */
  
-__device__ void runner_dopair_sorted_cuda ( struct part_cuda *iparts_i , int count_i , struct part_cuda *iparts_j , int count_j , float *pshift , struct part_cuda *parts_i , struct part_cuda *parts_j ) {
+__device__ void runner_dopair_sorted_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j , float *pshift ) {
 
     int k, j, i, ind, jnd, pid, pjd, pjdid, threadID, wrap, cj;
     int pioff, swap_i;
@@ -759,21 +745,13 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *iparts_i , int cou
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        temp = iparts_i; iparts_i = iparts_j; iparts_j = temp;
+        temp = parts_i; parts_i = parts_j; parts_j = temp;
         k = count_i; count_i = count_j; count_j = k;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
     else {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
-
-    /* Copy the particle data to the local buffers */
-    cuda_memcpy( parts_i , iparts_i , sizeof( struct part_cuda ) * count_i );
-    cuda_memcpy( parts_j , iparts_j , sizeof( struct part_cuda ) * count_j );
-        
-    /* Make sure all the memory is in the right place. */
-    __threadfence_block();
-        
         
     /* Pre-compute the inverse norm of the shift. */
     inshift = rsqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
@@ -924,10 +902,6 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *iparts_i , int cou
         
         } /* loop over the particles in cell_j. */
     
-    /* Copy the particle data back from the local buffers */
-    cuda_memcpy( iparts_i , parts_i , sizeof( struct part_cuda ) * count_i );
-    cuda_memcpy( iparts_j , parts_j , sizeof( struct part_cuda ) * count_j );
-        
     }
 
 
@@ -941,7 +915,7 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *iparts_i , int cou
  * @sa #runner_dopair.
  */
  
-__device__ void runner_doself_cuda ( struct part_cuda *iparts , int count , struct part_cuda *parts ) {
+__device__ void runner_doself_cuda ( struct part_cuda *parts , int count ) {
 
     int k, pid, pjd, threadID;
     int pjoff;
@@ -958,9 +932,6 @@ __device__ void runner_doself_cuda ( struct part_cuda *iparts , int count , stru
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
-    
-    /* Copy the particle data to the local buffers */
-    cuda_memcpy( parts , iparts , sizeof( struct part_cuda ) * count );
     
     /* Make sure everybody is in the same place. */
     __threadfence_block();
@@ -1037,9 +1008,6 @@ __device__ void runner_doself_cuda ( struct part_cuda *iparts , int count , stru
 
         } /* loop over the particles in cell_j. */
     
-    /* Copy the particle data back from the local buffers */
-    cuda_memcpy( iparts , parts , sizeof( struct part_cuda ) * count );
-        
     }
     
     
@@ -1053,7 +1021,7 @@ __device__ void runner_doself_cuda ( struct part_cuda *iparts , int count , stru
  * @sa #runner_dopair.
  */
  
-__device__ void runner_doself_diag_cuda ( struct part_cuda *iparts , int count , struct part_cuda *parts ) {
+__device__ void runner_doself_diag_cuda ( struct part_cuda *parts , int count ) {
 
     int diag, k, diag_max, step, pid, pjd, threadID;
     struct part_cuda *pi, *pj;
@@ -1069,9 +1037,6 @@ __device__ void runner_doself_diag_cuda ( struct part_cuda *iparts , int count ,
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
-    
-    /* Copy the particle data to the local buffers */
-    cuda_memcpy( parts , iparts , sizeof( struct part_cuda ) * count );
     
     /* Make sure everybody is in the same place. */
     __threadfence_block();
@@ -1158,9 +1123,6 @@ __device__ void runner_doself_diag_cuda ( struct part_cuda *iparts , int count ,
     
         } /* Loop over diagonal indices. */
     
-    /* Copy the particle data back from the local buffers */
-    cuda_memcpy( iparts , parts , sizeof( struct part_cuda ) * count );
-        
     }
     
     
@@ -1217,7 +1179,7 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
     int threadID; //, blockID;
     int i, cpn, itemp;
     struct cellpair_cuda temp;
-    __shared__ int nr_fingers, finger[max_fingers], cid[max_fingers], cjd[max_fingers];
+    int nr_fingers, finger[max_fingers], cid[max_fingers], cjd[max_fingers];
     __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     
     /* Get the block and thread ids. */
@@ -1236,40 +1198,49 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
     /* Main loop... */
     while ( cuda_pair_next < cuda_nr_pairs ) {
     
-        /* Try to catch a pair. */
-        if ( threadID == 0 ) {
-        
-            /* Lock the mutex. */
+        /* Lock the mutex. */
+        if ( threadID == 0 )
             cuda_mutex_lock( &cuda_cell_mutex );
             
-            /* Get as many fingers as possible. */
-            cpn = cuda_pair_next;
-            for ( i = cuda_pair_next , nr_fingers = 0 ; nr_fingers < max_fingers && i < cuda_nr_pairs ; i++ ) {
+        /* Make sure everybody is in the same place. */
+        __syncthreads();
+        
+        /* Get as many fingers as possible. */
+        cpn = cuda_pair_next;
+        for ( i = cpn , nr_fingers = 0 ; nr_fingers < max_fingers && i < cuda_nr_pairs ; i++ ) {
+                
+            /* Pick up this pair? */
+            if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
+                 cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
                     
-                /* Pick up this pair? */
-                if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
-                     cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
-                     
-                    /* Swap entries in the pair list. */
-                    temp = cuda_pairs[i];
-                    cuda_pairs[i] = cuda_pairs[ cpn ];
-                    cuda_pairs[ cpn ] = temp;
-                    
-                    /* Swap sortlist index. */
+                /* Swap entries in the pair list. */
+                cuda_memcpy( &temp , &cuda_pairs[i] , sizeof(struct cellpair_cuda) );
+                cuda_memcpy( &cuda_pairs[i] , &cuda_pairs[ cpn ] , sizeof(struct cellpair_cuda) );
+                cuda_memcpy( &cuda_pairs[ cpn ] , &temp , sizeof(struct cellpair_cuda) );
+                __threadfence_block();
+                
+                /* Swap sortlist index. */
+                if ( threadID == 0 ) {
                     itemp = cuda_sortlists_ind[i];
                     cuda_sortlists_ind[i] = cuda_sortlists_ind[ cpn ];
                     cuda_sortlists_ind[ cpn ] = itemp;
-            
-                    /* Store this pair to the fingers. */
-                    finger[nr_fingers] = cpn;
-                    cid[nr_fingers] = cuda_pairs[ cpn ].i;
-                    cjd[nr_fingers] = cuda_pairs[ cpn ].j;
-                    nr_fingers += 1;
-                    cpn += 1;
-                    
                     }
+                    
+                /* Store this pair to the fingers. */
+                finger[nr_fingers] = cpn;
+                cid[nr_fingers] = cuda_pairs[ cpn ].i;
+                cjd[nr_fingers] = cuda_pairs[ cpn ].j;
+                nr_fingers += 1;
+                cpn += 1;
                 
-                } /* get fingers. */
+                }
+            
+            } /* get fingers. */
+            
+        /* Only one thread needs to do the following */
+        if ( threadID == 0 ) {
+        
+            /* Store the modified cell_pair_next. */
             cuda_pair_next = cpn;
                 
             /* Mark the cells. */
@@ -1294,15 +1265,34 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
             //     printf( "runner_run_cuda: block %i working on pair [%i,%i] (finger = %i).\n" , blockID , cid , cjd , finger );
         
             /* Do the pair. */
-            if ( cid[i] != cjd[i] )
+            if ( cid[i] != cjd[i] ) {
+            
+                /* Get a local copy of the particle data. */
+                cuda_memcpy( parts_i , &parts[ind[cid[i]]] , sizeof( struct part_cuda ) * counts[cid[i]] );
+                cuda_memcpy( parts_j , &parts[ind[cjd[i]]] , sizeof( struct part_cuda ) * counts[cjd[i]] );
+                __threadfence_block();
+                
+                /* Compute the interactions. */
                 runner_dopair_sorted_verlet_cuda(
-                    &parts[ind[cid[i]]] , counts[cid[i]] ,
-                    &parts[ind[cjd[i]]] , counts[cjd[i]] ,
-                    cuda_pairs[finger[i]].shift , parts_i , parts_j ,
+                    parts_i , counts[cid[i]] ,
+                    parts_j , counts[cjd[i]] ,
+                    cuda_pairs[finger[i]].shift ,
                     verlet_rebuild , &cuda_sortlists[ cuda_sortlists_ind[ finger[i] ] ] );
-            else
-                runner_doself_diag_cuda( &parts[ind[cid[i]]] , counts[cid[i]] , parts_i );
-        
+                    
+                /* Write the particle data back. */
+                cuda_memcpy( &parts[ind[cid[i]]] , parts_i , sizeof( struct part_cuda ) * counts[cid[i]] );
+                cuda_memcpy( &parts[ind[cjd[i]]] , parts_j , sizeof( struct part_cuda ) * counts[cjd[i]] );
+                __threadfence_block();
+                    
+                }
+            else {
+                cuda_memcpy( parts_i , &parts[ind[cid[i]]] , sizeof( struct part_cuda ) * counts[cid[i]] );
+                __threadfence_block();
+                runner_doself_diag_cuda( parts_i , counts[cid[i]] );
+                cuda_memcpy( &parts[ind[cid[i]]] , parts_i , sizeof( struct part_cuda ) * counts[cid[i]] );
+                __threadfence_block();
+                }
+
             /* Release the cells in the taboo list. */
             if ( threadID == 0 ) {
                 cuda_taboo[ cid[i] ] -= 1;
@@ -1332,7 +1322,7 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
     int threadID; //, blockID;
     int i, cpn;
     struct cellpair_cuda temp;
-    __shared__ int nr_fingers, finger[max_fingers], cid[max_fingers], cjd[max_fingers];
+    int nr_fingers, finger[max_fingers], cid[max_fingers], cjd[max_fingers];
     __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     
     /* Get the block and thread ids. */
@@ -1351,35 +1341,42 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
     /* Main loop... */
     while ( cuda_pair_next < cuda_nr_pairs ) {
     
-        /* Try to catch a pair. */
-        if ( threadID == 0 ) {
-        
-            /* Lock the mutex. */
+        /* Lock the mutex. */
+        if ( threadID == 0 )
             cuda_mutex_lock( &cuda_cell_mutex );
             
-            /* Get as many fingers as possible. */
-            cpn = cuda_pair_next;
-            for ( i = cuda_pair_next , nr_fingers = 0 ; nr_fingers < max_fingers && i < cuda_nr_pairs ; i++ ) {
-                    
-                /* Pick up this pair? */
-                if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
-                     cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
-                     
-                    /* Swap entries in the pair list. */
-                    temp = cuda_pairs[i];
-                    cuda_pairs[i] = cuda_pairs[ cpn ];
-                    cuda_pairs[ cpn ] = temp;
-                    
-                    /* Store this pair to the fingers. */
-                    finger[nr_fingers] = cpn;
-                    cid[nr_fingers] = cuda_pairs[ cpn ].i;
-                    cjd[nr_fingers] = cuda_pairs[ cpn ].j;
-                    nr_fingers += 1;
-                    cpn += 1;
-                    
-                    }
+        /* Make sure everybody is in the same place. */
+        __syncthreads();
+        
+        /* Get as many fingers as possible. */
+        cpn = cuda_pair_next;
+        for ( i = cpn , nr_fingers = 0 ; nr_fingers < max_fingers && i < cuda_nr_pairs ; i++ ) {
                 
-                } /* get fingers. */
+            /* Pick up this pair? */
+            if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
+                 cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
+                    
+                /* Swap entries in the pair list. */
+                cuda_memcpy( &temp , &cuda_pairs[i] , sizeof(struct cellpair_cuda) );
+                cuda_memcpy( &cuda_pairs[i] , &cuda_pairs[ cpn ] , sizeof(struct cellpair_cuda) );
+                cuda_memcpy( &cuda_pairs[ cpn ] , &temp , sizeof(struct cellpair_cuda) );
+                __threadfence_block();
+                
+                /* Store this pair to the fingers. */
+                finger[nr_fingers] = cpn;
+                cid[nr_fingers] = cuda_pairs[ cpn ].i;
+                cjd[nr_fingers] = cuda_pairs[ cpn ].j;
+                nr_fingers += 1;
+                cpn += 1;
+                
+                }
+            
+            } /* get fingers. */
+            
+        /* Only one thread needs to do the following */
+        if ( threadID == 0 ) {
+        
+            /* Store the modified cell_pair_next. */
             cuda_pair_next = cpn;
                 
             /* Mark the cells. */
@@ -1400,17 +1397,33 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
         /* If we actually got a set of pairs, do them! */
         for ( i = 0 ; i < nr_fingers ; i++ ) {
         
-            // if ( threadID == 0 )
-            //     printf( "runner_run_cuda: block %i working on pair [%i,%i] (finger = %i).\n" , blockID , cid , cjd , finger );
-        
             /* Do the pair. */
-            if ( cid[i] != cjd[i] )
+            if ( cid[i] != cjd[i] ) {
+            
+                /* Get a local copy of the particle data. */
+                cuda_memcpy( parts_i , &parts[ind[cid[i]]] , sizeof( struct part_cuda ) * counts[cid[i]] );
+                cuda_memcpy( parts_j , &parts[ind[cjd[i]]] , sizeof( struct part_cuda ) * counts[cjd[i]] );
+                __threadfence_block();
+                
+                /* Compute the cell pair interactions. */
                 runner_dopair_sorted_cuda(
-                    &parts[ind[cid[i]]] , counts[cid[i]] ,
-                    &parts[ind[cjd[i]]] , counts[cjd[i]] ,
-                    cuda_pairs[finger[i]].shift , parts_i , parts_j );
-            else
-                runner_doself_diag_cuda( &parts[ind[cid[i]]] , counts[cid[i]] , parts_i );
+                    parts_i , counts[cid[i]] ,
+                    parts_j , counts[cjd[i]] ,
+                    cuda_pairs[finger[i]].shift );
+                    
+                /* Write the particle data back. */
+                cuda_memcpy( &parts[ind[cid[i]]] , parts_i , sizeof( struct part_cuda ) * counts[cid[i]] );
+                cuda_memcpy( &parts[ind[cjd[i]]] , parts_j , sizeof( struct part_cuda ) * counts[cjd[i]] );
+                __threadfence_block();
+                    
+                }
+            else {
+                cuda_memcpy( parts_i , &parts[ind[cid[i]]] , sizeof( struct part_cuda ) * counts[cid[i]] );
+                __threadfence_block();
+                runner_doself_diag_cuda( parts_i , counts[cid[i]] );
+                cuda_memcpy( &parts[ind[cid[i]]] , parts_i , sizeof( struct part_cuda ) * counts[cid[i]] );
+                __threadfence_block();
+                }
         
             /* Release the cells in the taboo list. */
             if ( threadID == 0 ) {
@@ -1427,4 +1440,192 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
         } /* main loop. */
 
     }
+    
+    
+/**
+ * @brief Loop over the cell tuples and process them.
+ *
+ * @param cells Array of cells on the device.
+ *
+ */
+ 
+__global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts , int *ind ) {
+
+    int threadID; //, blockID;
+    int i, k, ctn;
+    struct celltuple_cuda temp;
+    int finger;
+    __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ], parts_k[ cuda_maxparts ];
+    float shift[3];
+    
+    /* Get the block and thread ids. */
+    // blockID = blockIdx.x;
+    threadID = threadIdx.x;
+    
+    /* Check that we've got the correct warp size! */
+    /* if ( warpSize != cuda_frame ) {
+        if ( blockID == 0 && threadID == 0 )
+            printf( "runner_run_cuda: error: the warp size of the device (%i) does not match the warp size mdcore was compiled for (%i).\n" ,
+                warpSize , cuda_frame );
+        return;
+        } */
+        
+
+    /* Main loop... */
+    while ( cuda_tuple_next < cuda_nr_tuples ) {
+    
+        /* Lock the mutex. */
+        if ( threadID == 0 )
+            cuda_mutex_lock( &cuda_cell_mutex );
+            
+        /* Make sure everybody is in the same place. */
+        __syncthreads();
+        
+        /* Get as many fingers as possible. */
+        ctn = cuda_tuple_next;
+        for ( i = ctn , finger = -1 ; finger < 0 && i < cuda_nr_tuples ; i++ ) {
+                
+            /* Pick up this tuple? */
+            if ( cuda_taboo[ cuda_tuples[i].i ] == 0 &&
+                 ( cuda_tuples[i].j < 0 || cuda_taboo[ cuda_tuples[i].j ] == 0 ) &&
+                 ( cuda_tuples[i].k < 0 || cuda_taboo[ cuda_tuples[i].k ] == 0 ) ) {
+                    
+                /* Swap entries in the tuple list. */
+                cuda_memcpy( &temp , &cuda_tuples[i] , sizeof(struct celltuple_cuda) );
+                cuda_memcpy( &cuda_tuples[i] , &cuda_tuples[ ctn ] , sizeof(struct celltuple_cuda) );
+                cuda_memcpy( &cuda_tuples[ ctn ] , &temp , sizeof(struct celltuple_cuda) );
+                
+                /* Store this tuple to the fingers. */
+                finger = ctn;
+                ctn += 1;
+                
+                }
+            
+            } /* get fingers. */
+            
+        /* Only one thread needs to do the following */
+        if ( threadID == 0 ) {
+        
+            /* Store the modified cell_tuple_next. */
+            cuda_tuple_next = ctn;
+                
+            /* Mark the cells. */
+            if ( finger >= 0 ) {
+                temp = cuda_tuples[ finger ];
+                if ( temp.i >= 0 )
+                    cuda_taboo[ temp.i ] += 1;
+                if ( temp.j >= 0 )
+                    cuda_taboo[ temp.j ] += 1;
+                if ( temp.k >= 0 )
+                    cuda_taboo[ temp.k ] += 1;
+                }
+            
+            /* Make sure everybody is on the same page. */
+            __threadfence();
+        
+            /* Un-lock the mutex. */
+            cuda_mutex_unlock( &cuda_cell_mutex );
+            
+            }
+            
+            
+        /* If we actually got a set of tuples, do them! */
+        if ( finger >= 0 ) {
+        
+            /* Get a local copy of this tuple. */
+            temp = cuda_tuples[ finger ];
+        
+            /* Load the data first. */
+            if ( temp.i >= 0 )  
+                cuda_memcpy( parts_i , &parts[ind[temp.i]] , sizeof( struct part_cuda ) * counts[temp.i] );
+            if ( temp.j >= 0 )  
+                cuda_memcpy( parts_j , &parts[ind[temp.j]] , sizeof( struct part_cuda ) * counts[temp.j] );
+            if ( temp.k >= 0 )  
+                cuda_memcpy( parts_k , &parts[ind[temp.k]] , sizeof( struct part_cuda ) * counts[temp.k] );
+            
+            /* Make sure all the memory is in the right place. */
+            __threadfence_block();
+            
+            /* Loop over the pairs in this tuple. */
+            for ( k = 0 ; k < temp.nr_pairs ; k++ ) {
+            
+                switch ( temp.pairs[k] ) {
+                
+                    /* parts_i self-interaction. */
+                    case 1:
+                        runner_doself_diag_cuda( parts_i , counts[temp.i] );
+                        break;
+                        
+                    /* parts_j self-interaction. */
+                    case 2:
+                        runner_doself_diag_cuda( parts_j , counts[temp.j] );
+                        break;
+                        
+                    /* parts_i and parts_j interactions. */
+                    case 3:
+                        runner_dopair_sorted_cuda(
+                            parts_i , counts[temp.i] ,
+                            parts_j , counts[temp.j] ,
+                            temp.shift_ij );
+                        break;
+                        
+                    /* parts_k self-interaction. */
+                    case 4:
+                        runner_doself_diag_cuda( parts_k , counts[temp.k] );
+                        break;
+                        
+                    /* parts_i and parts_k interactions. */
+                    case 5:
+                        runner_dopair_sorted_cuda(
+                            parts_i , counts[temp.i] ,
+                            parts_k , counts[temp.k] ,
+                            temp.shift_ik );
+                        break;
+                        
+                    /* parts_j and parts_k interactions. */
+                    case 6:
+                        shift[0] = temp.shift_ik[0] - temp.shift_ij[0];
+                        shift[1] = temp.shift_ik[1] - temp.shift_ij[1];
+                        shift[2] = temp.shift_ik[2] - temp.shift_ij[2];
+                        runner_dopair_sorted_cuda(
+                            parts_j , counts[temp.j] ,
+                            parts_k , counts[temp.k] ,
+                            shift );
+                        break;
+                
+                    }
+            
+                } /* loop over pairs in tuple. */
+            
+            /* Make sure all the memory is in the right place. */
+            __threadfence_block();
+            
+            /* Write the data back. */
+            if ( temp.i >= 0 )  
+                cuda_memcpy( &parts[ind[temp.i]] , parts_i , sizeof( struct part_cuda ) * counts[temp.i] );
+            if ( temp.j >= 0 )  
+                cuda_memcpy( &parts[ind[temp.j]] , parts_j , sizeof( struct part_cuda ) * counts[temp.j] );
+            if ( temp.k >= 0 )  
+                cuda_memcpy( &parts[ind[temp.k]] , parts_k , sizeof( struct part_cuda ) * counts[temp.k] );
+            
+            /* Release the cells in the taboo list. */
+            if ( threadID == 0 ) {
+                if ( temp.i >= 0 )
+                    cuda_taboo[ temp.i ] -= 1;
+                if ( temp.j >= 0 )
+                    cuda_taboo[ temp.j ] -= 1;                
+                if ( temp.k >= 0 )
+                    cuda_taboo[ temp.k ] -= 1;
+                }
+            
+            /* Do we have to sync any memory? */
+            __threadfence();
+    
+            }
+            
+        } /* main loop. */
+
+    }
+    
+    
 

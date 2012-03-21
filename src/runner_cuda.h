@@ -65,6 +65,39 @@ struct sortlist {
     int ind;
     
     };
+
+
+/** Struct for each cellpair (compact). */
+struct cellpair_cuda {
+
+    /** Indices of the cells involved. */
+    int i, j;
+    
+    /** Relative shift between cell centres. */
+    float shift[3];
+    
+    };
+    
+    
+/** Struct for each cellpair (compact). */
+struct celltuple_cuda {
+
+    /** Indices of the cells involved. */
+    int i, j, k;
+    
+    /* The number of interactions in this tuple. */
+    int nr_pairs;
+    
+    /* The bit-mask for the interactions. */
+    char pairs[8];
+    
+    /** Relative shift between cell centres. */
+    float shift_ij[3], shift_ik[3];
+    
+    };
+    
+    
+    
     
     
 

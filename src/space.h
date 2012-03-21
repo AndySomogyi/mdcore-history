@@ -45,7 +45,7 @@
 #define space_partlist_incr             100
 
 /** Maximum number of cells per tuple. */
-#define space_maxtuples                 4
+#define space_maxtuples                 3
 
 /** Maximum number of interactions per particle in the Verlet list. */
 #define space_verlet_maxpairs           750
@@ -151,6 +151,7 @@ struct space {
         struct part_cuda *parts_cuda, *parts_cuda_local;
         int *counts_cuda, *counts_cuda_local, *ind_cuda, *ind_cuda_local;
         struct cellpair_cuda *pairs_cuda;
+        struct celltuple_cuda *tuples_cuda;
         int *taboo_cuda;
     #endif
     
@@ -175,20 +176,6 @@ struct cellpair {
     struct cellpair *next;
     
     };
-    
-    
-#ifdef HAVE_CUDA
-/** Struct for each cellpair (compact). */
-struct cellpair_cuda {
-
-    /** Indices of the cells involved. */
-    int i, j;
-    
-    /** Relative shift between cell centres. */
-    float shift[3];
-    
-    };
-#endif
     
     
 /** Struct for groups of cellpairs. */

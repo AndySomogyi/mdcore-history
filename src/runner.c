@@ -4318,8 +4318,8 @@ int runner_run_cell_tuples ( struct runner *r ) {
                 for ( i = 0 ; i < t->n ; i++ )
                     for ( j = i ; j < t->n ; j++ ) {
 
-                        /* Is this tuple active? */
-                        if ( !( t->pairs & ( 1ULL << ( i * space_maxtuples + j ) ) ) )
+                        /* Is this pair active? */
+                        if ( t->pairid[ space_pairind(i,j) ] < 0 )
                             continue;
 
                         /* Get the cell ids. */

@@ -65,6 +65,7 @@
 /* Forward declaration of runner kernel. */
 __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild );
 __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind );
+__global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts , int *ind );
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
 
 
@@ -91,12 +92,16 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     /* Init the pointer to the next entry. */    
     if ( cudaMemcpyToSymbol( "cuda_pair_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( "cuda_cell_mutex" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToSymbol( "cuda_tuple_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    /* if ( cudaMemcpyToSymbol( "cuda_cell_mutex" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda); */
     
     /* Start the kernel. */
     if ( e->flags & engine_flag_verlet )
         runner_run_verlet_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+    else if ( e->flags & engine_flag_tuples )
+        runner_run_tuples_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );
     else
         runner_run_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );
     
@@ -327,6 +332,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     struct potential *p_cuda[ e->max_type * e->max_type ];
     struct potential *pots_cuda;
     struct cellpair_cuda *pairs_cuda;
+    struct celltuple_cuda *tuples_cuda;
     float *finger, *coeffs_cuda, *alphas_cuda;
     float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, buff[ e->nr_types ];
     cudaArray *cuArray_coeffs, *cuArray_offsets, *cuArray_alphas, *cuArray_pind, *cuArray_diags;
@@ -512,6 +518,60 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_pairs" , &(e->s.pairs_cuda) , sizeof(struct cellpair_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+
+        
+    /* Do we have tuples? */
+    if ( e->flags & engine_flag_tuples ) {
+    
+        /* Allocate and fill the compact list of tuples. */
+        if ( ( tuples_cuda = (struct celltuple_cuda *)alloca( sizeof(struct celltuple_cuda) * e->s.nr_pairs ) ) == NULL )
+            return error(engine_err_malloc);
+        for ( i = 0 ; i < e->s.nr_tuples ; i++ ) {
+            tuples_cuda[i].i = ( e->s.tuples[i].n > 0 ) ? e->s.tuples[i].cellid[0] : -1;
+            tuples_cuda[i].j = ( e->s.tuples[i].n > 1 ) ? e->s.tuples[i].cellid[1] : -1;
+            tuples_cuda[i].k = ( e->s.tuples[i].n > 2 ) ? e->s.tuples[i].cellid[2] : -1;
+            tuples_cuda[i].nr_pairs = 0;
+            if ( e->s.tuples[i].pairid[ space_pairind(0,0) ] >= 0 )
+                tuples_cuda[i].pairs[ tuples_cuda[i].nr_pairs++ ] = 1;
+            if ( e->s.tuples[i].pairid[ space_pairind(0,1) ] >= 0 )
+                tuples_cuda[i].pairs[ tuples_cuda[i].nr_pairs++ ] = 3;
+            if ( e->s.tuples[i].pairid[ space_pairind(1,1) ] >= 0 )
+                tuples_cuda[i].pairs[ tuples_cuda[i].nr_pairs++ ] = 2;
+            if ( e->s.tuples[i].pairid[ space_pairind(0,2) ] >= 0 )
+                tuples_cuda[i].pairs[ tuples_cuda[i].nr_pairs++ ] = 5;
+            if ( e->s.tuples[i].pairid[ space_pairind(1,2) ] >= 0 )
+                tuples_cuda[i].pairs[ tuples_cuda[i].nr_pairs++ ] = 6;
+            if ( e->s.tuples[i].pairid[ space_pairind(2,2) ] >= 0 )
+                tuples_cuda[i].pairs[ tuples_cuda[i].nr_pairs++ ] = 4;
+            if ( tuples_cuda[i].i >= 0 && tuples_cuda[i].j >= 0 )
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    tuples_cuda[i].shift_ij[k] = e->s.cells[ tuples_cuda[i].j ].origin[k] - e->s.cells[ tuples_cuda[i].i ].origin[k];
+                    if ( tuples_cuda[i].shift_ij[k] * 2 > e->s.dim[k] )
+                        tuples_cuda[i].shift_ij[k] -= e->s.dim[k];
+                    else if ( tuples_cuda[i].shift_ij[k] * 2 < -e->s.dim[k] )
+                        tuples_cuda[i].shift_ij[k] += e->s.dim[k];
+                    }
+            if ( tuples_cuda[i].i >= 0 && tuples_cuda[i].k >= 0 )
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    tuples_cuda[i].shift_ik[k] = e->s.cells[ tuples_cuda[i].k ].origin[k] - e->s.cells[ tuples_cuda[i].i ].origin[k];
+                    if ( tuples_cuda[i].shift_ik[k] * 2 > e->s.dim[k] )
+                        tuples_cuda[i].shift_ik[k] -= e->s.dim[k];
+                    else if ( tuples_cuda[i].shift_ik[k] * 2 < -e->s.dim[k] )
+                        tuples_cuda[i].shift_ik[k] += e->s.dim[k];
+                    }
+            }
+            
+        /* Allocate and fill the tuples list on the device. */
+        if ( cudaMalloc( &e->s.tuples_cuda , sizeof(struct celltuple_cuda) * e->s.nr_pairs ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( e->s.tuples_cuda , tuples_cuda , sizeof(struct celltuple_cuda) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( "cuda_tuples" , &(e->s.tuples_cuda) , sizeof(struct celltuple_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( "cuda_nr_tuples" , &(e->s.nr_tuples) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+            
+        }
 
     /* Allocate the sortlists locally and on the device if needed. */
     if ( e->flags & engine_flag_verlet ) {
