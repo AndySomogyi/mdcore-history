@@ -21,10 +21,10 @@
 libtoolize --force --copy
 
 # run aclocal
-aclocal
+aclocal -I m4
 
 # run autoconf
-autoconf
+autoconf -I m4
 
 # run autoheader to generate config.h.in
 autoheader
