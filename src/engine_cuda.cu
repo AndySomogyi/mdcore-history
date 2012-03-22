@@ -94,6 +94,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_tuple_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    /* if ( cudaMemcpyToSymbol( "cuda_pairs_done" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda); */
     /* if ( cudaMemcpyToSymbol( "cuda_cell_mutex" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
     
@@ -121,6 +123,10 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         printf( ", %f " , cuda_fio[k] );
     printf( "]\n" ); */
     
+    /* if ( cudaMemcpyFromSymbol( &zero , "cuda_pairs_done" , sizeof(int) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    printf( "engine_nonbond_cuda: computed %i pairs.\n" , zero ); */
+
     /* Unload the particle data from the device. */
     if ( engine_cuda_unload_parts( e ) < 0 )
         return error(engine_err);
@@ -155,7 +161,8 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     
     /* Load the counts. */
     for ( k = 0 ; k < s->nr_marked ; k++ )
-        s->counts_cuda_local[ s->cid_marked[k] ] = s->cells[ s->cid_marked[k] ].count;
+        if ( ( s->counts_cuda_local[ s->cid_marked[k] ] = s->cells[ s->cid_marked[k] ].count ) > cuda_maxparts )
+            return error(engine_err_range);
         
     /* Compute the indices. */
     s->ind_cuda_local[0] = 0;
