@@ -1768,6 +1768,10 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
 
         /* loop over the sorted list of particles in i */
         for ( i = 0 ; i < count_i ; i++ ) {
+        
+            /* Quit early? */
+            if ( parts[count_i].d - parts[i].d > dmaxdist )
+                break;
 
             /* get a handle on this particle */
             pid = parts[i].ind;
