@@ -1457,7 +1457,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff, dmaxdist;
-    FPTYPE cutoff, cutoff2, skin, skin2, r2, dx[3], w;
+    FPTYPE cutoff, cutoff2, r2, dx[3], w;
     struct {
         short int d, ind;
         } *parts, temp;
@@ -1490,8 +1490,6 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     emt = eng->max_type;
     s = &(eng->s);
     pots = eng->p;
-    skin = fmin( s->h[0] , fmin( s->h[1] , s->h[2] ) );
-    skin2 = skin * skin;
     cutoff = s->cutoff;
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / (2 * sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] ) );
