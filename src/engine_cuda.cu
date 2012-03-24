@@ -201,7 +201,7 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
                 e->sortlists_size = sortlists_count * 1.2;
                 if ( e->sortlists_cuda != NULL && cudaFree( e->sortlists_cuda ) != cudaSuccess )
                     return cuda_error(engine_err_cuda);
-                if ( cudaMalloc( &e->sortlists_cuda , sizeof(struct sortlist) * e->sortlists_size ) != cudaSuccess )
+                if ( cudaMalloc( &e->sortlists_cuda , sizeof(int) * e->sortlists_size ) != cudaSuccess )
                     return cuda_error(engine_err_cuda);
                 if ( cudaMemcpyToSymbol( "cuda_sortlists" , &e->sortlists_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
                     return cuda_error(engine_err_cuda);
@@ -341,7 +341,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     struct cellpair_cuda *pairs_cuda;
     struct celltuple_cuda *tuples_cuda;
     float *finger, *coeffs_cuda, *alphas_cuda;
-    float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, buff[ e->nr_types ];
+    float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, dscale, buff[ e->nr_types ];
     cudaArray *cuArray_coeffs, *cuArray_offsets, *cuArray_alphas, *cuArray_pind, *cuArray_diags;
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
@@ -506,6 +506,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_maxtype" , &(e->max_type) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    dscale = ((float)SHRT_MAX) / ( 3.0 * sqrt( e->s.h[0]*e->s.h[0] + e->s.h[1]*e->s.h[1] + e->s.h[2]*e->s.h[2] ) );
+    if ( cudaMemcpyToSymbol( "cuda_dscale" , &dscale , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
         
     /* Allocate and fill the compact list of pairs. */
     if ( ( pairs_cuda = (struct cellpair_cuda *)alloca( sizeof(struct cellpair_cuda) * e->s.nr_pairs ) ) == NULL )
@@ -583,7 +586,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Allocate the sortlists locally and on the device if needed. */
     if ( e->flags & engine_flag_verlet ) {
         e->sortlists_cuda = NULL;
-        if ( cudaMalloc( &e->sortlists_ind_cuda , sizeof(void *) * e->s.nr_pairs ) != cudaSuccess )
+        if ( cudaMalloc( &e->sortlists_ind_cuda , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( "cuda_sortlists_ind" , &e->sortlists_ind_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);

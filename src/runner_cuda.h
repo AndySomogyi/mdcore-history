@@ -55,17 +55,6 @@ struct part_cuda {
     #define part_cuda part
 #endif
 
-/* List of sorted particles. */
-struct sortlist {
-
-    /* The distance along the cell pair axis. */
-    float d;
-    
-    /* The index of the particle. */
-    int ind;
-    
-    };
-
 
 /** Struct for each cellpair (compact). */
 struct cellpair_cuda {
