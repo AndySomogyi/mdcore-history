@@ -112,7 +112,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
         
     /* Get the IO data. */
-    /* if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+    /*if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyFromSymbol( cuda_fio , "cuda_fio" , sizeof(float) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
@@ -298,9 +298,6 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
             buff = (struct part_cuda *)&s->parts_cuda_local[ s->ind_cuda_local[cid] ];
             for ( pid = 0 ; pid < e->s.cells[cid].count ; pid++ ) {
                 p = &e->s.cells[cid].parts[pid];
-                p->x[0] = buff[ pid ].x[0];
-                p->x[1] = buff[ pid ].x[1];
-                p->x[2] = buff[ pid ].x[2];
                 p->f[0] = buff[ pid ].f[0];
                 p->f[1] = buff[ pid ].f[1];
                 p->f[2] = buff[ pid ].f[2];
@@ -501,6 +498,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpyToSymbol( "cuda_pots" , &(e->pots_cuda) , sizeof(struct potential *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_cutoff2" , &cutoff2 , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_cutoff" , &cutoff , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_maxdist" , &cutoff , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
