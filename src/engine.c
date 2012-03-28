@@ -1589,7 +1589,7 @@ int engine_step ( struct engine *e ) {
         
     /* Otherwise, if async MPI, move the particles accross the
        node boundaries. */
-    else if ( e->flags & engine_flag_async ) {
+    else { // if ( e->flags & engine_flag_async ) {
         tic = getticks();
         if ( engine_shuffle( e ) < 0 )
             return error(engine_err_space);
