@@ -145,7 +145,7 @@ int main ( int argc , char *argv[] ) {
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
     // if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS , MPI_COMM_WORLD , myrank ) != 0 ) {
-    if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_cuda ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         abort();
@@ -188,7 +188,7 @@ int main ( int argc , char *argv[] ) {
         printf("main[%i]: could not fopen the file \"par_all22_prot.inp\".\n",myrank);
         abort();
         }
-    if ( engine_read_cpf( &e , cpf , 3.0 , 3.5e-3 , 1 ) < 0 ) {
+    if ( engine_read_cpf( &e , cpf , 3.0 , 3.3e-3 , 1 ) < 0 ) {
         printf("main[%i]: engine_read_cpf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();
@@ -219,12 +219,12 @@ int main ( int argc , char *argv[] ) {
     /* Print some stats. */
     if ( myrank == 0 ) {
         printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
+        /* for ( k = 0 ; k < e.nr_types ; k++ )
+            printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
         printf( "main[%i]: read %i particles.\n" , myrank , e.s.nr_parts );
         printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
         printf( "main[%i]: read %i angles.\n" , myrank , e.nr_angles );
         printf( "main[%i]: read %i dihedrals.\n" , myrank , e.nr_dihedrals );
-        /* for ( k = 0 ; k < e.nr_types ; k++ )
-            printf( "         %2i: %s (%s), q=%f, m=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass ); */
         printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
         fflush(stdout);
         }
@@ -352,12 +352,13 @@ int main ( int argc , char *argv[] ) {
     // e.nr_exclusions = 0;
     
     /* Dump a potential to make sure its ok... */
-    /* pot = e.p[0];
+    /* pot = e.p[ 26*e.max_type + 26 ];
     for ( k = 0 ; k < e.nr_types ; k++ ) {
         for ( j = k ; j < e.nr_types ; j++ )
-            if ( e.p[ j*e.max_type + k ] != NULL && pot->n < e.p[ j*e.max_type + k ]->n )
+            if ( e.p[ j*e.max_type + k ] != NULL && ( pot == NULL || pot->n < e.p[ j*e.max_type + k ]->n ) )
                 pot = e.p[ j*e.max_type + k ];
         }
+    k = 26; j = 26;
     A = 4.184 * 0.046000 * pow(2*0.0224500,12);
     B = 2 * 4.184 * 0.046000 * pow(2*0.0224500,6);
     q = e.types[k].charge * e.types[j].charge;
@@ -401,12 +402,13 @@ int main ( int argc , char *argv[] ) {
     /* for ( k = 0 ; k < e.s.nr_pairs ; k++ )
         if ( e.s.pairs[k].i != e.s.pairs[k].j )
             e.s.pairs[k--] = e.s.pairs[ --e.s.nr_pairs ]; */
-    // e.s.nr_pairs = 10;
+    // e.s.nr_pairs = 1;
+    // e.s.pairs[0] = e.s.pairs[13];
     // e.s.cells[ e.s.pairs[0].i ].count = 32; e.s.cells[ e.s.pairs[0].j ].count = 32;
     /* for ( k = 0 ; k < e.s.nr_cells ; k++ )
         if ( k != e.s.pairs[0].i && k != e.s.pairs[0].j )
-            cell_flush( &e.s.cells[k] , e.s.partlist , e.s.celllist );
-    printf( "main[%i]: restricting myself to the pair [%i,%i].\n" , myrank ,
+            cell_flush( &e.s.cells[k] , e.s.partlist , e.s.celllist ); */
+    /* printf( "main[%i]: restricting myself to the pair [%i,%i].\n" , myrank ,
         e.s.pairs[0].i , e.s.pairs[0].j ); */
         
         
