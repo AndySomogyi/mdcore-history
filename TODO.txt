@@ -5,10 +5,8 @@ Things that need to be done, in no particular order:
 Things to do with useability:
 
 * 2010/12/14: Find a way to set OMP_WAIT_POLICY=PASSIVE in test.c.
-* 2011/01/03: Make a single header file "mdcore.h".
 * 2011/01/03: Add functions to set the engine time and dt in a more elegant way.
 * 2011/01/03: Add a function engine_map to call a function on each particle.
-* 2011/11/14: Make adding rigids more flexible.
 
 
 Things to do with documentaiton:
@@ -16,7 +14,7 @@ Things to do with documentaiton:
 * 2011/01/04: Try to somehow make bulk text on doxygen.
 * 2011/01/04: Add a long description for each structure detailing what it does,
               how it should be created and how it should be used.
-* 2011/02/03: Write-up a tutorial based on examples/test.c.
+* 2011/02/03: Write-up a tutorial based on examples/bulk.c.
 * 2011/03/07: Go through each file and update the function headers, make more
               verbose/explicit with details of what is being done exactly and
               how to call, especially for external function!
@@ -30,14 +28,11 @@ Things to do with functionality:
 
 * 2010/12/03: Use B-Tree to map particle vids to the actual particle data
               inside the engine.
-* 2010/12/03: Somehow add bonded interactions to cell pairs or some
-              mechanism to treat bonds, angles and torsions in parallel
 * 2010/12/22: Add one-sided potentials for grid point pseudo-particles.
 * 2010/12/22: Add explicit electrostatics to the SPU code.
 * 2011/01/17: Add potential functions using automatic vectorization for gcc,
               check if this is significantly slower than using SSE/SSE2
               intrinsics directly.
-* 2011/01/24: What happens to the local ids when the user removes a part?
 * 2011/02/21: Use Metis to approximate the optimal tuples.
 * 2011/03/07: Add a way of passing engine flags to the SPU, use it to
               pass an option potential_eval_vec or potential_eval_vec2.
@@ -49,7 +44,6 @@ Things to do with the configuration/compilation process:
 * 2011/03/07: Add a check for "make".
 * 2011/03/07: Different versions of spu-gcc and ppu-gcc don't allow
               array-like access of vector types.
-* 2011/11/25: Split engine.c into different files.
 
              
 Things to do with testing:
@@ -61,16 +55,11 @@ Things to do with testing:
 
 Things to do with speed:
 
-* 2010/12/14: Use local on-stack copy of eng->p in runner_dopair and
-              runner_sortedpair?
 * 2010/12/14: Write-back force of outer-loop particle only at the end
               of the outer loop?
 * 2011/01/03: Use FMA when available (SSE4?).
-* 2011/01/03: Add support for AltiVec instructions.
 * 2011/01/17: Use sorting networks to improve sorted interactions?
 * 2011/01/24: Use integer sorting for the sorted interactions in runner_spu.
-* 2011/02/04: Make the struct potential and its data share the same chunk of
-              memory (watch out for alignment!)?
 * 2011/02/04: More refined use of __builtin_prefetch on cell particle lists?
 * 2011/11/21: Check for sum of fastest and second fastest instead of twice
               fastest on engine_verlet_update (how do we do this with MPI?).
