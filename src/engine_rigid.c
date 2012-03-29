@@ -364,7 +364,7 @@ int engine_rigid_eval ( struct engine *e ) {
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
             
                 /* Get a sensible chunk size. */
-                chunk = nr_local / ( nr_threads * 5 );
+                chunk = nr_local / nr_threads;
                 if ( chunk > engine_rigids_chunk )
                     chunk = engine_rigids_chunk;
                 
@@ -415,7 +415,7 @@ int engine_rigid_eval ( struct engine *e ) {
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
                 /* Get a sensible chunk size. */
-                chunk = (nr_rigids - nr_local) / ( nr_threads * 5 );
+                chunk = (nr_rigids - nr_local) / nr_threads;
                 if ( chunk > engine_rigids_chunk )
                     chunk = engine_rigids_chunk;
                 
@@ -482,7 +482,7 @@ int engine_rigid_eval ( struct engine *e ) {
             if ( ( nr_threads = omp_get_num_threads() ) > 1 ) {
 
                 /* Get a sensible chunk size. */
-                chunk = nr_rigids / ( nr_threads * 5 );
+                chunk = nr_rigids / nr_threads;
                 if ( chunk > engine_rigids_chunk )
                     chunk = engine_rigids_chunk;
                 
