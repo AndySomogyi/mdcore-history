@@ -66,6 +66,7 @@
 __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild );
 __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind );
 __global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts , int *ind );
+__global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *counts , int *ind );
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
 
 
@@ -100,7 +101,9 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda); */
     
     /* Start the kernel. */
-    if ( e->flags & engine_flag_verlet )
+    if ( e->flags & engine_flag_dispatch )
+        runner_run_dispatcher_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );
+    else if ( e->flags & engine_flag_verlet )
         runner_run_verlet_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
     else if ( e->flags & engine_flag_tuples )
         runner_run_tuples_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );

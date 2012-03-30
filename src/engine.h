@@ -67,6 +67,7 @@
 #define engine_flag_async                16384
 #define engine_flag_sets                 32768
 #define engine_flag_nullpart             65536
+#define engine_flag_dispatch             131072
 
 #define engine_bonds_chunk               100
 #define engine_angles_chunk              100

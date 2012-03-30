@@ -18,18 +18,20 @@
  ******************************************************************************/
 
 /* Set the max number of parts for shared buffers. */
-#define cuda_maxparts 160
-#define cuda_ndiags ( ( (cuda_maxparts + 1) * cuda_maxparts ) / 2 )
-#define cuda_frame 32
-#define cuda_maxpots 100
-#define max_fingers 3
+#define cuda_maxparts                       160
+#define cuda_ndiags                         ( ( (cuda_maxparts + 1) * cuda_maxparts ) / 2 )
+#define cuda_frame                          32
+#define cuda_maxpots                        100
+#define max_fingers                         3
+#define cuda_fifo_size                      4
+#define cuda_maxblocks                      64
 
 
 /* Use textured or global potential data? */
-#define USETEX 1
-// #define EXPLPOT 1
-#define PACK_PARTS 1
-// #define USETEX_E 1
+#define USETEX
+// #define EXPLPOT
+#define PACK_PARTS
+// #define USETEX_E
 
 
 #ifdef PACK_PARTS
@@ -86,7 +88,14 @@ struct celltuple_cuda {
     };
     
     
+/** Struct for the round-robin fifo queues. */
+struct fifo_cuda {
     
+    unsigned int data[ cuda_fifo_size ];
+    
+    int first, last, count;
+    
+    };
     
     
 
