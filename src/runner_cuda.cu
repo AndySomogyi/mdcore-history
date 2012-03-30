@@ -1562,14 +1562,14 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
             cuda_taboo[k] = 0;
             
         /* Reset the input and output fifos. */
-        for ( k = threadID ; k < nr_blocks-1 ; k++ ) {
+        /* for ( k = threadID ; k < nr_blocks-1 ; k++ ) {
             cuda_fifos_in[k].first = 0;
             cuda_fifos_in[k].last = 0;
             cuda_fifos_in[k].count = 0;
             cuda_fifos_out[k].first = 0;
             cuda_fifos_out[k].last = 0;
             cuda_fifos_out[k].count = 0;
-            }
+            } */
             
         /* Flush the memory just to be sure. */
         __threadfence();
@@ -1598,14 +1598,14 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
                         if ( pid < cuda_nr_pairs ) {
 
                             /* Check if this pair is free or already belongs to this client. */
-                            cid = cuda_pairs[ pid ].i;
-                            cjd = cuda_pairs[ pid ].j;
-                            if ( ( ( cuda_taboo[ cid ] == 0 ) || ( cuda_taboo[ cid ] >> 16 == k ) ) &&
-                                 ( ( cuda_taboo[ cjd ] == 0 ) || ( cuda_taboo[ cjd ] >> 16 == k ) ) ) {
+                            cid = cuda_taboo[ cuda_pairs[ pid ].i ];
+                            cjd = cuda_taboo[ cuda_pairs[ pid ].j ];
+                            if ( ( ( cid == 0 ) || ( cid >> 16 == k ) ) &&
+                                 ( ( cjd == 0 ) || ( cjd >> 16 == k ) ) ) {
 
                                 /* Get the number of common threads. */
-                                comm = ( ( cuda_taboo[ cid ] >> 16 ) == k ) +
-                                       ( ( cuda_taboo[ cjd ] >> 16 ) == k );
+                                comm = ( ( cid >> 16 ) == k ) +
+                                       ( ( cjd >> 16 ) == k );
 
                                 /* Store as new maximum? */
                                 if ( comm > max_comm ) {
@@ -1624,27 +1624,25 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
                         if ( threadID == i && max_comm >= 0 ) {
 
                             /* Get the cells. */
-                            cid = cuda_pairs[ max_ind ].i;
-                            cjd = cuda_pairs[ max_ind ].j;
+                            cid = cuda_taboo[ cuda_pairs[ max_ind ].i ];
+                            cjd = cuda_taboo[ cuda_pairs[ max_ind ].j ];
 
                             /* Is this the same pair I chose earlier? */
-                            if ( ( ( cuda_taboo[ cid ] == 0 ) || ( cuda_taboo[ cid ] >> 16 == k ) ) &&
-                                 ( ( cuda_taboo[ cjd ] == 0 ) || ( cuda_taboo[ cjd ] >> 16 == k ) ) &&
-                                 ( max_comm <= ( ( cuda_taboo[ cid ] >> 16 ) == k ) + ( ( cuda_taboo[ cjd ] >> 16 ) == k ) ) ) {
+                            if ( ( ( cid == 0 ) || ( cid >> 16 == k ) ) &&
+                                 ( ( cjd == 0 ) || ( cjd >> 16 == k ) ) &&
+                                 ( max_comm <= ( ( cid >> 16 ) == k ) + ( ( cjd >> 16 ) == k ) ) ) {
 
                                 /* Get a new local copy. */
                                 cpn = cuda_pair_next;
 
                                 /* Swap to the front of the queue .*/
-                                if ( max_ind != cpn ) {
-                                    temp = cuda_pairs[ max_ind ];
-                                    cuda_pairs[ max_ind ] = cuda_pairs[ cpn ];
-                                    cuda_pairs[ cpn ] = temp;
-                                    }
+                                temp = cuda_pairs[ max_ind ];
+                                cuda_pairs[ max_ind ] = cuda_pairs[ cpn ];
+                                cuda_pairs[ cpn ] = temp;
 
                                 /* Update the taboo list. */
-                                cuda_taboo[ cid ] = ( k << 16 ) | ( ( cuda_taboo[ cid ] & 0xffff ) + 1 );
-                                cuda_taboo[ cjd ] = ( k << 16 ) | ( ( cuda_taboo[ cjd ] & 0xffff ) + 1 );
+                                cuda_taboo[ temp.i ] = ( k << 16 ) | ( ( cuda_taboo[ temp.i ] & 0xffff ) + 1 );
+                                cuda_taboo[ temp.j ] = ( k << 16 ) | ( ( cuda_taboo[ temp.j ] & 0xffff ) + 1 );
 
                                 /* Update max_ind to the new position. */
                                 max_ind = cpn;
