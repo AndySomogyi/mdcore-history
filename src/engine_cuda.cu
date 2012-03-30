@@ -111,7 +111,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         runner_run_cuda<<<nr_blocks,nr_threads>>>( e->s.parts_cuda , e->s.counts_cuda , e->s.ind_cuda );
     
     /* Check for CUDA errors. */
-    if ( cudaGetLastError() != cudaSuccess )
+    if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Get the IO data. */
@@ -345,6 +345,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     cudaArray *cuArray_coeffs, *cuArray_offsets, *cuArray_alphas, *cuArray_pind, *cuArray_diags;
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
+    void *devptr;
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -529,6 +530,14 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpy( e->s.pairs_cuda , pairs_cuda , sizeof(struct cellpair_cuda) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_pairs" , &(e->s.pairs_cuda) , sizeof(struct cellpair_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaGetSymbolAddress( &devptr , "cuda_fifos_in" ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemset( devptr , 0  , sizeof(struct fifo_cuda) * cuda_maxblocks ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaGetSymbolAddress( &devptr , "cuda_fifos_out" ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemset( devptr , 0  , sizeof(struct fifo_cuda) * cuda_maxblocks ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
 
         

@@ -69,7 +69,7 @@ __device__ int cuda_cell_mutex = 0;
 /* The list of cell pairs. */
 __device__ struct cellpair_cuda *cuda_pairs;
 __device__ struct celltuple_cuda *cuda_tuples;
-__device__ int *cuda_taboo;
+__device__ unsigned int *cuda_taboo;
 
 /* The index of the next free cell pair. */
 __device__ int cuda_pair_next = 0;
@@ -142,12 +142,15 @@ __device__ inline void cuda_mutex_unlock ( int *m ) {
     
     
 /**
- * @brief Push an element onto a #fifo_cuda.
+ * @brief Push an element onto a #fifo_cuda, blocking.
  *
  * @return The number of elements in the #fifo_cuda.
  */
  
 __device__ inline int cuda_fifo_push ( struct fifo_cuda *f , unsigned int e ) {
+
+    /* Wait for there to be space in the list. */
+    while ( f->count == cuda_fifo_size );
 
     /* Put the element in the list. */
     atomicExch( &(f->data[ f->last ]) , e );
@@ -165,12 +168,15 @@ __device__ inline int cuda_fifo_push ( struct fifo_cuda *f , unsigned int e ) {
     
     
 /**
- * @brief Pop and element from a #fifo_cuda.
+ * @brief Pop an element from a #fifo_cuda, blocking.
  *
  * @return The popped element.
  */
  
 __device__ inline unsigned int cuda_fifo_pop ( struct fifo_cuda *f ) {
+
+    /* Wait for there to be something in the fifo. */
+    while ( f->count == 0 );
 
     unsigned int res = f->data[ f->first ];
 
@@ -1540,7 +1546,7 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
     /* Get the shape of things. */
     threadID = threadIdx.x;
     blockID = blockIdx.x;
-    nr_blocks = blockDim.x;
+    nr_blocks = gridDim.x;
     
     /* Am I the dispatcher or a client? */
     if ( blockID == 0 ) {
@@ -1548,8 +1554,26 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
         /* Some local variables for the dispatcher. */
         int pid, comm, max_comm, max_ind, ind;
         int i, k, cid, cjd, cpn, wrap;
+        __shared__ int counter;
         struct cellpair_cuda temp;
         
+        /* Clean-up the taboo list. */
+        for ( k = threadID ; k < cuda_nr_cells ; k += cuda_frame )
+            cuda_taboo[k] = 0;
+            
+        /* Reset the input and output fifos. */
+        for ( k = threadID ; k < nr_blocks-1 ; k++ ) {
+            cuda_fifos_in[k].first = 0;
+            cuda_fifos_in[k].last = 0;
+            cuda_fifos_in[k].count = 0;
+            cuda_fifos_out[k].first = 0;
+            cuda_fifos_out[k].last = 0;
+            cuda_fifos_out[k].count = 0;
+            }
+            
+        /* Flush the memory just to be sure. */
+        __threadfence();
+    
         /* Main loop. */
         while ( cuda_pair_next < cuda_nr_pairs ) {
         
@@ -1568,26 +1592,31 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
 
                         /* Shift and wrap so that every thread looks at a different pair. */
                         if ( ( pid = i + threadID ) >= wrap )
-                            if ( ( pid -= wrap ) >= cuda_nr_pairs )
-                                continue;
+                            pid -= wrap;
+                            
+                        /* Is this a valid pair-ID? */
+                        if ( pid < cuda_nr_pairs ) {
 
-                        /* Check if this pair is free or already belongs to this client. */
-                        cid = cuda_pairs[ pid ].i;
-                        cjd = cuda_pairs[ pid ].j;
-                        if ( ( ( cuda_taboo[ cid ] == 0 ) || ( cuda_taboo[ cid ] >> 16 == k ) ) &&
-                             ( ( cuda_taboo[ cjd ] == 0 ) || ( cuda_taboo[ cjd ] >> 16 == k ) ) ) {
+                            /* Check if this pair is free or already belongs to this client. */
+                            cid = cuda_pairs[ pid ].i;
+                            cjd = cuda_pairs[ pid ].j;
+                            if ( ( ( cuda_taboo[ cid ] == 0 ) || ( cuda_taboo[ cid ] >> 16 == k ) ) &&
+                                 ( ( cuda_taboo[ cjd ] == 0 ) || ( cuda_taboo[ cjd ] >> 16 == k ) ) ) {
 
-                            /* Get the number of common threads. */
-                            comm = ( ( cuda_taboo[ cid ] >> 16 ) == k ) +
-                                   ( ( cuda_taboo[ cjd ] >> 16 ) == k );
+                                /* Get the number of common threads. */
+                                comm = ( ( cuda_taboo[ cid ] >> 16 ) == k ) +
+                                       ( ( cuda_taboo[ cjd ] >> 16 ) == k );
 
-                            /* Store as new maximum? */
-                            if ( comm > max_comm ) {
-                                max_comm = comm;
-                                max_ind = pid;
-                                }
+                                /* Store as new maximum? */
+                                if ( comm > max_comm ) {
+                                    max_comm = comm;
+                                    max_ind = pid;
+                                    }
 
-                            }
+                                } /* pair free? */
+                                
+                            } /* valid pair-ID? */
+                            
                         } /* loop over cell pairs. */
 
                     /* Sequentially remove the pairs from the list. */
@@ -1607,9 +1636,11 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
                                 cpn = cuda_pair_next;
 
                                 /* Swap to the front of the queue .*/
-                                temp = cuda_pairs[i];
-                                cuda_pairs[i] = cuda_pairs[ cpn ];
-                                cuda_pairs[ cpn ] = temp;
+                                if ( max_ind != cpn ) {
+                                    temp = cuda_pairs[ max_ind ];
+                                    cuda_pairs[ max_ind ] = cuda_pairs[ cpn ];
+                                    cuda_pairs[ cpn ] = temp;
+                                    }
 
                                 /* Update the taboo list. */
                                 cuda_taboo[ cid ] = ( k << 16 ) | ( ( cuda_taboo[ cid ] & 0xffff ) + 1 );
@@ -1631,8 +1662,10 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
                             } /* remove pairs from list. */
 
                     /* Finally, add to the input buffer. */
-                    if ( max_comm >= 0 )
+                    if ( max_comm >= 0 ) {
                         cuda_fifo_push( &cuda_fifos_in[k] , max_ind );
+                        __threadfence();
+                        }
 
 
                     } /* there is room in the buffer. */
@@ -1662,14 +1695,19 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
             
         /* Tell the clients it's over. */
         for ( k = threadID ; k < nr_blocks-1 ; k += cuda_frame ) {
-            while ( cuda_fifos_in[k].count == cuda_fifo_size );
             cuda_fifo_push( &cuda_fifos_in[k] , 0xffffffff );
+            __threadfence();
             }
             
-        /* Clean-up the taboo list. */
-        for ( k = threadID ; k < cuda_nr_cells ; k += cuda_frame )
-            cuda_taboo[k] = 0;
-    
+        /* Wait for the final acks. */
+        if ( threadID == 0 )
+            atomicExch( &counter , nr_blocks-1 );
+        while ( counter > 0 )
+            for ( k = threadID ; k < nr_blocks-1 ; k += cuda_frame )
+                if ( ( cuda_fifos_out[k].count > 0 ) &&
+                     ( cuda_fifo_pop( &cuda_fifos_out[k] ) == 0xffffffff ) )
+                    atomicSub( &counter , 1 );
+            
         }
         
     /* Nope, I'm a client. */
@@ -1685,19 +1723,17 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
         /* Main loop. */
         while ( 1 ) {
         
-            /* Spin when you're winning. */
-            if ( threadID == 0 )
-                while ( f_in->count == 0 );
-            
-            /* As of here, there should be a task in the queue. Get it. */
+            /* Wait for a task in the queue and get it. */
             if ( threadID == 0 ) {
-                task = f_in->data[ f_in->first ];
+                task = cuda_fifo_pop( f_in );
                 __threadfence_block();
                 }
             
             /* Decode the task, break if it's a quit. */
-            if ( task == 0xffffffff )
+            if ( task == 0xffffffff ) {
+                cuda_fifo_push( f_out , task );
                 break;
+                }
             pair = cuda_pairs[ task ];
         
             /* Do the pair. */
@@ -1736,13 +1772,11 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
             /* Sync the memory before retuning the particle data. */
             __threadfence();
             
-            /* Wait for room in the outbout queue. */
-            if ( threadID == 0 )
-                while ( f_out->count == cuda_fifo_size );
-                
             /* Push the tsk to the outbound queue. */
-            if ( threadID == 0 )
+            if ( threadID == 0 ) {
                 cuda_fifo_push( f_out , task );
+                __threadfence();
+                }
 
             } /* main loop. */
     
