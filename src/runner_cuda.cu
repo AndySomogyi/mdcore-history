@@ -1676,8 +1676,8 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
     else {
     
         /* Some local variables for this context. */
-        struct fifo_cuda *f_in = &cuda_fifos_in[ blockID ];
-        struct fifo_cuda *f_out = &cuda_fifos_out[ blockID ];
+        struct fifo_cuda *f_in = &cuda_fifos_in[ blockID-1 ];
+        struct fifo_cuda *f_out = &cuda_fifos_out[ blockID-1 ];
         struct cellpair_cuda pair;
         __shared__ unsigned int task;
         __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
