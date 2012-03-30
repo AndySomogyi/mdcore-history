@@ -1588,10 +1588,10 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
                     max_comm = -1;
                     cpn = cuda_pair_next;
                     wrap = max( cuda_frame , cuda_nr_pairs - cpn );
-                    for ( i = cpn ; max_comm < 2 && i < cuda_nr_pairs ; i++ ) {
+                    for ( i = cpn ; max_comm < 2 && i < cpn+wrap ; i++ ) {
 
                         /* Shift and wrap so that every thread looks at a different pair. */
-                        if ( ( pid = i + threadID ) >= wrap )
+                        if ( ( pid = i + threadID ) >= cpn+wrap )
                             pid -= wrap;
                             
                         /* Is this a valid pair-ID? */
