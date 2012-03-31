@@ -34,14 +34,16 @@
 #include "../config.h"
 
 /* MPI headers. */
-#include <mpi.h>
+#ifdef HAVE_MPI
+    #include <mpi.h>
+#endif
 
 /* OpenMP headers. */
 #include <omp.h>
 
 /* What to do if ENGINE_FLAGS was not defined? */
 #ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS engine_flag_tuples
+    #define ENGINE_FLAGS engine_flag_none
 #endif
 #ifndef CPU_TPS
     #define CPU_TPS 2.67e+9
@@ -132,7 +134,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the O-H potential
-    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_OH = potential_create_Ewald( 0.1 , 1.0 , -0.35921288 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -146,7 +148,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the H-H potential
-    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_HH = potential_create_Ewald( 0.1 , 1.0 , 1.7960644e-1 , 3.0 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -160,7 +162,7 @@ int main ( int argc , char *argv[] ) {
     #endif
 
     // initialize the O-O potential
-    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 0.9e-4 ) ) == NULL ) {
+    if ( ( pot_OO = potential_create_LJ126_Ewald( 0.25 , 1.0 , 2.637775819766153e-06 , 2.619222661792581e-03 , 7.1842576e-01 , 3.0 , 1e-3 ) ) == NULL ) {
         printf("main: potential_create_LJ126_Ewald failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -198,17 +200,17 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 15.9994 , -0.8476 , "O" , NULL ) < 0 ||
-         engine_addtype( &e , 1.00794 , 0.4238 , "H" , NULL ) < 0 ) {
+    if ( ( pO.type = engine_addtype( &e , 15.9994 , -0.8476 , "O" , NULL ) ) < 0 ||
+         ( pH.type = engine_addtype( &e , 1.00794 , 0.4238 , "H" , NULL ) ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
         }
         
     // register these potentials.
-    if ( engine_addpot( &e , pot_OO , 0 , 0 ) < 0 ||
-         engine_addpot( &e , pot_HH , 1 , 1 ) < 0 ||
-         engine_addpot( &e , pot_OH , 0 , 1 ) < 0 ) {
+    if ( engine_addpot( &e , pot_OO , pO.type , pO.type ) < 0 ||
+         engine_addpot( &e , pot_HH , pH.type , pH.type ) < 0 ||
+         engine_addpot( &e , pot_OH , pO.type , pH.type ) < 0 ) {
         printf("main: call to engine_addpot failed.\n");
         errs_dump(stdout);
         return 1;
@@ -216,8 +218,6 @@ int main ( int argc , char *argv[] ) {
     
     // set fields for all particles
     srand(6178);
-    pO.type = 0;
-    pH.type = 1;
     pO.flags = part_flag_none;
     pH.flags = part_flag_none;
     for ( k = 0 ; k < 3 ; k++ ) {
