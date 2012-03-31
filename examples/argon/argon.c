@@ -34,7 +34,9 @@
 #include "../config.h"
 
 /* MPI headers. */
-#include <mpi.h>
+#ifdef HAVE_MPI
+    #include <mpi.h>
+#endif
 
 /* OpenMP headers. */
 #include <omp.h>
@@ -56,11 +58,11 @@ int main ( int argc , char *argv[] ) {
     // double dim[3] = { 20.0 , 20.0 , 20.0 };
     // int nr_parts = 121600;
     double dim[3] = { 10.0 , 10.0 , 10.0 };
-    int nr_parts = 20712;
-    // int nr_parts = 32680;
+    // int nr_parts = 20712;
+    int nr_parts = 32680;
     // int nr_parts = 15200;
-    double Temp = 100.0;
-    // double Temp = 94.4;
+    // double Temp = 100.0;
+    double Temp = 94.4;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;
@@ -126,7 +128,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the Ar-Ar potential
-    if ( ( pot_ArAr = potential_create_LJ126( 0.275 , 1.0 , 9.5075e-06 , 6.1545e-03 , 1.0e-4 ) ) == NULL ) {
+    if ( ( pot_ArAr = potential_create_LJ126( 0.275 , 1.0 , 9.5075e-06 , 6.1545e-03 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_LJ126 failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;
@@ -135,14 +137,14 @@ int main ( int argc , char *argv[] ) {
         
     
     /* register the particle types. */
-    if ( engine_addtype( &e , 39.948 , 0.0 , "Ar" , "Ar" ) < 0 ) {
+    if ( ( pAr.type = engine_addtype( &e , 39.948 , 0.0 , "Ar" , "Ar" ) ) < 0 ) {
         printf("main: call to engine_addtype failed.\n");
         errs_dump(stdout);
         return 1;
         }
         
     // register these potentials.
-    if ( engine_addpot( &e , pot_ArAr , 0 , 0 ) < 0 ){
+    if ( engine_addpot( &e , pot_ArAr , pAr.type , pAr.type ) < 0 ){
         printf("main: call to engine_addpot failed.\n");
         errs_dump(stdout);
         return 1;
@@ -150,7 +152,6 @@ int main ( int argc , char *argv[] ) {
     
     // set fields for all particles
     srand(6178);
-    pAr.type = 0;
     pAr.flags = part_flag_none;
     for ( k = 0 ; k < 3 ; k++ ) {
         pAr.v[k] = 0.0;
