@@ -30,12 +30,15 @@
  * 
  * @li Multi-Core Processors,
  * @li The IBM Cell Broadband Engine,
- * @li Graphics Processing Units (eventually).
+ * @li CUDA-capable Graphics Processing Units.
  *
  * The goal of this project is not to provide yet another fully-featured simulation
  * software, but to provide shared-memory functionallity that can be easily
  * integrated into existing or future simulation codes.
  *
  * @section sec_using Using mdcore
- *
+ * 
+ * The directory "mdcore/examples" contains a number of small
+ * simulations which offer a useful starting point for experimenting
+ * with mdcore and implementing your own simulation.
  */
