@@ -1477,7 +1477,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         return error(space_err);
         
     /* allocate and init the taboo-list */
-    if ( (s->cells_taboo = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )
+    if ( (s->cells_taboo = (unsigned int *)malloc( sizeof(unsigned int) * s->nr_pairs )) == NULL )
         return error(space_err_malloc);
     bzero( s->cells_taboo , sizeof(char) * s->nr_pairs );
     if ( (s->cells_owner = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )

@@ -1301,9 +1301,10 @@ int engine_start ( struct engine *e , int nr_runners ) {
         e->nr_runners += nr_runners;
 
         /* wait for the runners to be in place */
-        while (e->barrier_count != e->nr_runners)
-            if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-                return error(engine_err_pthread);
+        if ( !( e->flags & engine_flag_dispatch ) )
+            while (e->barrier_count != e->nr_runners)
+                if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
+                    return error(engine_err_pthread);
                 
         }
         
@@ -1400,22 +1401,36 @@ int engine_nonbond_eval ( struct engine *e ) {
     
     /* Get a grip on the space. */
     s = &(e->s);
-
-    /* open the door for the runners */
-    e->barrier_count = -e->barrier_count;
-    if ( e->nr_runners == 1 ) {
-        if (pthread_cond_signal(&e->barrier_cond) != 0)
-            return error(engine_err_pthread);
+    
+    /* Dispatcher or regular runners? */
+    if ( e->flags & engine_flag_dispatch ) {
+    
+        /* Run the dispatcher, if needed. */
+        if ( runner_dispatcher( e ) < 0 )
+            return error(engine_err_runner);
+            
         }
+
+    /* Otherwise, regular runners. */
     else {
-        if (pthread_cond_broadcast(&e->barrier_cond) != 0)
-            return error(engine_err_pthread);
-        }
 
-    /* wait for the runners to come home */
-    while (e->barrier_count < e->nr_runners)
-        if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-            return error(engine_err_pthread);
+        /* open the door for the runners */
+        e->barrier_count = -e->barrier_count;
+        if ( e->nr_runners == 1 ) {
+            if (pthread_cond_signal(&e->barrier_cond) != 0)
+                return error(engine_err_pthread);
+            }
+        else {
+            if (pthread_cond_broadcast(&e->barrier_cond) != 0)
+                return error(engine_err_pthread);
+            }
+
+        /* wait for the runners to come home */
+        while (e->barrier_count < e->nr_runners)
+            if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
+                return error(engine_err_pthread);
+            
+        }
             
     /* All in a days work. */
     return engine_err_ok;

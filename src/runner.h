@@ -30,6 +30,8 @@
 #define runner_err_spe                   -6
 #define runner_err_mfc                   -7
 #define runner_err_unavail               -8
+#define runner_err_fifo_full             -9
+#define runner_err_fifo_empty            -10
 
 
 /* some constants */
@@ -43,6 +45,10 @@
     and of the fifo-queue in dispatch mode. */
 #define runner_qlen                      6
 
+/** Magic word to make the dispatcher stop. */
+#define runner_dispatch_stop             0xffffffff
+#define runner_dispatch_lookahead        20
+
 
 /* the last error */
 extern int runner_err;
@@ -51,8 +57,14 @@ extern int runner_err;
 /* The fifo-queue for dispatching. */
 struct runner_fifo {
 
+    /* Access mutex and condition signal for blocking use. */
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
+    
+    /* The FIFO data. */
     int data[ runner_qlen ];
     
+    /* Counters. */
     int first, last, count;
     
     };
@@ -107,16 +119,17 @@ struct runner {
 #endif
 
 /* associated functions */
-int runner_init ( struct runner *r , struct engine *e , int id );
+int runner_dispatcher ( struct engine *e );
+int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
+int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
+int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
+int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
+int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
+int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
 int runner_init_SPU ( struct runner *r , struct engine *e , int id );
+int runner_init ( struct runner *r , struct engine *e , int id );
 int runner_run_pairs ( struct runner *r );
 int runner_run_tuples ( struct runner *r );
-int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
-int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
-int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
-int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
-int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
+int runner_run_verlet ( struct runner *r );
 int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out );
 int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
-int runner_run_verlet ( struct runner *r );

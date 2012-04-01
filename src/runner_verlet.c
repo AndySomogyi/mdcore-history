@@ -70,7 +70,7 @@
 
 /* list of error messages. */
 extern char *runner_err_msg[];
-    
+
 
 /**
  * @brief Compute the interactions between the particles in the given

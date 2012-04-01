@@ -74,7 +74,7 @@ unsigned int runner_rcount = 0;
 #define error(id)				( runner_err = errs_register( id , runner_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *runner_err_msg[9] = {
+char *runner_err_msg[11] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -83,10 +83,482 @@ char *runner_err_msg[9] = {
     "An error occured when calling an engine function.",
     "An error occured when calling an SPE function.",
     "An error occured with the memory flow controler.",
-    "The requested functionality is not available."
+    "The requested functionality is not available." ,
+    "Tried to push onto a full FIFO-queue." ,
+    "Tried to pop from an empty FIFO-queue." 
 	};
     
+    
+/* The condition variables for the in and out FIFOs. */
+pthread_mutex_t runner_fifo_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t runner_fifo_cond = PTHREAD_COND_INITIALIZER;
+    
 
+/**
+ * @brief Add an element to the fifo, non-blocking.
+ * 
+ * @param f The #runner_fifo
+ * @param e The entry to add.
+ *
+ * @return The new number of entries or < 0 on error (see #runner_err).
+ */
+ 
+int runner_fifo_push_nb ( struct runner_fifo *f , int e ) {
+
+    /* Is there any space left? */
+    if ( f->count == runner_qlen )
+        return runner_err_fifo_full;
+        
+    /* Store the entry in the fifo. */
+    f->data[ f->last ] = e;
+    
+    /* Increase the last pointer. */
+    f->last = ( f->last + 1 ) % runner_qlen;
+    
+    /* Atomically increase the count. */
+    __sync_fetch_and_add( &f->count , 1 );
+    
+    /* Return the new counter. */
+    return f->count;
+
+    }
+    
+
+/**
+ * @brief Remove an element from the fifo, non-blocking.
+ * 
+ * @param f The #runner_fifo
+ * @param e Pointer to the popped element.
+ *
+ * @return The new number of entries or < 0 on error (see #runner_err).
+ */
+ 
+int runner_fifo_pop_nb ( struct runner_fifo *f , int *e ) {
+
+    /* Are there any elements in the queue? */
+    if ( f->count == 0 )
+        return runner_err_fifo_empty;
+        
+    /* Get the first element in the queue. */
+    *e = f->data[ f->first ];
+    
+    /* Increase the first pointer. */
+    f->first = ( f->first + 1 ) % runner_qlen;
+    
+    /* Atomically decrease the counter. */
+    __sync_fetch_and_sub( &f->count , 1 );
+
+    /* Return the new counter. */
+    return f->count;
+
+    }
+    
+
+/**
+ * @brief Add an element to the fifo, blocking.
+ * 
+ * @param f The #runner_fifo
+ * @param e The entry to add.
+ *
+ * @return The new number of entries or < 0 on error (see #runner_err).
+ */
+ 
+int runner_fifo_push ( struct runner_fifo *f , int e ) {
+
+    /* Get the FIFO mutex. */
+    if ( pthread_mutex_lock( &f->mutex ) != 0 )
+        return error(runner_err_pthread);
+
+    /* Wait for space on the fifo. */
+    while ( f->count == runner_qlen )
+        if ( pthread_cond_wait( &f->cond , &f->mutex ) != 0 )
+            return error(runner_err_pthread);
+        
+    /* Store the entry in the fifo. */
+    f->data[ f->last ] = e;
+    
+    /* Increase the last pointer. */
+    f->last = ( f->last + 1 ) % runner_qlen;
+    
+    /* Increase the count. */
+    f->count += 1;
+    
+    /* Send a signal. */
+    if ( pthread_cond_signal( &f->cond ) != 0 )
+        return error(runner_err_pthread);
+    
+    /* Release the FIFO mutex. */
+    if ( pthread_mutex_unlock( &f->mutex ) != 0 )
+        return error(runner_err_pthread);
+
+    /* Return the new counter. */
+    return f->count;
+
+    }
+    
+
+/**
+ * @brief Remove an element from the fifo, blocking.
+ * 
+ * @param f The #runner_fifo
+ * @param e Pointer to the popped element.
+ *
+ * @return The new number of entries or < 0 on error (see #runner_err).
+ */
+ 
+int runner_fifo_pop ( struct runner_fifo *f , int *e ) {
+
+    /* Get the FIFO mutex. */
+    if ( pthread_mutex_lock( &f->mutex ) != 0 )
+        return error(runner_err_pthread);
+
+    /* Wait for an entry on the fifo. */
+    while ( f->count == 0 )
+        if ( pthread_cond_wait( &f->cond , &f->mutex ) != 0 )
+            return error(runner_err_pthread);
+        
+    /* Get the first element in the queue. */
+    *e = f->data[ f->first ];
+    
+    /* Increase the first pointer. */
+    f->first = ( f->first + 1 ) % runner_qlen;
+    
+    /* Decrease the count. */
+    f->count -= 1;
+    
+    /* Send a signal. */
+    if ( pthread_cond_signal( &f->cond ) != 0 )
+        return error(runner_err_pthread);
+    
+    /* Release the FIFO mutex. */
+    if ( pthread_mutex_unlock( &f->mutex ) != 0 )
+        return error(runner_err_pthread);
+
+    /* Return the new counter. */
+    return f->count;
+
+    }
+    
+
+/**
+ * @brief Initialize the given fifo.
+ * 
+ * @param f The #runner_fifo
+ *
+ * @return The new number of entries or < 0 on error (see #runner_err).
+ */
+ 
+int runner_fifo_init ( struct runner_fifo *f ) {
+
+    /* Init the mutex and condition variable. */
+	if ( pthread_mutex_init( &f->mutex , NULL ) != 0 ||
+		 pthread_cond_init( &f->cond , NULL ) != 0 )
+		return error(runner_err_pthread);
+        
+    /* Set the indices to zero. */
+    f->first = 0;
+    f->last = 0;
+    f->count = 0;
+    
+    /* Good times. */
+    return runner_err_ok;
+
+    }
+    
+    
+/**
+ * @brief This is the dispatcher that passes pairs
+ *      to the individual #runners.
+ *
+ * @param r Pointer to the #engine in which the runners reside.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ */
+ 
+int runner_dispatcher ( struct engine *e ) {
+
+    struct space *s = &e->s;
+    int count, pid, rid, cid, cjd;
+    struct runner *r;
+    int overlap, max_overlap, max_ind, pos_overlap, max_pairs;
+    struct cellpair *pairs = s->pairs, temp;
+    int next_pair = 0, nr_pairs = s->nr_pairs;
+    unsigned int *cells_taboo = s->cells_taboo;
+    
+    /* Clean-up the fifos before we start. */
+    for ( rid = 0 ; rid < e->nr_runners ; rid++ ) {
+        e->runners[rid].in.first = 0;
+        e->runners[rid].in.last = 0;
+        e->runners[rid].in.count = 0;
+        e->runners[rid].out.first = 0;
+        e->runners[rid].out.last = 0;
+        e->runners[rid].out.count = 0;
+        }
+        
+    /* Clear the taboo list too. */
+    bzero( cells_taboo , sizeof(unsigned int) * s->nr_cells );
+    
+    /* Lock the mutex on which we will wait for signals. */
+    if ( pthread_mutex_lock( &runner_fifo_mutex ) != 0 )
+        return error(runner_err_pthread);
+
+    /* Main loop. */
+    while ( next_pair < nr_pairs ) {
+    
+        /* Loop over the runners. */
+        for ( count = 0 , rid = 0 ; next_pair < nr_pairs && rid < e->nr_runners ; r++ ) {
+        
+            /* Get a direct pointer to this runner. */
+            r = &e->runners[rid];
+        
+            /* Is there any room in this runner's queue? */
+            if ( r->in.count < runner_qlen ) {
+            
+                if ( r->in.count == 0 )
+                    pos_overlap = 0;
+                else if ( r->in.count == 1 )
+                    pos_overlap = 1;
+                else
+                    pos_overlap = 2;
+                if ( ( max_pairs = next_pair + runner_dispatch_lookahead ) > nr_pairs )
+                    max_pairs = nr_pairs;
+            
+                /* Try to find a pair with maximum overlap. */
+                for ( max_overlap = -1 , pid = next_pair ; max_overlap < pos_overlap && pid < max_pairs ; pid++ ) {
+                
+                    /* Get the cell ids. */
+                    cid = pairs[pid].i;
+                    cjd = pairs[pid].j;
+                
+                    /* Is this pair free or mine? */
+                    if ( ( ( cells_taboo[cid] == 0 ) || ( cells_taboo[cid] >> 16 == rid ) ) &&
+                         ( ( cells_taboo[cjd] == 0 ) || ( cells_taboo[cjd] >> 16 == rid ) ) ) {
+                         
+                        /* Count the overlap. */
+                        overlap = ( ( cells_taboo[cid] != 0 ) && ( cells_taboo[cid] >> 16 == rid ) ) +
+                                  ( ( cells_taboo[cjd] != 0 ) && ( cells_taboo[cjd] >> 16 == rid ) );
+                                  
+                        /* Best overlap yet? */
+                        if ( overlap > max_overlap ) {
+                            max_overlap = overlap;
+                            max_ind = rid;
+                            }
+                         
+                        } /* pair free or mine. */
+                
+                    } /* find pair with maximum overlap. */
+                    
+                /* Did we find a pair? */
+                if ( max_overlap >= 0 ) {
+                
+                    /* Swap this pair to the front of the list. */
+                    temp = pairs[max_ind];
+                    pairs[max_ind] = pairs[next_pair];
+                    pairs[next_pair] = temp;
+                    
+                    /* Mark the taboo list. */
+                    cells_taboo[ temp.i ] = ( rid << 16 ) | ( ( cells_taboo[ temp.i ] & 0xffff ) + 1 );
+                    cells_taboo[ temp.j ] = ( rid << 16 ) | ( ( cells_taboo[ temp.j ] & 0xffff ) + 1 );
+                    
+                    /* Push this pair onto the runner's input queue. */
+                    if ( runner_fifo_push( &r->in , next_pair ) < 0 )
+                        return error(runner_err);
+                        
+                    // printf( "runner_dispatcher: sent pair %i to runner %i.\n" , next_pair , rid ); fflush(stdout);
+                    
+                    /* Move the next pointer. */
+                    next_pair += 1;
+                    
+                    /* Increase the count. */
+                    count += 1;
+                
+                    }
+            
+                } /* runner not full. */
+                
+            /* Is there anything in this runner's output queue? */
+            while ( r->out.count > 0 ) {
+            
+                /* Get the pair id. */
+                runner_fifo_pop( &r->out , &pid );
+                
+                /* Get the cell IDs. */
+                cid = pairs[pid].i;
+                cjd = pairs[pid].j;
+            
+                /* Un-mark in the taboo list. */
+                if ( ( --cells_taboo[ cid ] & 0xffff ) == 0 )
+                    cells_taboo[ cid ] = 0;
+                if ( ( --cells_taboo[ cjd ] & 0xffff ) == 0 )
+                    cells_taboo[ cjd ] = 0;
+            
+                /* Increase the count. */
+                count += 1;
+                
+                }
+        
+            } /* loop over the runners. */
+            
+            /* If nothing happened this time around, wait for a signal. */
+            if ( count == 0 )
+                if ( pthread_cond_wait( &runner_fifo_cond , &runner_fifo_mutex ) != 0 )
+                    return error(runner_err_pthread);
+    
+        } /* main loop. */
+        
+    /* Tell all the runners to stop. */
+    for ( rid = 0 ; rid < e->nr_runners ; rid++ )
+        runner_fifo_push( &e->runners[rid].in , runner_dispatch_stop );
+        
+    /* Wait for each of the runners to finish. */
+    for ( rid = 0 ; rid < e->nr_runners ; rid++ ) {
+        r = &e->runners[rid];
+        while ( ( r->out.count > 0 ) && ( r->out.data[ r->out.first ] != runner_dispatch_stop ) )
+            runner_fifo_pop( &r->out , &pid );
+        }
+    for ( rid = 0 ; rid < e->nr_runners ; rid++ )
+        do
+            runner_fifo_pop( &e->runners[rid].out , &pid );
+        while ( pid != runner_dispatch_stop );
+        
+    /* Unlock the mutex on which we will wait for signals. */
+    if ( pthread_mutex_unlock( &runner_fifo_mutex ) != 0 )
+        return error(runner_err_pthread);
+
+    /* Everything is just peachy. */
+    return runner_err_ok;
+
+    }
+    
+
+/**
+ * @brief The #runner's main routine.
+ *
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having passed, it picks pairs out of its "in" fifo,
+ * processes them, and passes them to the "out" fifo, until a
+ * #runner_stop is received.
+ */
+
+int runner_run_dispatch ( struct runner *r ) {
+
+    int k, acc = 0;
+    struct cellpair *finger;
+    struct engine *e;
+    struct space *s;
+    struct cell *c;
+    int pid, cid, cjd;
+
+    /* check the inputs */
+    if ( r == NULL )
+        return error(runner_err_null);
+        
+    /* get a pointer on the engine. */
+    e = r->e;
+    s = &e->s;
+        
+    /* give a hoot */
+    printf("runner_run: runner %i is up and running (dispatch)...\n",r->id); fflush(stdout);
+    
+    /* main loop, in which the runner should stay forever... */
+    while ( 1 ) {
+    
+        /* Try to get the next pair. */
+        if ( runner_fifo_pop( &r->in , &pid ) < 0 )
+            return error(runner_err);
+        if ( pthread_cond_signal( &runner_fifo_cond ) != 0 )
+            return error(runner_err_pthread);
+
+        /* Quit message? */
+        if ( pid == runner_dispatch_stop ) {
+            
+            /* Send a message back... */
+            if ( runner_fifo_push( &r->out , runner_dispatch_stop ) < 0 )
+                return error(runner_err);
+            if ( pthread_cond_signal( &runner_fifo_cond ) != 0 )
+                return error(runner_err_pthread);
+            
+            /* And return to the top of the loop. */
+            continue;
+            
+            }
+
+        // printf( "runner_run_dispatch: got pid=%i.\n" , pid ); fflush(stdout);
+
+        /* Put a finger on the pair, get the cell ids. */
+        finger = &s->pairs[pid];
+        cid = finger->i;
+        cjd = finger->j;
+
+        /* for each cell, prefetch the parts involved. */
+        if ( e->flags & engine_flag_prefetch ) {
+            c = &( e->s.cells[cid] );
+            for ( k = 0 ; k < c->count ; k++ )
+                acc += c->parts[k].id;
+            if ( finger->i != finger->j ) {
+                c = &( e->s.cells[cjd] );
+                for ( k = 0 ; k < c->count ; k++ )
+                    acc += c->parts[k].id;
+                }
+            }
+
+        /* Verlet list? */
+        if ( e->flags & engine_flag_verlet ) {
+
+            /* We don't do dispatched Verlet lists. */
+            return error(runner_err_unavail);
+
+            }
+
+        /* Pairwise Verlet list? */
+        else if ( e->flags & engine_flag_verlet_pairwise ) {
+
+            /* Compute the interactions of this pair. */
+            if ( e->flags & engine_flag_verlet_pairwise2 ) {
+                if ( runner_dopair_verlet2( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift , finger ) < 0 )
+                    return error(runner_err);
+                }
+            else {
+                if ( runner_dopair_verlet( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift , finger ) < 0 )
+                    return error(runner_err);
+                }
+
+            }
+
+        /* Otherwise, plain old... */
+        else {
+
+            /* Explicit electrostatics? */
+            if ( e->flags & engine_flag_explepot ) {
+                if ( runner_dopair_ee( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift ) < 0 )
+                    return error(runner_err);
+                }
+            else {
+                if ( runner_dopair( r , &(e->s.cells[cid]) , &(e->s.cells[cjd]) , finger->shift ) < 0 )
+                    return error(runner_err);
+                }
+
+            }
+
+        /* release this pair */
+        if ( runner_fifo_push( &r->out , pid ) < 0 )
+            return error(runner_err);
+        if ( pthread_cond_signal( &runner_fifo_cond ) != 0 )
+            return error(runner_err_pthread);
+
+        } /* while not stopped... */
+
+    /* end well... */
+    return runner_err_ok;
+
+    }
+
+    
 /**
  * @brief The #runner's main routine (for the Cell/BE SPU).
  *
@@ -688,7 +1160,7 @@ int runner_run_pairs ( struct runner *r ) {
     e = r->e;
         
     /* give a hoot */
-    printf("runner_run: runner %i is up and running...\n",r->id); fflush(stdout);
+    printf("runner_run: runner %i is up and running (pairs)...\n",r->id); fflush(stdout);
     
     /* main loop, in which the runner should stay forever... */
     while ( 1 ) {
@@ -1211,8 +1683,19 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->e = e;
     r->id = id;
     
+    /* Init the fifos for the dispatcher. */
+    if ( ( runner_fifo_init( &r->in ) < 0 ) ||
+         ( runner_fifo_init( &r->out ) < 0 ) )
+        return error(runner_err);
+    
+    /* init the thread using a dispatcher. */
+    if ( e->flags & engine_flag_dispatch ) {
+	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_dispatch , r ) != 0 )
+		    return error(runner_err_pthread);
+        }
+        
     /* init the thread using a pairwise Verlet list. */
-    if ( e->flags & engine_flag_verlet_pairwise ) {
+    else if ( e->flags & engine_flag_verlet_pairwise ) {
 	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_verlet_pairwise , r ) != 0 )
 		    return error(runner_err_pthread);
         }

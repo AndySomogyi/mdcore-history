@@ -45,7 +45,7 @@
 #define space_partlist_incr             100
 
 /** Maximum number of cells per tuple. */
-#define space_maxtuples                 3
+#define space_maxtuples                 4
 
 /** Maximum number of interactions per particle in the Verlet list. */
 #define space_verlet_maxpairs           750
@@ -118,7 +118,7 @@ struct space {
     pthread_cond_t cellpairs_avail;
     
     /** Taboo-list for collision avoidance */
-    char *cells_taboo;
+    unsigned int *cells_taboo;
     
     /** Id of #runner owning each cell. */
     char *cells_owner;
