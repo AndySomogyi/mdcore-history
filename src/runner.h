@@ -39,14 +39,25 @@
 /** Number of particles to request per call to space_getverlet. */
 #define runner_verlet_bitesize           200
 
-#ifdef CELL
-    /** Length of the cell pair queue between the PPU and the SPU. */
-    #define runner_qlen                  6
-#endif
+/** Length of the cell pair queue between the PPU and the SPU
+    and of the fifo-queue in dispatch mode. */
+#define runner_qlen                      6
 
 
 /* the last error */
 extern int runner_err;
+
+
+/* The fifo-queue for dispatching. */
+struct runner_fifo {
+
+    int data[ runner_qlen ];
+    
+    int first, last, count;
+    
+    };
+
+    
 
 /* the runner structure */
 struct runner {
@@ -83,6 +94,9 @@ struct runner {
     /** Accumulated potential energy by this runner. */
     double epot;
     
+    /** The fifo queues for dispatch mode. */
+    struct runner_fifo in, out;
+    
     };
     
 #ifdef CELL
@@ -104,4 +118,5 @@ int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cel
 int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
 int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
 int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out );
+int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
 int runner_run_verlet ( struct runner *r );

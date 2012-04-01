@@ -29,15 +29,16 @@ include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
 # Both precisions have the same sources.
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
     btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
-    engine_bonded.c engine_rigid.c engine_exchange.c
+    engine_bonded.c engine_rigid.c engine_exchange.c runner_verlet.c \
+    runner_pwverlet.c runner_dopair.c
 
 # CUDA sources
 if HAVECUDA
     SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
 .cu.o:
-	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -I/usr/lib/openmpi/include -O3 -g -arch sm_13 -DFPTYPE_SINGLE $< -o $@
+	$(NVCC) -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -g -O0 --use_fast_math --prec-sqrt=true -arch sm_22 -DFPTYPE_SINGLE $< -o $@
 .cu.lo:
-	$(top_srcdir)/cudalt.py $@ $(NVCC) -I/usr/lib/openmpi/include -O3 -g -c $(NVCCFLAGS) $(CUDA_CFLAGS) -arch sm_13 -DFPTYPE_SINGLE $<
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -g -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -arch sm_22 -DFPTYPE_SINGLE $<
 else
     SOURCES_CUDA =
 endif
@@ -48,7 +49,7 @@ lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
 
 # Set-up for general (double-precision) case
-libmdcore_la_SOURCES = $(SOURCES)
+libmdcore_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 
 
 # Set-up for single-precision case
