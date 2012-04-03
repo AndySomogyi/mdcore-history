@@ -188,5 +188,6 @@ AC_OUTPUT(Makefile
     examples/flexible/Makefile
     examples/jac/Makefile
     examples/apoa1/Makefile
+    examples/neon/Makefile
     doc/Makefile)
 
