@@ -25,32 +25,32 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = argon argon_verlet argon_pwverlet argon_pwverlet2
+bin_PROGRAMS = neon neon_verlet neon_pwverlet neon_pwverlet2
 
 # Plain old tests
 # Sources for test
-argon_SOURCES = argon.c
-argon_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples" -DFPTYPE_SINGLE $(AM_CFLAGS)
-argon_LDADD = ../../src/.libs/libmdcore_single.a
+neon_SOURCES = neon.c
+neon_CFLAGS = -DENGINE_FLAGS="engine_flag_none" -DFPTYPE_SINGLE $(AM_CFLAGS)
+neon_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using Verlet lists
-# Sources for argon_verlet
-argon_verlet_SOURCES = argon.c
-argon_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-argon_verlet_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for neon_verlet
+neon_verlet_SOURCES = neon.c
+neon_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
+neon_verlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists
-# Sources for argon_pwverlet
-argon_pwverlet_SOURCES = argon.c
-argon_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-argon_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for neon_pwverlet
+neon_pwverlet_SOURCES = neon.c
+neon_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
+neon_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind
-# Sources for argon_pwverlet2
-argon_pwverlet2_SOURCES = argon.c
-argon_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
-argon_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for neon_pwverlet2
+neon_pwverlet2_SOURCES = neon.c
+neon_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+neon_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
 
