@@ -52,6 +52,7 @@
 #include "fptype.h"
 #include "part.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 #include "potential.h"
 #include "engine.h"
@@ -70,6 +71,7 @@
 
 /* list of error messages. */
 extern char *runner_err_msg[];
+extern unsigned int runner_rcount;
 
 
 /**
@@ -493,7 +495,8 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                 } /* loop over all other particles */
                 
             /* Adjust verlet_nrpairs. */
-            s->verlet_nrpairs[pid] = pind;
+            if ( ( s->verlet_nrpairs[pid] = pind ) > space_verlet_maxpairs )
+                return error(runner_err_verlet_overflow);
         
             } /* loop over all particles */
     
@@ -702,7 +705,8 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
                     }
 
                 /* Adjust verlet_nrpairs. */
-                s->verlet_nrpairs[pid] = pind;
+                if ( ( s->verlet_nrpairs[pid] = pind ) > space_verlet_maxpairs )
+                    return error(runner_err_verlet_overflow);
         
                 }
 

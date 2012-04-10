@@ -48,7 +48,7 @@
 #define space_maxtuples                 4
 
 /** Maximum number of interactions per particle in the Verlet list. */
-#define space_verlet_maxpairs           750
+#define space_verlet_maxpairs           1000
 
 
 /* some useful macros */
@@ -118,10 +118,13 @@ struct space {
     pthread_cond_t cellpairs_avail;
     
     /** Taboo-list for collision avoidance */
-    unsigned int *cells_taboo;
+    char *cells_taboo;
     
     /** Id of #runner owning each cell. */
     char *cells_owner;
+    
+    /** Output fifo for dispatch mode. */
+    struct fifo dispatch_out;
     
     /** Counter for the number of swaps in every step. */
     int nr_swaps, nr_stalls;
