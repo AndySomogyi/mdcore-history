@@ -40,6 +40,7 @@
 #include "errs.h"
 #include "part.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 
 
@@ -85,7 +86,7 @@ int space_pairs_sort ( struct space *s ) {
         return error(space_err_null);
         
     /* Get the basis for the fake space length. */
-    d = fmax( fmax( s->h[0] , s->h[1] ) , s->h[2] );
+    d = fmax( fmax( s->h[0] , s->h[1] ) , s->h[2] ) + 0.1;
     b = 2*d;
     b2 = b*b;
     
@@ -97,13 +98,25 @@ int space_pairs_sort ( struct space *s ) {
         /* Get the left and right bounds. */
         l = stack[count-1].l; r = stack[count-1].r;
         count -= 1;
+        i = l; j = r;
+        
+        if ( i + 1 == j ) {
+            res = ( s->pairs[i].shift[0] + d ) + ( s->pairs[i].shift[1] + d ) * b + ( s->pairs[i].shift[2] + d ) * b2 -
+                  ( s->pairs[j].shift[0] + d ) + ( s->pairs[j].shift[1] + d ) * b + ( s->pairs[j].shift[2] + d ) * b2;
+            if ( ( res > 0 ) ||
+                 ( res == 0.0 && s->pairs[i].i > s->pairs[j].i ) ) {
+                temp = s->pairs[i];
+                s->pairs[i] = s->pairs[j];
+                s->pairs[j] = temp;
+                }
+            continue;
+            }
     
         /* Guess a pivot. */
         pivot = ( s->pairs[(l+r)/2].shift[0] + d ) + ( s->pairs[(l+r)/2].shift[1] + d ) * b + ( s->pairs[(l+r)/2].shift[2] + d ) * b2;
         pivot_i = s->pairs[(l+r)/2].i;
 
         /* Quicksort main loop. */
-        i = l; j = r;
         while ( i < j ) {
             while ( 1 ) {
                 res = ( s->pairs[i].shift[0] + d ) + ( s->pairs[i].shift[1] + d ) * b + ( s->pairs[i].shift[2] + d ) * b2;
@@ -1477,7 +1490,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         return error(space_err);
         
     /* allocate and init the taboo-list */
-    if ( (s->cells_taboo = (unsigned int *)malloc( sizeof(unsigned int) * s->nr_pairs )) == NULL )
+    if ( (s->cells_taboo = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )
         return error(space_err_malloc);
     bzero( s->cells_taboo , sizeof(char) * s->nr_pairs );
     if ( (s->cells_owner = (char *)malloc( sizeof(char) * s->nr_pairs )) == NULL )

@@ -51,6 +51,55 @@ char *cell_err_msg[] = {
 	};
 
 
+/* Map shift vector to sortlist. */
+const char cell_sortlistID[27] = {
+    /* ( -1 , -1 , -1 ) */   0 ,
+    /* ( -1 , -1 ,  0 ) */   1 , 
+    /* ( -1 , -1 ,  1 ) */   2 ,
+    /* ( -1 ,  0 , -1 ) */   3 ,
+    /* ( -1 ,  0 ,  0 ) */   4 , 
+    /* ( -1 ,  0 ,  1 ) */   5 ,
+    /* ( -1 ,  1 , -1 ) */   6 ,
+    /* ( -1 ,  1 ,  0 ) */   7 , 
+    /* ( -1 ,  1 ,  1 ) */   8 ,
+    /* (  0 , -1 , -1 ) */   9 ,
+    /* (  0 , -1 ,  0 ) */   10 , 
+    /* (  0 , -1 ,  1 ) */   11 ,
+    /* (  0 ,  0 , -1 ) */   12 ,
+    /* (  0 ,  0 ,  0 ) */   0 , 
+    /* (  0 ,  0 ,  1 ) */   12 ,
+    /* (  0 ,  1 , -1 ) */   11 ,
+    /* (  0 ,  1 ,  0 ) */   10 , 
+    /* (  0 ,  1 ,  1 ) */   9 ,
+    /* (  1 , -1 , -1 ) */   8 ,
+    /* (  1 , -1 ,  0 ) */   7 , 
+    /* (  1 , -1 ,  1 ) */   6 ,
+    /* (  1 ,  0 , -1 ) */   5 ,
+    /* (  1 ,  0 ,  0 ) */   4 , 
+    /* (  1 ,  0 ,  1 ) */   3 ,
+    /* (  1 ,  1 , -1 ) */   2 ,
+    /* (  1 ,  1 ,  0 ) */   1 , 
+    /* (  1 ,  1 ,  1 ) */   0 
+    };
+const FPTYPE cell_shift[13*3] = {
+     5.773502691896258e-01 ,  5.773502691896258e-01 ,  5.773502691896258e-01 ,
+     7.071067811865475e-01 ,  7.071067811865475e-01 ,  0.0                   ,
+     5.773502691896258e-01 ,  5.773502691896258e-01 , -5.773502691896258e-01 ,
+     7.071067811865475e-01 ,  0.0                   ,  7.071067811865475e-01 ,
+     1.0                   ,  0.0                   ,  0.0                   ,
+     7.071067811865475e-01 ,  0.0                   , -7.071067811865475e-01 ,
+     5.773502691896258e-01 , -5.773502691896258e-01 ,  5.773502691896258e-01 ,
+     7.071067811865475e-01 , -7.071067811865475e-01 ,  0.0                   ,
+     5.773502691896258e-01 , -5.773502691896258e-01 , -5.773502691896258e-01 ,
+     0.0                   ,  7.071067811865475e-01 ,  7.071067811865475e-01 ,
+     0.0                   ,  1.0                   ,  0.0                   ,
+     0.0                   ,  7.071067811865475e-01 , -7.071067811865475e-01 ,
+     0.0                   ,  0.0                   ,  1.0                   ,
+    };
+const char cell_flip[27] = { 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 0 ,
+                             0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 }; 
+
+
 /* the last error */
 int cell_err = cell_err_ok;
 
@@ -127,6 +176,11 @@ int cell_load ( struct cell *c , struct part *parts , int nr_parts , struct part
         if ( partlist != NULL )
             for ( k = 0 ; k < c->count ; k++ )
                 partlist[ c->parts[k].id ] = &( c->parts[k] );
+        if ( c->sortlist != NULL ) {
+            free( c->sortlist );
+            if ( ( c->sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * c->size ) ) == NULL )
+                return error(cell_err_malloc);
+            }
         }
         
     /* Copy the new particles in. */
@@ -313,6 +367,13 @@ struct part *cell_add ( struct cell *c , struct part *p , struct part **partlist
         if ( partlist != NULL )
             for ( k = 0 ; k < c->count ; k++ )
                 partlist[ c->parts[k].id ] = &( c->parts[k] );
+        if ( c->sortlist != NULL ) {
+            free( c->sortlist );
+            if ( ( c->sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * c->size ) ) == NULL ) {
+                error(cell_err_malloc);
+                return NULL;
+                }
+            }
         }
         
     /* store this particle */
@@ -375,6 +436,7 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
     c->count = 0;
     c->oldx_size = 0;
     c->oldx = NULL;
+    c->sortlist = NULL;
     
     /* allocate the incomming part buffer. */
     if ( posix_memalign( (void **)&(c->incomming) , cell_partalign , align_ceil( sizeof(struct part) * cell_incr ) ) != 0 )

@@ -51,6 +51,7 @@
 #include "errs.h"
 #include "fptype.h"
 #include "part.h"
+#include "fifo.h"
 #include "cell.h"
 #include "space.h"
 #include "potential.h"
@@ -84,188 +85,166 @@ char *runner_err_msg[11] = {
     "An error occured when calling an SPE function.",
     "An error occured with the memory flow controler.",
     "The requested functionality is not available." ,
-    "Tried to push onto a full FIFO-queue." ,
-    "Tried to pop from an empty FIFO-queue." 
+    "An error occured when calling an fifo function." ,
+    "Error filling Verlet list: too many neighbours."
 	};
     
     
-/* The condition variables for the in and out FIFOs. */
-pthread_mutex_t runner_fifo_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t runner_fifo_cond = PTHREAD_COND_INITIALIZER;
-    
 
 /**
- * @brief Add an element to the fifo, non-blocking.
- * 
- * @param f The #runner_fifo
- * @param e The entry to add.
+ * @brief Sort the particles in descending order using QuickSort.
  *
- * @return The new number of entries or < 0 on error (see #runner_err).
+ * @param parts The particle IDs and distances in compact form
+ * @param N The number of particles.
+ *
+ * The particle data is assumed to contain the distance in the lower
+ * 16 bits and the particle ID in the upper 16 bits.
  */
  
-int runner_fifo_push_nb ( struct runner_fifo *f , int e ) {
+void runner_sort_descending ( unsigned int *parts , int N ) {
 
-    /* Is there any space left? */
-    if ( f->count == runner_qlen )
-        return runner_err_fifo_full;
+    struct {
+        short int lo, hi;
+        } qstack[10];
+    int qpos, i, j, lo, hi, pivot, imax;
+    unsigned int temp;
         
-    /* Store the entry in the fifo. */
-    f->data[ f->last ] = e;
-    
-    /* Increase the last pointer. */
-    f->last = ( f->last + 1 ) % runner_qlen;
-    
-    /* Atomically increase the count. */
-    __sync_fetch_and_add( &f->count , 1 );
-    
-    /* Return the new counter. */
-    return f->count;
-
+    /* Sort parts in cell_i in decreasing order with quicksort */
+    qstack[0].lo = 0; qstack[0].hi = N - 1; qpos = 0;
+    while ( qpos >= 0 ) {
+        lo = qstack[qpos].lo; hi = qstack[qpos].hi;
+        qpos -= 1;
+        if ( hi - lo < 15 ) {
+            for ( i = lo ; i < hi ; i++ ) {
+                imax = i;
+                for ( j = i+1 ; j <= hi ; j++ )
+                    if ( (parts[j] & 0xffff) > (parts[imax] & 0xffff) )
+                        imax = j;
+                if ( imax != i ) {
+                    temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
+                    }
+                }
+            }
+        else {
+            pivot = parts[ ( lo + hi ) / 2 ] & 0xffff;
+            i = lo; j = hi;
+            while ( i <= j ) {
+                while ( (parts[i] & 0xffff) > pivot ) i++;
+                while ( (parts[j] & 0xffff) < pivot ) j--;
+                if ( i <= j ) {
+                    if ( i < j ) {
+                        temp = parts[i]; parts[i] = parts[j]; parts[j] = temp;
+                        }
+                    i += 1; j -= 1;
+                    }
+                }
+            if ( j > ( lo + hi ) / 2 ) {
+                if ( lo < j ) {
+                    qpos += 1;
+                    qstack[qpos].lo = lo;
+                    qstack[qpos].hi = j;
+                    }
+                if ( i < hi ) {
+                    qpos += 1;
+                    qstack[qpos].lo = i;
+                    qstack[qpos].hi = hi;
+                    }
+                }
+            else {
+                if ( i < hi ) {
+                    qpos += 1;
+                    qstack[qpos].lo = i;
+                    qstack[qpos].hi = hi;
+                    }
+                if ( lo < j ) {
+                    qpos += 1;
+                    qstack[qpos].lo = lo;
+                    qstack[qpos].hi = j;
+                    }
+                }
+            }
+        }
+                
     }
     
 
 /**
- * @brief Remove an element from the fifo, non-blocking.
- * 
- * @param f The #runner_fifo
- * @param e Pointer to the popped element.
+ * @brief Sort the particles in ascending order using QuickSort.
  *
- * @return The new number of entries or < 0 on error (see #runner_err).
+ * @param parts The particle IDs and distances in compact form
+ * @param N The number of particles.
+ *
+ * The particle data is assumed to contain the distance in the lower
+ * 16 bits and the particle ID in the upper 16 bits.
  */
  
-int runner_fifo_pop_nb ( struct runner_fifo *f , int *e ) {
+void runner_sort_ascending ( unsigned int *parts , int N ) {
 
-    /* Are there any elements in the queue? */
-    if ( f->count == 0 )
-        return runner_err_fifo_empty;
+    struct {
+        short int lo, hi;
+        } qstack[10];
+    int qpos, i, j, lo, hi, pivot, imax;
+    unsigned int temp;
         
-    /* Get the first element in the queue. */
-    *e = f->data[ f->first ];
-    
-    /* Increase the first pointer. */
-    f->first = ( f->first + 1 ) % runner_qlen;
-    
-    /* Atomically decrease the counter. */
-    __sync_fetch_and_sub( &f->count , 1 );
-
-    /* Return the new counter. */
-    return f->count;
-
+    /* Sort parts in cell_i in decreasing order with quicksort */
+    qstack[0].lo = 0; qstack[0].hi = N - 1; qpos = 0;
+    while ( qpos >= 0 ) {
+        lo = qstack[qpos].lo; hi = qstack[qpos].hi;
+        qpos -= 1;
+        if ( hi - lo < 15 ) {
+            for ( i = lo ; i < hi ; i++ ) {
+                imax = i;
+                for ( j = i+1 ; j <= hi ; j++ )
+                    if ( (parts[j] & 0xffff) < (parts[imax] & 0xffff) )
+                        imax = j;
+                if ( imax != i ) {
+                    temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
+                    }
+                }
+            }
+        else {
+            pivot = parts[ ( lo + hi ) / 2 ] & 0xffff;
+            i = lo; j = hi;
+            while ( i <= j ) {
+                while ( (parts[i] & 0xffff) < pivot ) i++;
+                while ( (parts[j] & 0xffff) > pivot ) j--;
+                if ( i <= j ) {
+                    if ( i < j ) {
+                        temp = parts[i]; parts[i] = parts[j]; parts[j] = temp;
+                        }
+                    i += 1; j -= 1;
+                    }
+                }
+            if ( j > ( lo + hi ) / 2 ) {
+                if ( lo < j ) {
+                    qpos += 1;
+                    qstack[qpos].lo = lo;
+                    qstack[qpos].hi = j;
+                    }
+                if ( i < hi ) {
+                    qpos += 1;
+                    qstack[qpos].lo = i;
+                    qstack[qpos].hi = hi;
+                    }
+                }
+            else {
+                if ( i < hi ) {
+                    qpos += 1;
+                    qstack[qpos].lo = i;
+                    qstack[qpos].hi = hi;
+                    }
+                if ( lo < j ) {
+                    qpos += 1;
+                    qstack[qpos].lo = lo;
+                    qstack[qpos].hi = j;
+                    }
+                }
+            }
+        }
+                
     }
     
 
-/**
- * @brief Add an element to the fifo, blocking.
- * 
- * @param f The #runner_fifo
- * @param e The entry to add.
- *
- * @return The new number of entries or < 0 on error (see #runner_err).
- */
- 
-int runner_fifo_push ( struct runner_fifo *f , int e ) {
-
-    /* Get the FIFO mutex. */
-    if ( pthread_mutex_lock( &f->mutex ) != 0 )
-        return error(runner_err_pthread);
-
-    /* Wait for space on the fifo. */
-    while ( f->count == runner_qlen )
-        if ( pthread_cond_wait( &f->cond , &f->mutex ) != 0 )
-            return error(runner_err_pthread);
-        
-    /* Store the entry in the fifo. */
-    f->data[ f->last ] = e;
-    
-    /* Increase the last pointer. */
-    f->last = ( f->last + 1 ) % runner_qlen;
-    
-    /* Increase the count. */
-    f->count += 1;
-    
-    /* Send a signal. */
-    if ( pthread_cond_signal( &f->cond ) != 0 )
-        return error(runner_err_pthread);
-    
-    /* Release the FIFO mutex. */
-    if ( pthread_mutex_unlock( &f->mutex ) != 0 )
-        return error(runner_err_pthread);
-
-    /* Return the new counter. */
-    return f->count;
-
-    }
-    
-
-/**
- * @brief Remove an element from the fifo, blocking.
- * 
- * @param f The #runner_fifo
- * @param e Pointer to the popped element.
- *
- * @return The new number of entries or < 0 on error (see #runner_err).
- */
- 
-int runner_fifo_pop ( struct runner_fifo *f , int *e ) {
-
-    /* Get the FIFO mutex. */
-    if ( pthread_mutex_lock( &f->mutex ) != 0 )
-        return error(runner_err_pthread);
-
-    /* Wait for an entry on the fifo. */
-    while ( f->count == 0 )
-        if ( pthread_cond_wait( &f->cond , &f->mutex ) != 0 )
-            return error(runner_err_pthread);
-        
-    /* Get the first element in the queue. */
-    *e = f->data[ f->first ];
-    
-    /* Increase the first pointer. */
-    f->first = ( f->first + 1 ) % runner_qlen;
-    
-    /* Decrease the count. */
-    f->count -= 1;
-    
-    /* Send a signal. */
-    if ( pthread_cond_signal( &f->cond ) != 0 )
-        return error(runner_err_pthread);
-    
-    /* Release the FIFO mutex. */
-    if ( pthread_mutex_unlock( &f->mutex ) != 0 )
-        return error(runner_err_pthread);
-
-    /* Return the new counter. */
-    return f->count;
-
-    }
-    
-
-/**
- * @brief Initialize the given fifo.
- * 
- * @param f The #runner_fifo
- *
- * @return The new number of entries or < 0 on error (see #runner_err).
- */
- 
-int runner_fifo_init ( struct runner_fifo *f ) {
-
-    /* Init the mutex and condition variable. */
-	if ( pthread_mutex_init( &f->mutex , NULL ) != 0 ||
-		 pthread_cond_init( &f->cond , NULL ) != 0 )
-		return error(runner_err_pthread);
-        
-    /* Set the indices to zero. */
-    f->first = 0;
-    f->last = 0;
-    f->count = 0;
-    
-    /* Good times. */
-    return runner_err_ok;
-
-    }
-    
-    
 /**
  * @brief This is the dispatcher that passes pairs
  *      to the individual #runners.
@@ -277,154 +256,289 @@ int runner_fifo_init ( struct runner_fifo *f ) {
  
 int runner_dispatcher ( struct engine *e ) {
 
+    int k, count = 0, pid, rid, cid, cjd, oid, ojd, tid, tjd;
+    int min_ind, min_count;
+    
+    /* Local copies of variables in engine and space. */
     struct space *s = &e->s;
-    int count, pid, rid, cid, cjd;
-    struct runner *r;
-    int overlap, max_overlap, max_ind, pos_overlap, max_pairs;
-    struct cellpair *pairs = s->pairs, temp;
-    int next_pair = 0, nr_pairs = s->nr_pairs;
-    unsigned int *cells_taboo = s->cells_taboo;
+    struct cellpair *pairs = s->pairs;
+    struct runner *r, *runners = e->runners;
+    int nr_pairs = s->nr_pairs, nr_cells = s->nr_cells;
+    int nr_runners = e->nr_runners;
+    char *cells_taboo = s->cells_taboo, *cells_owner = s->cells_owner;
+    struct fifo *dispatch_out = &s->dispatch_out;
     
-    /* Clean-up the fifos before we start. */
-    for ( rid = 0 ; rid < e->nr_runners ; rid++ ) {
-        e->runners[rid].in.first = 0;
-        e->runners[rid].in.last = 0;
-        e->runners[rid].in.count = 0;
-        e->runners[rid].out.first = 0;
-        e->runners[rid].out.last = 0;
-        e->runners[rid].out.count = 0;
-        }
+    /* List of available pairs. */
+    int pairs_avail[ nr_pairs ], nr_pairs_avail = nr_pairs;
+    
+    /* Lists of blocked pairs. */
+    int pairs_blocked[ nr_cells * 27 ], nr_pairs_blocked[ nr_cells ];
+    
+    
+    /* Init the list of available pairs. */
+    for ( pid = 0 ; pid < nr_pairs ; pid++ )
+        pairs_avail[ pid ] = pid;
         
-    /* Clear the taboo list too. */
-    bzero( cells_taboo , sizeof(unsigned int) * s->nr_cells );
-    
-    /* Lock the mutex on which we will wait for signals. */
-    if ( pthread_mutex_lock( &runner_fifo_mutex ) != 0 )
-        return error(runner_err_pthread);
-
+    /* Init the list of blocked pairs. */
+    for ( cid = 0 ; cid < nr_cells ; cid++ )
+        nr_pairs_blocked[ cid ] = 0;
+        
+    /* Init the taboo list. */
+    bzero( cells_taboo , sizeof(char) * nr_cells );
+        
+        
     /* Main loop. */
-    while ( next_pair < nr_pairs ) {
+    while ( count < nr_pairs ) {
     
-        /* Loop over the runners. */
-        for ( count = 0 , rid = 0 ; next_pair < nr_pairs && rid < e->nr_runners ; r++ ) {
+        /* Loop over the blocked pairs. */
+        for ( cid = 0 ; cid < nr_cells ; cid++ ) {
         
-            /* Get a direct pointer to this runner. */
-            r = &e->runners[rid];
+            /* If this cell is currently free, return all pairs to
+               the available list or other blocked lists. */
+            if ( cells_taboo[cid] == 0 ) {
         
-            /* Is there any room in this runner's queue? */
-            if ( r->in.count < runner_qlen ) {
-            
-                if ( r->in.count == 0 )
-                    pos_overlap = 0;
-                else if ( r->in.count == 1 )
-                    pos_overlap = 1;
-                else
-                    pos_overlap = 2;
-                if ( ( max_pairs = next_pair + runner_dispatch_lookahead ) > nr_pairs )
-                    max_pairs = nr_pairs;
-            
-                /* Try to find a pair with maximum overlap. */
-                for ( max_overlap = -1 , pid = next_pair ; max_overlap < pos_overlap && pid < max_pairs ; pid++ ) {
-                
-                    /* Get the cell ids. */
-                    cid = pairs[pid].i;
-                    cjd = pairs[pid].j;
-                
-                    /* Is this pair free or mine? */
-                    if ( ( ( cells_taboo[cid] == 0 ) || ( cells_taboo[cid] >> 16 == rid ) ) &&
-                         ( ( cells_taboo[cjd] == 0 ) || ( cells_taboo[cjd] >> 16 == rid ) ) ) {
-                         
-                        /* Count the overlap. */
-                        overlap = ( ( cells_taboo[cid] != 0 ) && ( cells_taboo[cid] >> 16 == rid ) ) +
-                                  ( ( cells_taboo[cjd] != 0 ) && ( cells_taboo[cjd] >> 16 == rid ) );
-                                  
-                        /* Best overlap yet? */
-                        if ( overlap > max_overlap ) {
-                            max_overlap = overlap;
-                            max_ind = rid;
-                            }
-                         
-                        } /* pair free or mine. */
-                
-                    } /* find pair with maximum overlap. */
-                    
-                /* Did we find a pair? */
-                if ( max_overlap >= 0 ) {
-                
-                    /* Swap this pair to the front of the list. */
-                    temp = pairs[max_ind];
-                    pairs[max_ind] = pairs[next_pair];
-                    pairs[next_pair] = temp;
-                    
-                    /* Mark the taboo list. */
-                    cells_taboo[ temp.i ] = ( rid << 16 ) | ( ( cells_taboo[ temp.i ] & 0xffff ) + 1 );
-                    cells_taboo[ temp.j ] = ( rid << 16 ) | ( ( cells_taboo[ temp.j ] & 0xffff ) + 1 );
-                    
-                    /* Push this pair onto the runner's input queue. */
-                    if ( runner_fifo_push( &r->in , next_pair ) < 0 )
-                        return error(runner_err);
+                /* Loop over the pairs blocked by this cell's owner. */
+                for ( k = 0 ; k < nr_pairs_blocked[cid] ; k++ ) {
+
+                    /* Get the pair ID. */
+                    pid = pairs_blocked[ cid*27 + k ];
+                    tid = cells_taboo[ pairs[pid].i ];
+                    tjd = cells_taboo[ pairs[pid].j ];
+ 
+                    /* Is this pair still blocked at all? */
+                    if ( ( tid == 0 ) && ( tjd == 0 ) ) {
+
+                        /* Add it to the list of available pairs. */
+                        pairs_avail[ nr_pairs_avail ] = pid;
+                        nr_pairs_avail += 1;
+
+                        }
                         
-                    // printf( "runner_dispatcher: sent pair %i to runner %i.\n" , next_pair , rid ); fflush(stdout);
+                    /* Otherwise, pop it into the correct blocked list. */
+                    else {
                     
-                    /* Move the next pointer. */
-                    next_pair += 1;
+                        /* Get the correct owner ID. */
+                        if ( tid > 0 )
+                            cjd = pairs[pid].i;
+                        else
+                            cjd = pairs[pid].j;
+                            
+                        /* Put this pair in the blocked list for cjd. */
+                        // printf( "runner_dispatcher:%i: adding pid=%i to blocked cell %i.\n" , __LINE__ , pid , cjd );
+                        pairs_blocked[ cjd*27 + nr_pairs_blocked[cjd] ] = pid;
+                        nr_pairs_blocked[cjd] += 1;
                     
-                    /* Increase the count. */
+                        }
+                        
+                    /* Remove it from the blocked list. */
+                    nr_pairs_blocked[cid] -= 1;
+                    pairs_blocked[ cid*27 + k ] = pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ];
+                    k -= 1;
+
+                    }
+                    
+                }
+                
+            /* Otherwise, if there is room in the runner, grab whatever is free. */
+            else {
+
+                /* Get the owner of this cell. */
+                oid = cells_owner[cid];
+                r = &runners[oid];
+            
+                /* Loop over the pairs blocked by this cell's owner. */
+                for ( k = 0 ; ( r->in.count < runner_qlen ) && ( k < nr_pairs_blocked[cid] ) ; k++ ) {
+
+                    /* Get the pair ID. */
+                    pid = pairs_blocked[ cid*27 + k ];
+                    
+                    /* Is this pair not blocked by anybody else? */
+                    if ( ( ( cells_taboo[pairs[pid].i] == 0 ) || ( cells_owner[pairs[pid].i] == oid ) ) &&
+                         ( ( cells_taboo[pairs[pid].j] == 0 ) || ( cells_owner[pairs[pid].j] == oid ) ) ) {
+
+                        /* Update cell ownership. */
+                        cells_owner[ pairs[pid].i ] = oid;
+                        cells_owner[ pairs[pid].j ] = oid;
+                        cells_taboo[ pairs[pid].i ] += 1;
+                        cells_taboo[ pairs[pid].j ] += 1;
+
+                        /* Add this pair to the runner. */
+                        if ( fifo_push( &r->in , pid ) < 0 )
+                            return error(runner_err_fifo);
+                        // printf( "runner_dispatch:%i: pushed pid=%i (cid=%i,npb=%i).\n" , __LINE__ , pid , cid , nr_pairs_blocked[cid] ); fflush(stdout);
+
+                        /* Remove it from the blocked list. */
+                        nr_pairs_blocked[cid] -= 1;
+                        pairs_blocked[ cid*27 + k ] = pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ];
+                        count += 1;
+                        k -= 1;
+
+                        }
+
+                    } /* loop over blocked pairs for this cell. */
+                    
+                }
+        
+            } /* Loop over the blocked pairs, cell-wise. */
+    
+    
+        /* Loop over the available pairs. */
+        for ( k = 0 ; k < nr_pairs_avail ; k++ ) {
+        
+            /* Get the pair ID. */
+            pid = pairs_avail[k];
+        
+            /* Get owner and taboos. */
+            cid = pairs[pid].i;
+            cjd = pairs[pid].j;
+            oid = cells_owner[ cid ];
+            ojd = cells_owner[ cjd ];
+            tid = cells_taboo[ cid ];
+            tjd = cells_taboo[ cjd ];
+            
+            /* If the pair is owned by nobody... */
+            if ( ( tid == 0 ) && ( tjd == 0 ) ) {
+            
+                /* Find the runner with the shortest queue. */
+                min_ind = 0; 
+                min_count = runners[0].in.count;
+                for ( rid = 1 ; rid < nr_runners ; rid++ )
+                    if ( runners[rid].in.count < min_count ) {
+                        min_count = runners[rid].in.count;
+                        min_ind = rid;
+                        }
+                        
+                /* Did we get a runner at all? */
+                if ( min_count < runner_qlen ) {
+                
+                    /* Update cell ownership. */
+                    cells_owner[cid] = min_ind;
+                    cells_owner[cjd] = min_ind;
+                    cells_taboo[cid] += 1;
+                    cells_taboo[cjd] += 1;
+                        
+                    /* Add this pair to the runner. */
+                    if ( fifo_push( &runners[min_ind].in , pid ) < 0 )
+                        return error(runner_err_fifo);
+                    // printf( "runner_dispatch:%i: pushed pid=%i.\n" , __LINE__ , pid ); fflush(stdout);
+                        
+                    /* Remove it from the avail list. */
+                    nr_pairs_avail -= 1;
+                    pairs_avail[k] = pairs_avail[nr_pairs_avail];
                     count += 1;
+                    k -= 1;
                 
                     }
-            
-                } /* runner not full. */
                 
-            /* Is there anything in this runner's output queue? */
-            while ( r->out.count > 0 ) {
-            
-                /* Get the pair id. */
-                runner_fifo_pop( &r->out , &pid );
+                }
                 
-                /* Get the cell IDs. */
-                cid = pairs[pid].i;
-                cjd = pairs[pid].j;
+            /* Or it is owned by only a single runner... */
+            else if ( ( tid == 0 ) || ( tjd == 0 ) || ( oid == ojd ) ) {
             
-                /* Un-mark in the taboo list. */
-                if ( ( --cells_taboo[ cid ] & 0xffff ) == 0 )
-                    cells_taboo[ cid ] = 0;
-                if ( ( --cells_taboo[ cjd ] & 0xffff ) == 0 )
-                    cells_taboo[ cjd ] = 0;
+                /* Make oid the owner. */
+                if ( tid == 0 )
+                    oid = ojd;
+                r = &runners[ oid ];
+                    
+                /* Does the owner have any space? */
+                if ( r->in.count < runner_qlen ) {
+                
+                    /* Update cell ownership. */
+                    cells_owner[cid] = oid;
+                    cells_owner[cjd] = oid;
+                    cells_taboo[cid] += 1;
+                    cells_taboo[cjd] += 1;
+                        
+                    /* Add this pair to the runner. */
+                    if ( fifo_push( &r->in , pid ) < 0 )
+                        return error(runner_err_fifo);
+                    // printf( "runner_dispatch:%i: pushed pid=%i.\n" , __LINE__ , pid ); fflush(stdout);
+                        
+                    /* Remove it from the avail list. */
+                    nr_pairs_avail -= 1;
+                    pairs_avail[k] = pairs_avail[nr_pairs_avail];
+                    count += 1;
+                    k -= 1;
+                
+                    }
+                    
+                /* Otherwise, put it in the blocked queue. */
+                else {
+
+                    /* Add pair to blocked queue of its first cell. */
+                    if ( tid == 0 ) cid = cjd;
+                    // printf( "runner_dispatcher:%i: adding pid=%i (%i,%i) to blocked cell %i.\n" , __LINE__ , pid , pairs[pid].i , pairs[pid].j , cid );
+                    pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ] = pid;
+                    nr_pairs_blocked[cid] += 1;
+
+                    /* Remove it from the available list. */
+                    nr_pairs_avail -= 1;
+                    pairs_avail[k] = pairs_avail[nr_pairs_avail];
+                    k -= 1;
+
+                    }
             
-                /* Increase the count. */
-                count += 1;
+                }
+                
+            /* Nope, ownership is split, put it in the blocked queue
+               of the first cell. */
+            else {
+            
+                /* Add pair to blocked queue of its first cell. */
+                // printf( "runner_dispatcher:%i: adding pid=%i to blocked cell %i.\n" , __LINE__ , pid , cid );
+                pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ] = pid;
+                nr_pairs_blocked[cid] += 1;
+                
+                /* Remove it from the available list. */
+                nr_pairs_avail -= 1;
+                pairs_avail[k] = pairs_avail[nr_pairs_avail];
+                k -= 1;
                 
                 }
         
-            } /* loop over the runners. */
+            } /* loop over available pairs. */
             
-            /* If nothing happened this time around, wait for a signal. */
-            if ( count == 0 )
-                if ( pthread_cond_wait( &runner_fifo_cond , &runner_fifo_mutex ) != 0 )
-                    return error(runner_err_pthread);
-    
+        /* for ( sum = count + nr_pairs_avail , cid = 0 ; cid < nr_cells ; cid++ )
+            sum += nr_pairs_blocked[cid];
+        printf( "runner_dispatcher: total number of pairs is %i (done=%i,avail=%i,blocked=%i).\n" ,
+            sum , count , nr_pairs_avail , sum - count - nr_pairs_avail ); */
+            
+            
+        /* Catch any finished pairs. */
+        do {
+
+            /* Get a pair from the output fifo. */
+            if ( fifo_pop( dispatch_out , &pid ) < 0 )
+                return error(runner_err_fifo);
+
+            /* Get the cell indices. */
+            cid = pairs[pid].i;
+            cjd = pairs[pid].j;
+
+            /* Un-mark the taboo list. */
+            cells_taboo[cid] -= 1;
+            cells_taboo[cjd] -= 1;
+            
+            } while ( dispatch_out->count > 0 );
+            
+            
         } /* main loop. */
         
+        
     /* Tell all the runners to stop. */
-    for ( rid = 0 ; rid < e->nr_runners ; rid++ )
-        runner_fifo_push( &e->runners[rid].in , runner_dispatch_stop );
+    for ( rid = 0 ; rid < nr_runners ; rid++ )
+        fifo_push( &e->runners[rid].in , runner_dispatch_stop );
+        
         
     /* Wait for each of the runners to finish. */
-    for ( rid = 0 ; rid < e->nr_runners ; rid++ ) {
-        r = &e->runners[rid];
-        while ( ( r->out.count > 0 ) && ( r->out.data[ r->out.first ] != runner_dispatch_stop ) )
-            runner_fifo_pop( &r->out , &pid );
+    count = e->nr_runners;
+    while( count > 0 ) {
+        fifo_pop( &s->dispatch_out , &pid );
+        if ( pid == runner_dispatch_stop )
+            count -= 1;
         }
-    for ( rid = 0 ; rid < e->nr_runners ; rid++ )
-        do
-            runner_fifo_pop( &e->runners[rid].out , &pid );
-        while ( pid != runner_dispatch_stop );
         
-    /* Unlock the mutex on which we will wait for signals. */
-    if ( pthread_mutex_unlock( &runner_fifo_mutex ) != 0 )
-        return error(runner_err_pthread);
-
+        
     /* Everything is just peachy. */
     return runner_err_ok;
 
@@ -469,19 +583,15 @@ int runner_run_dispatch ( struct runner *r ) {
     while ( 1 ) {
     
         /* Try to get the next pair. */
-        if ( runner_fifo_pop( &r->in , &pid ) < 0 )
+        if ( fifo_pop( &r->in , &pid ) < 0 )
             return error(runner_err);
-        if ( pthread_cond_signal( &runner_fifo_cond ) != 0 )
-            return error(runner_err_pthread);
 
         /* Quit message? */
         if ( pid == runner_dispatch_stop ) {
             
             /* Send a message back... */
-            if ( runner_fifo_push( &r->out , runner_dispatch_stop ) < 0 )
+            if ( fifo_push( &s->dispatch_out , runner_dispatch_stop ) < 0 )
                 return error(runner_err);
-            if ( pthread_cond_signal( &runner_fifo_cond ) != 0 )
-                return error(runner_err_pthread);
             
             /* And return to the top of the loop. */
             continue;
@@ -546,10 +656,8 @@ int runner_run_dispatch ( struct runner *r ) {
             }
 
         /* release this pair */
-        if ( runner_fifo_push( &r->out , pid ) < 0 )
+        if ( fifo_push( &s->dispatch_out , pid ) < 0 )
             return error(runner_err);
-        if ( pthread_cond_signal( &runner_fifo_cond ) != 0 )
-            return error(runner_err_pthread);
 
         } /* while not stopped... */
 
@@ -1683,9 +1791,8 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->e = e;
     r->id = id;
     
-    /* Init the fifos for the dispatcher. */
-    if ( ( runner_fifo_init( &r->in ) < 0 ) ||
-         ( runner_fifo_init( &r->out ) < 0 ) )
+    /* Init the input fifo for the dispatcher. */
+    if ( fifo_init( &r->in , runner_qlen ) < 0 )
         return error(runner_err);
     
     /* init the thread using a dispatcher. */

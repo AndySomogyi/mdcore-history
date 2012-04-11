@@ -52,6 +52,7 @@
 #include "fptype.h"
 #include "part.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 #include "potential.h"
 #include "engine.h"
@@ -70,6 +71,7 @@
 
 /* list of error messages. */
 extern char *runner_err_msg[];
+extern unsigned int runner_rcount;
     
 
 /**
@@ -98,18 +100,14 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     struct part *part_i, *part_j;
     struct space *s;
     int count = 0;
-    int pid, i, j, k, imax, qpos, lo, hi;
-    struct {
-        short int lo, hi;
-        } *qstack;
+    int pid, i, j, k;
     struct part *parts_i, *parts_j;
     double epot = 0.0;
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff, count_i, count_j;
     FPTYPE cutoff, cutoff2, r2, dx[3], w;
-    unsigned int *parts, temp, dcutoff;
-    short int pivot;
+    unsigned int *parts, dcutoff;
     FPTYPE dscale;
     FPTYPE shift[3], nshift, inshift;
     FPTYPE pix[3], *pif;
@@ -277,8 +275,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     else {
     
         /* Allocate work arrays on stack. */
-        if ( ( parts = alloca( sizeof(unsigned int) * (count_i + count_j) ) ) == NULL ||
-             ( qstack = alloca( sizeof(short int) * 2 * (count_i + count_j) ) ) == NULL )
+        if ( ( parts = alloca( sizeof(unsigned int) * (count_i + count_j) ) ) == NULL )
             return error(runner_err_malloc);
         
         /* start by filling the particle ids of both cells into ind and d */
@@ -299,88 +296,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
             }
 
         /* Sort parts in cell_i in decreasing order with quicksort */
-        qstack[0].lo = 0; qstack[0].hi = count_i - 1; qpos = 0;
-        while ( qpos >= 0 ) {
-            lo = qstack[qpos].lo; hi = qstack[qpos].hi;
-            qpos -= 1;
-            if ( hi - lo < 15 ) {
-                for ( i = lo ; i < hi ; i++ ) {
-                    imax = i;
-                    for ( j = i+1 ; j <= hi ; j++ )
-                        if ( (parts[j] & 0xffff) > (parts[imax] & 0xffff) )
-                            imax = j;
-                    if ( imax != i ) {
-                        temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
-                        }
-                    }
-                }
-            else {
-                pivot = parts[ ( lo + hi ) / 2 ] & 0xffff;
-                i = lo; j = hi;
-                while ( i <= j ) {
-                    while ( (parts[i] & 0xffff) > pivot ) i++;
-                    while ( (parts[j] & 0xffff) < pivot ) j--;
-                    if ( i <= j ) {
-                        if ( i < j ) {
-                            temp = parts[i]; parts[i] = parts[j]; parts[j] = temp;
-                            }
-                        i += 1; j -= 1;
-                        }
-                    }
-                if ( lo < j ) {
-                    qpos += 1;
-                    qstack[qpos].lo = lo;
-                    qstack[qpos].hi = j;
-                    }
-                if ( i < hi ) {
-                    qpos += 1;
-                    qstack[qpos].lo = i;
-                    qstack[qpos].hi = hi;
-                    }
-                }
-            }
+        runner_sort_descending( parts , count_i );
 
         /* Sort parts in cell_j in increasing order with quicksort */
-        qstack[0].lo = count_i; qstack[0].hi = count - 1; qpos = 0;
-        while ( qpos >= 0 ) {
-            lo = qstack[qpos].lo; hi = qstack[qpos].hi;
-            qpos -= 1;
-            if ( hi - lo < 15 ) {
-                for ( i = lo ; i < hi ; i++ ) {
-                    imax = i;
-                    for ( j = i+1 ; j <= hi ; j++ )
-                        if ( (parts[j] & 0xffff) < (parts[imax] & 0xffff) )
-                            imax = j;
-                    if ( imax != i ) {
-                        temp = parts[imax]; parts[imax] = parts[i]; parts[i] = temp;
-                        }
-                    }
-                }
-            else {
-                pivot = parts[ ( lo + hi ) / 2 ] & 0xffff;
-                i = lo; j = hi;
-                while ( i <= j ) {
-                    while ( (parts[i] & 0xffff) < pivot ) i++;
-                    while ( (parts[j] & 0xffff) > pivot ) j--;
-                    if ( i <= j ) {
-                        if ( i < j ) {
-                            temp = parts[i]; parts[i] = parts[j]; parts[j] = temp;
-                            }
-                        i += 1; j -= 1;
-                        }
-                    }
-                if ( lo < j ) {
-                    qpos += 1;
-                    qstack[qpos].lo = lo;
-                    qstack[qpos].hi = j;
-                    }
-                if ( i < hi ) {
-                    qpos += 1;
-                    qstack[qpos].lo = i;
-                    qstack[qpos].hi = hi;
-                    }
-                }
-            }
+        runner_sort_ascending( &parts[count_i] , count_j );
                 
 
         /* loop over the sorted list of particles in i */
@@ -420,7 +339,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
                     continue;
-                /* runner_rcount += 1; */
+                // runner_rcount += 1;
 
                 #if defined(VECTORIZE)
                     /* add this interaction to the interaction queue. */

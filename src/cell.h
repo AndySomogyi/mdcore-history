@@ -44,6 +44,12 @@
 #define cell_flag_marked                8
 
 
+/* Map shift vector to sortlist. */
+extern const char cell_sortlistID[27];
+extern const FPTYPE cell_shift[13*3];
+extern const char cell_flip[27]; 
+
+
 /* the last error */
 extern int cell_err;
 
@@ -89,6 +95,10 @@ struct cell {
     
     /* ID of the node this cell belongs to. */
     int nodeID;
+    
+    /* Pointer to sorted cell data for pseudo-Verlet lists. */
+    unsigned int *sortlist;
+    char sorted[13];
     
     };
     

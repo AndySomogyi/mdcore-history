@@ -22,6 +22,7 @@
 #include "part.h"
 #include "potential.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 #include "engine.h"
 #include "bond.h"

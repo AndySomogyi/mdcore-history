@@ -43,6 +43,7 @@
 #include "fptype.h"
 #include "part.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 #include "potential.h"
 #include "engine.h"

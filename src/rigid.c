@@ -45,6 +45,7 @@
 #include "part.h"
 #include "potential.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 #include "engine.h"
 #include "rigid.h"
@@ -86,7 +87,8 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
     FPTYPE dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
     FPTYPE m[rigid_maxparts], tol, lambda, w;
     FPTYPE vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
-    FPTYPE vcom[3], wvc[3*rigid_maxconstr];
+    FPTYPE wvc[3*rigid_maxconstr];
+    // FPTYPE vcom[3];
 
     /* Check for bad input. */
     partlist = e->s.partlist;

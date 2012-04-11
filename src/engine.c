@@ -44,6 +44,7 @@
 #include "fptype.h"
 #include "part.h"
 #include "cell.h"
+#include "fifo.h"
 #include "space.h"
 #include "potential.h"
 #include "runner.h"
@@ -250,6 +251,12 @@ int engine_verlet_update ( struct engine *e ) {
     
         /* printf("engine_verlet_update: re-building verlet lists next step...\n");
         printf("engine_verlet_update: maxdx=%e, skin=%e.\n",maxdx,skin); */
+        
+        /* Re-set the sortlists in the cells if necessary. */
+        if ( e->flags & engine_flag_verlet_pairwise2 ) {
+            for ( cid = 0 ; cid < s->nr_marked ; cid++ )
+                bzero( s->cells[ s->cid_real[cid] ].sorted , sizeof(char) * 13 );
+            }
         
         /* Wait for any unterminated exchange. */
         tic = getticks();
@@ -1308,8 +1315,13 @@ int engine_start ( struct engine *e , int nr_runners ) {
                 
         }
         
-        /* Set the number of runners. */
-        e->nr_runners = nr_runners;
+    /* Set the number of runners. */
+    e->nr_runners = nr_runners;
+    
+    /* Init the dispatch output queue, if needed. */
+    if ( e->flags & engine_flag_dispatch )
+        if ( fifo_init( &e->s.dispatch_out , runner_qlen * nr_runners ) < 0 )
+            return error(engine_err_runner);
     
     /* all is well... */
     return engine_err_ok;
@@ -1823,6 +1835,8 @@ int engine_init_mpi ( struct engine *e , const double *origin , const double *di
 
 int engine_init ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags ) {
 
+    int cid;
+
     /* make sure the inputs are ok */
     if ( e == NULL || origin == NULL || dim == NULL )
         return error(engine_err_null);
@@ -1926,6 +1940,14 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         return error(engine_err_malloc);
     bzero( e->p_dihedral , sizeof(struct potential *) * e->dihedralpots_size );
     e->nr_dihedralpots = 0;
+    
+    /* Make sortlists? */
+    if ( flags & engine_flag_verlet_pairwise2 ) {
+        for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
+            if ( e->s.cells[cid].flags & cell_flag_marked )
+                if ( ( e->s.cells[cid].sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * e->s.cells[cid].size ) ) == NULL )
+                    return error(engine_err_malloc);
+        }
     
     /* init the barrier variables */
     e->barrier_count = 0;

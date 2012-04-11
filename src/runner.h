@@ -30,8 +30,8 @@
 #define runner_err_spe                   -6
 #define runner_err_mfc                   -7
 #define runner_err_unavail               -8
-#define runner_err_fifo_full             -9
-#define runner_err_fifo_empty            -10
+#define runner_err_fifo                  -9
+#define runner_err_verlet_overflow       -10
 
 
 /* some constants */
@@ -43,7 +43,7 @@
 
 /** Length of the cell pair queue between the PPU and the SPU
     and of the fifo-queue in dispatch mode. */
-#define runner_qlen                      6
+#define runner_qlen                      8
 
 /** Magic word to make the dispatcher stop. */
 #define runner_dispatch_stop             0xffffffff
@@ -61,11 +61,11 @@ struct runner_fifo {
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
     
-    /* The FIFO data. */
-    int data[ runner_qlen ];
-    
     /* Counters. */
-    int first, last, count;
+    int first, last, size, count;
+    
+    /* The FIFO data. */
+    int *data;
     
     };
 
@@ -106,8 +106,8 @@ struct runner {
     /** Accumulated potential energy by this runner. */
     double epot;
     
-    /** The fifo queues for dispatch mode. */
-    struct runner_fifo in, out;
+    /** The fifo queue for dispatch mode. */
+    struct fifo in;
     
     };
     
@@ -131,5 +131,7 @@ int runner_init ( struct runner *r , struct engine *e , int id );
 int runner_run_pairs ( struct runner *r );
 int runner_run_tuples ( struct runner *r );
 int runner_run_verlet ( struct runner *r );
+void runner_sort_ascending ( unsigned int *parts , int N );
+void runner_sort_descending ( unsigned int *parts , int N );
 int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out );
 int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );

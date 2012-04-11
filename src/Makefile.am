@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
-AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS)
+AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror
 AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers
@@ -30,7 +30,7 @@ include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
     btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
     engine_bonded.c engine_rigid.c engine_exchange.c runner_verlet.c \
-    runner_pwverlet.c runner_dopair.c
+    runner_pwverlet.c runner_dopair.c fifo.c
 
 # CUDA sources
 if HAVECUDA
@@ -56,8 +56,6 @@ libmdcore_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 libmdcore_single_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 libmdcore_single_la_SHORTNAME = sp
 libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS) $(CUDA_CFLAGS)
-
-# R
 
 
 # Dummy target to make the Cell/BE version
