@@ -23,12 +23,12 @@ AC_SUBST(VERSION)
 AM_INIT_AUTOMAKE(mdcore,VERSION)
 AC_PROG_LIBTOOL
 
-# generate header file
-AM_CONFIG_HEADER(config.h)
-
 # compiler settings
 AC_GNU_SOURCE
 CFLAGS="-Wall -g $CFLAGS"
+
+# generate header file
+AM_CONFIG_HEADER(config.h)
 
 # find and test the compiler
 AM_PROG_CC_C_O
