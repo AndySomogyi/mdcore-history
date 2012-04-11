@@ -27,6 +27,7 @@ AC_PROG_LIBTOOL
 AM_CONFIG_HEADER(config.h)
 
 # compiler settings
+AC_GNU_SOURCE
 CFLAGS="-Wall -g $CFLAGS"
 
 # find and test the compiler
