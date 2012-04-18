@@ -93,14 +93,14 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
     struct potential *pot, **pots;
     FPTYPE dx[3], r2, w;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE dummy = 0.0;
-    FPTYPE *effi[4], *effj[4];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE dxq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -169,47 +169,37 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the exclusions if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single( potq , r2q , ee , eff );
+                    #else
                     potential_eval_vec_4single( potq , r2q , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot -= ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] += w;
-                            effj[l][k] -= w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the exclusions if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double( potq , r2q , ee , eff );
+                    #else
+                    potential_eval_vec_2double( potq , r2q , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot -= ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] += w;
-                            effj[l][k] -= w;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff[l] * dxq[l*3+k];
+                        effi[l][k] -= w;
+                        effj[l][k] += w;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the exclusion */
             #ifdef EXPLICIT_POTENTIALS
@@ -233,50 +223,38 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
 
         } /* loop over exclusions. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 r2q[k] = r2q[0];
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single( potq , r2q , ee , eff );
+            #if defined(VEC_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_4single( potq , r2q , ee , eff );
+                #endif
+            #elif defined(VEC_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_2double( potq , r2q , ee , eff );
+                #endif
+            #endif
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot -= ee[l];
+                epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] += w;
-                    effj[l][k] -= w;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double( potq , r2q , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot -= ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff[l] * dxq[l*3+k];
-                    effi[l][k] += w;
-                    effj[l][k] -= w;
+                    effi[l][k] -= w;
+                    effj[l][k] += w;
                     }
                 }
 
@@ -320,14 +298,14 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
     struct potential *pot, **pots;
     FPTYPE dx[3], r2, w;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE dummy = 0.0;
-    FPTYPE *effi[4], *effj[4];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE dxq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -397,47 +375,37 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the exclusions if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single( potq , r2q , ee , eff );
+                    #else
                     potential_eval_vec_4single( potq , r2q , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot -= ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] += w;
-                            effj[l][k] -= w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the exclusions if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double( potq , r2q , ee , eff );
+                    #else
+                    potential_eval_vec_2double( potq , r2q , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot -= ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] += w;
-                            effj[l][k] -= w;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff[l] * dxq[l*3+k];
+                        effi[l][k] -= w;
+                        effj[l][k] += w;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the exclusion */
             #ifdef EXPLICIT_POTENTIALS
@@ -461,50 +429,38 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
 
         } /* loop over exclusions. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 r2q[k] = r2q[0];
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single( potq , r2q , ee , eff );
+            #if defined(VEC_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_4single( potq , r2q , ee , eff );
+                #endif
+            #elif defined(VEC_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_2double( potq , r2q , ee , eff );
+                #endif
+            #endif
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot -= ee[l];
+                epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] += w;
-                    effj[l][k] -= w;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double( potq , r2q , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot -= ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff[l] * dxq[l*3+k];
-                    effi[l][k] += w;
-                    effj[l][k] -= w;
+                    effi[l][k] -= w;
+                    effj[l][k] += w;
                     }
                 }
 
@@ -543,13 +499,13 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
     struct potential *pot, **pots;
     FPTYPE dx[3], r2, w;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE dxq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -612,47 +568,37 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the exclusions if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single( potq , r2q , ee , eff );
+                    #else
                     potential_eval_vec_4single( potq , r2q , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot -= ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] += w;
-                            effj[l][k] -= w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the exclusions if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double( potq , r2q , ee , eff );
+                    #else
+                    potential_eval_vec_2double( potq , r2q , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot -= ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = eff[l] * dxq[l*3+k];
-                            effi[l][k] += w;
-                            effj[l][k] -= w;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff[l] * dxq[l*3+k];
+                        effi[l][k] -= w;
+                        effj[l][k] += w;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the exclusion */
             #ifdef EXPLICIT_POTENTIALS
@@ -674,50 +620,38 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
 
         } /* loop over exclusions. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 r2q[k] = r2q[0];
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single( potq , r2q , ee , eff );
+            #if defined(VEC_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_4single( potq , r2q , ee , eff );
+                #endif
+            #elif defined(VEC_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_2double( potq , r2q , ee , eff );
+                #endif
+            #endif
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
-                epot -= ee[l];
+                epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] += w;
-                    effj[l][k] -= w;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double( potq , r2q , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot -= ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff[l] * dxq[l*3+k];
-                    effi[l][k] += w;
-                    effj[l][k] -= w;
+                    effi[l][k] -= w;
+                    effj[l][k] += w;
                     }
                 }
 
