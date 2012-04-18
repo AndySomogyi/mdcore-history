@@ -95,14 +95,14 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
         t5, t6, t7, t8, t9, t4, t14, t2;
     struct potential **pots;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE dummy = 0.0;
-    FPTYPE *effi[4], *effj[4], *effk[4];
-    FPTYPE cthetaq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], dkq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -232,47 +232,37 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the angles if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                            effj[l][k] += wi + wk;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the angles if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                    #else
+                    potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                            effj[l][k] += wi + wk;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
+                        effj[l][k] += wi + wk;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the angle */
             #ifdef EXPLICIT_POTENTIALS
@@ -298,42 +288,30 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
         } /* loop over angles. */
         
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cthetaq[k] = cthetaq[0];
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                    effj[l][k] += wi + wk;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cthetaq[k] = cthetaq[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                #endif
+            #endif
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
@@ -381,13 +359,13 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         t5, t6, t7, t8, t9, t4, t14, t2;
     struct potential **pots;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4], *effk[4];
-    FPTYPE cthetaq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], dkq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -510,47 +488,37 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the angles if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                            effj[l][k] += wi + wk;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the angles if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                    #else
+                    potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                            effj[l][k] += wi + wk;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
+                        effj[l][k] += wi + wk;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the angle */
             #ifdef EXPLICIT_POTENTIALS
@@ -573,42 +541,30 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         } /* loop over angles. */
         
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cthetaq[k] = cthetaq[0];
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                    effj[l][k] += wi + wk;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cthetaq[k] = cthetaq[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                #endif
+            #endif
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
@@ -659,13 +615,13 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
         t5, t6, t7, t8, t9, t4, t14, t2;
     struct potential **pots;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4], *effk[4];
-    FPTYPE cthetaq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], dkq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -774,47 +730,37 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the angles if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                            effj[l][k] += wi + wk;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the angles if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                    #else
+                    potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                            effj[l][k] += wi + wk;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
+                        effj[l][k] += wi + wk;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the angle */
             #ifdef EXPLICIT_POTENTIALS
@@ -836,42 +782,30 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
         
         } /* loop over angles. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
 
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cthetaq[k] = cthetaq[0];
                 }
 
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
-                    effj[l][k] += wi + wk;
-                    }
-                }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cthetaq[k] = cthetaq[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                #endif
+            #endif
 
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {

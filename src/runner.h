@@ -120,9 +120,7 @@ struct runner {
 
 /* associated functions */
 int runner_dispatcher ( struct engine *e );
-int runner_dopair_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
-int runner_dopair_unsorted_ee ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift );
 int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );
 int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp );

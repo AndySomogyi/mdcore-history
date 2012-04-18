@@ -85,7 +85,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
     int tid, tjd, wc[4];
     int res, j, k, jj, kk, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
-    double K, Kr0, r0, r2, r6, A, B, q, al, ar, am, vl, vr, vm;
+    double K, Kr0, r0, r2, r6, A, B, q, al, ar, am, vm;
     struct potential *p;
     
     /* Check inputs. */
@@ -539,17 +539,15 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
                     p = NULL;
                 }
             if ( kappa < 0.0 ) {
-                al = r0/2; vl = potential_LJ126( al , A , B );
-                ar = r0; vr = potential_LJ126( ar , A , B );
+                al = r0/2;
+                ar = r0;
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B );
-                    if ( fabs(vm) < 5*Kr0 ) {
-                        ar = am; vr = vm;
-                        }
-                    else {
-                        al = am; vl = vm;
-                        }
+                    if ( fabs(vm) < 5*Kr0 )
+                        ar = am;
+                    else
+                        al = am;
                     }
                 if ( ( p = potential_create_LJ126( al , e->s.cutoff , A , B , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e on [%e,%e].\n" ,
@@ -559,17 +557,15 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
                     }
                 }
             else if ( kappa == 0.0 ) {
-                al = r0/2; vl = potential_LJ126( al , A , B ) + potential_escale*q/al;
-                ar = r0; vr = potential_LJ126( ar , A , B ) + potential_escale*q/ar;
+                al = r0/2;
+                ar = r0;
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + potential_escale*q/r0 );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + potential_escale*q/am;
-                    if ( fabs(vm) < 5*Kr0 ) {
-                        ar = am; vr = vm;
-                        }
-                    else {
-                        al = am; vl = vm;
-                        }
+                    if ( fabs(vm) < 5*Kr0 )
+                        ar = am;
+                    else
+                        al = am;
                     }
                 if ( ( p = potential_create_LJ126_Coulomb( al , e->s.cutoff , A , B , q , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
@@ -580,17 +576,15 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
                     }
                 }
             else  {
-                al = r0/2; vl = potential_LJ126( al , A , B ) + q*potential_Ewald( al , kappa );
-                ar = r0; vr = potential_LJ126( ar , A , B ) + q*potential_Ewald( ar, kappa );
+                al = r0/2;
+                ar = r0;
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + q*potential_Ewald( r0, kappa ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + q*potential_Ewald( am , kappa );
-                    if ( fabs(vm) < 5*Kr0 ) {
-                        ar = am; vr = vm;
-                        }
-                    else {
-                        al = am; vl = vm;
-                        }
+                    if ( fabs(vm) < 5*Kr0 )
+                        ar = am;
+                    else
+                        al = am;
                     }
                 if ( ( p = potential_create_LJ126_Ewald( al , e->s.cutoff , A , B , q , kappa , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
@@ -637,7 +631,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
     int tid, tjd, wc[4];
     int j, k, jj, kk, n, *ind1, *ind2, nr_ind1, nr_ind2, potid;
     double K, Kr0, r0, r2, r6;
-    double al, ar, am, vl, vr, vm, A, B, q;
+    double al, ar, am, vm, A, B, q;
     struct potential *p;
     
     /* Check inputs. */
@@ -1148,17 +1142,15 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                     p = NULL;
                 }
             if ( kappa < 0.0 ) {
-                al = r0/2; vl = potential_LJ126( al , A , B );
-                ar = r0; vr = potential_LJ126( ar , A , B );
+                al = r0/2;
+                ar = r0;
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B );
-                    if ( fabs(vm) < 5*Kr0 ) {
-                        ar = am; vr = vm;
-                        }
-                    else {
-                        al = am; vl = vm;
-                        }
+                    if ( fabs(vm) < 5*Kr0 )
+                        ar = am;
+                    else
+                        al = am;
                     }
                 if ( ( p = potential_create_LJ126( al , e->s.cutoff , A , B , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e on [%e,%e].\n" ,
@@ -1168,17 +1160,15 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                     }
                 }
             else if ( kappa == 0.0 ) {
-                al = r0/2; vl = potential_LJ126( al , A , B ) + potential_escale*q/al;
-                ar = r0; vr = potential_LJ126( ar , A , B ) + potential_escale*q/ar;
+                al = r0/2;
+                ar = r0;
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + potential_escale*q/r0 );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + potential_escale*q/am;
-                    if ( fabs(vm) < 5*Kr0 ) {
-                        ar = am; vr = vm;
-                        }
-                    else {
-                        al = am; vl = vm;
-                        }
+                    if ( fabs(vm) < 5*Kr0 )
+                        ar = am;
+                    else
+                        al = am;
                     }
                 if ( ( p = potential_create_LJ126_Coulomb( al , e->s.cutoff , A , B , q , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
@@ -1189,17 +1179,15 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                     }
                 }
             else  {
-                al = r0/2; vl = potential_LJ126( al , A , B ) + q*potential_Ewald( al , kappa );
-                ar = r0; vr = potential_LJ126( ar , A , B ) + q*potential_Ewald( ar, kappa );
+                al = r0/2;
+                ar = r0;
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + q*potential_Ewald( r0, kappa ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + q*potential_Ewald( am , kappa );
-                    if ( fabs(vm) < 5*Kr0 ) {
-                        ar = am; vr = vm;
-                        }
-                    else {
-                        al = am; vl = vm;
-                        }
+                    if ( fabs(vm) < 5*Kr0 )
+                        ar = am;
+                    else
+                        al = am;
                     }
                 if ( ( p = potential_create_LJ126_Ewald( al , e->s.cutoff , A , B , q , kappa , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,

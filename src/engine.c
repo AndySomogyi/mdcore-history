@@ -999,7 +999,7 @@ int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , 
 
     struct part p;
     struct space *s;
-    int j, k, nr_parts;
+    int j, k;
     
     /* check the inputs. */
     if ( e == NULL || x == NULL || type == NULL )
@@ -1007,7 +1007,6 @@ int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , 
         
     /* Get a handle on the space. */
     s = &(e->s);
-    nr_parts = s->nr_parts;
         
     /* init the velocity and charge in case not specified. */
     p.v[0] = 0.0; p.v[1] = 0.0; p.v[2] = 0.0;
@@ -1409,11 +1408,6 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
  
 int engine_nonbond_eval ( struct engine *e ) {
 
-    struct space *s;
-    
-    /* Get a grip on the space. */
-    s = &(e->s);
-    
     /* Dispatcher or regular runners? */
     if ( e->flags & engine_flag_dispatch ) {
     

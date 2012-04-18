@@ -25,11 +25,8 @@
 #include <math.h>
 #include <float.h>
 #include <string.h>
-#ifdef __SSE__
+#if defined(__SSE__) || defined(__SSE2__) || defined(__AVX__)
     #include <xmmintrin.h>
-#endif
-#ifdef __SSE2__
-    #include <emmintrin.h>
 #endif
 #ifdef __ALTIVEC__
     #include <altivec.h>
@@ -52,6 +49,8 @@
 #include "fptype.h"
 #include "potential.h"
 
+/** Macro to easily define vector types. */
+#define vector(elcount, type)  __attribute__((vector_size((elcount)*sizeof(type)))) type
 
 /** The last error */
 int potential_err = potential_err_ok;
@@ -206,6 +205,72 @@ void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e 
 #endif
         
     }
+
+
+#ifdef STILL_NOT_READY_FOR_PRIME_TIME
+void potential_eval_vec_4single_new ( struct potential *p[4] , float *r2 , float *e , float *f ) {
+
+    int j, k;
+    union {
+        vector(4,float) v;
+        float f[4];
+        } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r;
+    union {
+        vector(4,int) v;
+        int i[4];
+        } ind;
+    FPTYPE *data[4];
+    
+    /* Get r . */
+    r.v = sqrtf( *( (vector(4,float) *)r2 ) );
+    
+    /* compute the index */
+    for ( k = 0 ; k < 4 ; k++ ) {
+        alpha0.f[k] = p[k]->alpha[0];
+        alpha1.f[k] = p[k]->alpha[1];
+        alpha2.f[k] = p[k]->alpha[2];
+        }
+    ind.v = max( (vector(4,int)){0,0,0,0} , (vector(4,int))( alpha0.v + r.v*( alpha1.v + r.v*alpha2.v ) ) );
+    
+    /* Check ranges. */
+    /* for ( j = 0 ; j < 4 ; j++ )
+        if ( ind.i[j] == 0 || ind.i[j] > p[j]->n ) {
+            printf( "potential_eval_vec_4single: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
+                r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
+                p[j]->n , p[j]->a , p[j]->b );
+            fflush(stdout);
+            } */
+    
+    /* get the table offset */
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    for ( k = 0 ; k < 4 ; k++ ) {
+        mi.f[k] = data[k][0];
+        hi.f[k] = data[k][1];
+        }
+    x.v = ( r.v - mi.v ) * hi.v;
+    
+    /* compute the potential and its derivative */
+    for ( k = 0 ; k < 4 ; k++ ) {
+        eff.f[k] = data[k][2];
+        c.f[k] = data[k][3];
+        }
+    ee.v = eff.v*x.v + c.v;
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+            for ( k = 0 ; k < 4 ; k++ )
+            c.f[k] = data[k][j];
+        eff.v = eff.v*x.v + ee.v;
+        ee.v = ee.v*x.v + c.v;
+        }
+
+    /* store the result */
+    *( (vector(4,float) *)e ) = ee.v;
+    *( (vector(4,float) *)f ) = eff.v*( hi.v / r.v );
+    
+    }
+#endif
 
 
 /** 
@@ -365,7 +430,55 @@ void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float
 
 void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e , float *f ) {
 
-#if defined(__SSE__) && defined(FPTYPE_SINGLE)
+#if defined(__AVX__) && defined(FPTYPE_SINGLE)
+    int j;
+    union {
+        __v8sf v;
+        __m256i m;
+        float f[8];
+        int i[8];
+        } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r, ind;
+    float *data[8];
+    
+    /* Get r . */
+    r.v = _mm256_sqrt_ps( _mm256_load_ps( r2 ) );
+    
+    /* compute the index */
+    alpha0.v = _mm256_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] , p[4]->alpha[0] , p[5]->alpha[0] , p[6]->alpha[0] , p[7]->alpha[0] );
+    alpha1.v = _mm256_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] , p[4]->alpha[1] , p[5]->alpha[1] , p[6]->alpha[1] , p[7]->alpha[1] );
+    alpha2.v = _mm256_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] , p[4]->alpha[2] , p[5]->alpha[2] , p[6]->alpha[2] , p[7]->alpha[2] );
+    ind.m = _mm256_cvttps_epi32( _mm256_max_ps( _mm256_setzero_ps() , _mm256_add_ps( alpha0.v , _mm256_mul_ps( r.v , _mm256_add_ps( alpha1.v , _mm256_mul_ps( r.v , alpha2.v ) ) ) ) ) );
+    
+    /* get the table offset */
+    data[0] = &( p[0]->c[ ind.i[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind.i[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind.i[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind.i[3] * potential_chunk ] );
+    data[4] = &( p[4]->c[ ind.i[4] * potential_chunk ] );
+    data[5] = &( p[5]->c[ ind.i[5] * potential_chunk ] );
+    data[6] = &( p[6]->c[ ind.i[6] * potential_chunk ] );
+    data[7] = &( p[7]->c[ ind.i[7] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi.v = _mm256_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] , data[4][0] , data[5][0] , data[6][0] , data[7][0] );
+    hi.v = _mm256_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] , data[4][1] , data[5][1] , data[6][1] , data[7][1] );
+    x.v = _mm256_mul_ps( _mm256_sub_ps( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = _mm256_setr_ps( data[0][2] , data[1][2] , data[2][2] , data[3][2] , data[4][2] , data[5][2] , data[6][2] , data[7][2] );
+    c.v = _mm256_setr_ps( data[0][3] , data[1][3] , data[2][3] , data[3][3] , data[4][3] , data[5][3] , data[6][3] , data[7][3] );
+    ee.v = _mm256_add_ps( _mm256_mul_ps( eff.v , x.v ) , c.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c.v = _mm256_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] , data[4][j] , data[5][j] , data[6][j] , data[7][j] );
+        eff.v = _mm256_add_ps( _mm256_mul_ps( eff.v , x.v ) , ee.v );
+        ee.v = _mm256_add_ps( _mm256_mul_ps( ee.v , x.v ) , c.v );
+        }
+
+    /* store the result */
+    _mm256_store_ps( e , ee.v );
+    _mm256_store_ps( f , _mm256_mul_ps( eff.v , _mm256_div_ps( hi.v , r.v ) ) );
+    
+#elifif defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j;
     union {
         __v4sf v;
@@ -509,103 +622,197 @@ void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e 
     }
 
 
-/** 
- * @brief Evaluates the given potential at a set of points (interpolated)
- *      using explicit electrostatics.
- *
- * @param p The #potential to be evaluated.
- * @param ep The electrostatics #potential.
- * @param r2 The radius at which it is to be evaluated, squared.
- * @param q The product of charges from both particles
- * @param e Pointer to a floating-point value in which to store the
- *      interaction energy.
- * @param f Pointer to a floating-point value in which to store the
- *      magnitude of the interaction force.
- *
- * Note that for efficiency reasons, this function does not check if any
- * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
- * of the #potential @c p.
- * 
- * This function is only available if mdcore was compiled with SSE and
- * single precision! If @c mdcore was not compiled with SSE enabled, this
- * function simply calls #potential_eval_ee on each entry.
- *
- * Note that the vectors @c r2, @c e and @c f should be aligned to 16 bytes.
- */
+void potential_eval_vec_8single_r ( struct potential *p[8] , float *r2 , float *e , float *f ) {
 
-void potential_eval_vec_4single_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f ) {
-
-#if defined(__SSE__) && defined(FPTYPE_SINGLE)
-    int j, k;
+#if defined(__AVX__) && defined(FPTYPE_SINGLE)
+    int j;
     union {
-        __v4sf v;
-        __m128i m;
-        float f[4];
-        int i[4];
+        __v8sf v;
+        __m256i m;
+        float f[8];
+        int i[8];
         } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r, ind;
-    float *data[4];
-    union {
-        __v4sf v;
-        __m128i m;
-        float f[4];
-        int i[4];
-        } alpha0_e, alpha1_e, alpha2_e, mi_e, hi_e, x_e, ee_e, eff_e, c_e, ind_e, qv;
-    float *data_e[4];
+    float *data[8];
     
     /* Get r . */
-    r.v = _mm_sqrt_ps( _mm_load_ps( r2 ) );
+    r.v = _mm256_load_ps( r2 );
     
     /* compute the index */
-    alpha0.v = _mm_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
-    alpha1.v = _mm_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
-    alpha2.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
-    ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
-    alpha0_e.v = _mm_set1_ps( ep->alpha[0] );
-    alpha1_e.v = _mm_set1_ps( ep->alpha[1] );
-    alpha2_e.v = _mm_set1_ps( ep->alpha[2] );
-    ind_e.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0_e.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1_e.v , _mm_mul_ps( r.v , alpha2_e.v ) ) ) ) ) );
+    alpha0.v = _mm256_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] , p[4]->alpha[0] , p[5]->alpha[0] , p[6]->alpha[0] , p[7]->alpha[0] );
+    alpha1.v = _mm256_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] , p[4]->alpha[1] , p[5]->alpha[1] , p[6]->alpha[1] , p[7]->alpha[1] );
+    alpha2.v = _mm256_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] , p[4]->alpha[2] , p[5]->alpha[2] , p[6]->alpha[2] , p[7]->alpha[2] );
+    ind.m = _mm256_cvttps_epi32( _mm256_max_ps( _mm256_setzero_ps() , _mm256_add_ps( alpha0.v , _mm256_mul_ps( r.v , _mm256_add_ps( alpha1.v , _mm256_mul_ps( r.v , alpha2.v ) ) ) ) ) );
     
     /* get the table offset */
-    for ( k = 0 ; k < 4 ; k++ )
-        data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
-    for ( k = 0 ; k < 4 ; k++ )
-        data_e[k] = &( ep->c[ ind_e.i[k] * potential_chunk ] );
+    data[0] = &( p[0]->c[ ind.i[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind.i[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind.i[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind.i[3] * potential_chunk ] );
+    data[4] = &( p[4]->c[ ind.i[4] * potential_chunk ] );
+    data[5] = &( p[5]->c[ ind.i[5] * potential_chunk ] );
+    data[6] = &( p[6]->c[ ind.i[6] * potential_chunk ] );
+    data[7] = &( p[7]->c[ ind.i[7] * potential_chunk ] );
     
     /* adjust x to the interval */
-    mi.v = _mm_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
-    hi.v = _mm_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
-    x.v = _mm_mul_ps( _mm_sub_ps( r.v , mi.v ) , hi.v );
-    mi_e.v = _mm_setr_ps( data_e[0][0] , data_e[1][0] , data_e[2][0] , data_e[3][0] );
-    hi_e.v = _mm_setr_ps( data_e[0][1] , data_e[1][1] , data_e[2][1] , data_e[3][1] );
-    x_e.v = _mm_mul_ps( _mm_sub_ps( r.v , mi_e.v ) , hi_e.v );
+    mi.v = _mm256_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] , data[4][0] , data[5][0] , data[6][0] , data[7][0] );
+    hi.v = _mm256_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] , data[4][1] , data[5][1] , data[6][1] , data[7][1] );
+    x.v = _mm256_mul_ps( _mm256_sub_ps( r.v , mi.v ) , hi.v );
     
     /* compute the potential and its derivative */
-    eff.v = _mm_setr_ps( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
-    c.v = _mm_setr_ps( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
-    ee.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , c.v );
-    eff_e.v = _mm_setr_ps( data_e[0][2] , data_e[1][2] , data_e[2][2] , data_e[3][2] );
-    c_e.v = _mm_setr_ps( data_e[0][3] , data_e[1][3] , data_e[2][3] , data_e[3][3] );
-    ee_e.v = _mm_add_ps( _mm_mul_ps( eff_e.v , x_e.v ) , c_e.v );
+    eff.v = _mm256_setr_ps( data[0][2] , data[1][2] , data[2][2] , data[3][2] , data[4][2] , data[5][2] , data[6][2] , data[7][2] );
+    c.v = _mm256_setr_ps( data[0][3] , data[1][3] , data[2][3] , data[3][3] , data[4][3] , data[5][3] , data[6][3] , data[7][3] );
+    ee.v = _mm256_add_ps( _mm256_mul_ps( eff.v , x.v ) , c.v );
     for ( j = 4 ; j < potential_chunk ; j++ ) {
-        c.v = _mm_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
-        eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
-        ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c.v );
-        c_e.v = _mm_setr_ps( data_e[0][j] , data_e[1][j] , data_e[2][j] , data_e[3][j] );
-        eff_e.v = _mm_add_ps( _mm_mul_ps( eff_e.v , x_e.v ) , ee_e.v );
-        ee_e.v = _mm_add_ps( _mm_mul_ps( ee_e.v , x_e.v ) , c_e.v );
+        c.v = _mm256_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] , data[4][j] , data[5][j] , data[6][j] , data[7][j] );
+        eff.v = _mm256_add_ps( _mm256_mul_ps( eff.v , x.v ) , ee.v );
+        ee.v = _mm256_add_ps( _mm256_mul_ps( ee.v , x.v ) , c.v );
         }
 
     /* store the result */
-    qv.v = _mm_load_ps( q );
-    _mm_store_ps( e , _mm_add_ps( ee.v , _mm_mul_ps( ee_e.v , qv.v ) ) );
-    _mm_store_ps( f , _mm_add_ps( _mm_mul_ps( eff.v , _mm_div_ps( hi.v , r.v ) ) , _mm_mul_ps( _mm_mul_ps( eff_e.v , _mm_div_ps( hi_e.v , r.v ) ) , qv.v ) ) );
-        
+    _mm256_store_ps( e , ee.v );
+    _mm256_store_ps( f , _mm256_mul_ps( eff.v , hi.v ) );
+    
+#elifif defined(__SSE__) && defined(FPTYPE_SINGLE)
+    int j;
+    union {
+        __v4sf v;
+        __m128i m;
+        float f[4];
+        int i[4];
+        } alpha0_1, alpha1_1, alpha2_1, mi_1, hi_1, x_1, ee_1, eff_1, c_1, r_1, ind_1,
+          alpha0_2, alpha1_2, alpha2_2, mi_2, hi_2, x_2, ee_2, eff_2, c_2, r_2, ind_2;
+    float *data[8];
+    
+    /* Get r . */
+    r_1.v = _mm_load_ps( &r2[0] );
+    r_2.v = _mm_load_ps( &r2[4] );
+    
+    /* compute the index */
+    alpha0_1.v = _mm_setr_ps( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1_1.v = _mm_setr_ps( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2_1.v = _mm_setr_ps( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    alpha0_2.v = _mm_setr_ps( p[4]->alpha[0] , p[5]->alpha[0] , p[6]->alpha[0] , p[7]->alpha[0] );
+    alpha1_2.v = _mm_setr_ps( p[4]->alpha[1] , p[5]->alpha[1] , p[6]->alpha[1] , p[7]->alpha[1] );
+    alpha2_2.v = _mm_setr_ps( p[4]->alpha[2] , p[5]->alpha[2] , p[6]->alpha[2] , p[7]->alpha[2] );
+    ind_1.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0_1.v , _mm_mul_ps( r_1.v , _mm_add_ps( alpha1_1.v , _mm_mul_ps( r_1.v , alpha2_1.v ) ) ) ) ) );
+    ind_2.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0_2.v , _mm_mul_ps( r_2.v , _mm_add_ps( alpha1_2.v , _mm_mul_ps( r_2.v , alpha2_2.v ) ) ) ) ) );
+    
+    /* get the table offset */
+    data[0] = &( p[0]->c[ ind_1.i[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind_1.i[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind_1.i[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind_1.i[3] * potential_chunk ] );
+    data[4] = &( p[4]->c[ ind_2.i[0] * potential_chunk ] );
+    data[5] = &( p[5]->c[ ind_2.i[1] * potential_chunk ] );
+    data[6] = &( p[6]->c[ ind_2.i[2] * potential_chunk ] );
+    data[7] = &( p[7]->c[ ind_2.i[3] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi_1.v = _mm_setr_ps( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi_1.v = _mm_setr_ps( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    mi_2.v = _mm_setr_ps( data[4][0] , data[5][0] , data[6][0] , data[7][0] );
+    hi_2.v = _mm_setr_ps( data[4][1] , data[5][1] , data[6][1] , data[7][1] );
+    x_1.v = _mm_mul_ps( _mm_sub_ps( r_1.v , mi_1.v ) , hi_1.v );
+    x_2.v = _mm_mul_ps( _mm_sub_ps( r_2.v , mi_2.v ) , hi_2.v );
+    
+    /* compute the potential and its derivative */
+    eff_1.v = _mm_setr_ps( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    eff_2.v = _mm_setr_ps( data[4][2] , data[5][2] , data[6][2] , data[7][2] );
+    c_1.v = _mm_setr_ps( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    c_2.v = _mm_setr_ps( data[4][3] , data[5][3] , data[6][3] , data[7][3] );
+    ee_1.v = _mm_add_ps( _mm_mul_ps( eff_1.v , x_1.v ) , c_1.v );
+    ee_2.v = _mm_add_ps( _mm_mul_ps( eff_2.v , x_2.v ) , c_2.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c_1.v = _mm_setr_ps( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        c_2.v = _mm_setr_ps( data[4][j] , data[5][j] , data[6][j] , data[7][j] );
+        eff_1.v = _mm_add_ps( _mm_mul_ps( eff_1.v , x_1.v ) , ee_1.v );
+        eff_2.v = _mm_add_ps( _mm_mul_ps( eff_2.v , x_2.v ) , ee_2.v );
+        ee_1.v = _mm_add_ps( _mm_mul_ps( ee_1.v , x_1.v ) , c_1.v );
+        ee_2.v = _mm_add_ps( _mm_mul_ps( ee_2.v , x_2.v ) , c_2.v );
+        }
+
+    /* store the result */
+    _mm_store_ps( &e[0] , ee_1.v );
+    _mm_store_ps( &e[4] , ee_2.v );
+    _mm_store_ps( &f[0] , _mm_mul_ps( eff_1.v , hi_1.v ) );
+    _mm_store_ps( &f[4] , _mm_mul_ps( eff_2.v , hi_2.v ) );
+    
+#elif defined(__ALTIVEC__) && defined(FPTYPE_SINGLE)
+    int j;
+    union {
+        vector float v;
+        vector unsigned int m;
+        float f[4];
+        unsigned int i[4];
+        } alpha0_1, alpha1_1, alpha2_1, mi_1, hi_1, x_1, ee_1, eff_1, c_1, r_1, ind_1,
+          alpha0_2, alpha1_2, alpha2_2, mi_2, hi_2, x_2, ee_2, eff_2, c_2, r_2, ind_2;
+    float *data[8];
+    
+    /* Get r . */
+    r_1.v = *((vector float *)&r2[0]);
+    r_2.v = *((vector float *)&r2[4]);
+    
+    /* compute the index */
+    alpha0_1.v = vec_load4( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1_1.v = vec_load4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2_1.v = vec_load4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    alpha0_2.v = vec_load4( p[4]->alpha[0] , p[5]->alpha[0] , p[6]->alpha[0] , p[7]->alpha[0] );
+    alpha1_2.v = vec_load4( p[4]->alpha[1] , p[5]->alpha[1] , p[6]->alpha[1] , p[7]->alpha[1] );
+    alpha2_2.v = vec_load4( p[4]->alpha[2] , p[5]->alpha[2] , p[6]->alpha[2] , p[7]->alpha[2] );
+    ind_1.m = vec_ctu( vec_madd( r_1.v , vec_madd( r_1.v , alpha2_1.v , alpha1_1.v ) , alpha0_1.v ) , 0 );
+    ind_2.m = vec_ctu( vec_madd( r_2.v , vec_madd( r_2.v , alpha2_2.v , alpha1_2.v ) , alpha0_2.v ) , 0 );
+    
+    /* get the table offset */
+    data[0] = &( p[0]->c[ ind_1.i[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind_1.i[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind_1.i[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind_1.i[3] * potential_chunk ] );
+    data[4] = &( p[4]->c[ ind_2.i[0] * potential_chunk ] );
+    data[5] = &( p[5]->c[ ind_2.i[1] * potential_chunk ] );
+    data[6] = &( p[6]->c[ ind_2.i[2] * potential_chunk ] );
+    data[7] = &( p[7]->c[ ind_2.i[3] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi_1.v = vec_load4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi_1.v = vec_load4( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    mi_2.v = vec_load4( data[4][0] , data[5][0] , data[6][0] , data[7][0] );
+    hi_2.v = vec_load4( data[4][1] , data[5][1] , data[6][1] , data[7][1] );
+    x_1.v = vec_mul( vec_sub( r_1.v , mi_1.v ) , hi_1.v );
+    x_2.v = vec_mul( vec_sub( r_2.v , mi_2.v ) , hi_2.v );
+    
+    /* compute the potential and its derivative */
+    eff_1.v = vec_load4( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    eff_2.v = vec_load4( data[4][2] , data[5][2] , data[6][2] , data[7][2] );
+    c_1.v = vec_load4( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    c_2.v = vec_load4( data[4][3] , data[5][3] , data[6][3] , data[7][3] );
+    ee_1.v = vec_madd( eff_1.v , x_1.v , c_1.v );
+    ee_2.v = vec_madd( eff_2.v , x_2.v , c_2.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c_1.v = vec_load4( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        c_2.v = vec_load4( data[4][j] , data[5][j] , data[6][j] , data[7][j] );
+        eff_1.v = vec_madd( eff_1.v , x_1.v , ee_1.v );
+        eff_2.v = vec_madd( eff_2.v , x_2.v , ee_2.v );
+        ee_1.v = vec_madd( ee_1.v , x_1.v , c_1.v );
+        ee_2.v = vec_madd( ee_2.v , x_2.v , c_2.v );
+        }
+
+    /* store the result */
+    eff_1.v = vec_mul( eff_1.v , hi_1.v );
+    eff_2.v = vec_mul( eff_2.v , hi_2.v );
+    memcpy( &e[0] , &ee_1 , sizeof(vector float) );
+    memcpy( &f[0] , &eff_1 , sizeof(vector float) );
+    memcpy( &e[4] , &ee_2 , sizeof(vector float) );
+    memcpy( &f[4] , &eff_2 , sizeof(vector float) );
+    
 #else
     int k;
-    for ( k = 0 ; k < 4 ; k++ )
-        potential_eval_ee( p[k] , ep , r2[k] , q[k] , &e[k] , &f[k] );
+    FPTYPE ee, eff;
+    for ( k = 0 ; k < 8 ; k++ ) {
+        potential_eval( p[k] , r2[k] , &ee , &eff );
+        e[k] = ee; f[k] = eff;
+        }
 #endif
-
+        
     }
 
 
@@ -710,7 +917,53 @@ void potential_eval_vec_2double ( struct potential *p[2] , FPTYPE *r2 , FPTYPE *
 
 void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
 
-#if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+#if defined(__AVX__) && defined(FPTYPE_DOUBLE)
+    int ind[4], j;
+    union {
+        __v4df v;
+        double f[4];
+        } alpha0, alpha1, alpha2, rind, mi, hi, x, ee, eff, c, r;
+    double *data[4];
+    
+    /* Get r . */
+    r.v = _mm256_sqrt_pd( _mm256_load_pd( r2 ) );
+    
+    /* compute the index */
+    alpha0.v = _mm256_setr_pd( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1.v = _mm256_setr_pd( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2.v = _mm256_setr_pd( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    rind.v = _mm256_max_pd( _mm256_setzero_pd() , _mm256_add_pd( alpha0.v , _mm256_mul_pd( r.v , _mm256_add_pd( alpha1.v , _mm256_mul_pd( r.v , alpha2.v ) ) ) ) );
+    ind[0] = rind.f[0];
+    ind[1] = rind.f[1];
+    ind[3] = rind.f[3];
+    ind[4] = rind.f[4];
+    
+    /* get the table offset */
+    data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind[3] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi.v = _mm256_setr_pd( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi.v = _mm256_setr_pd( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    x.v = _mm256_mul_pd( _mm256_sub_pd( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = _mm256_setr_pd( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    c.v = _mm256_setr_pd( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    ee.v = _mm256_add_pd( _mm256_mul_pd( eff.v , x.v ) , c.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c.v = _mm256_setr_pd( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        eff.v = _mm256_add_pd( _mm256_mul_pd( eff.v , x.v ) , ee.v );
+        ee.v = _mm256_add_pd( _mm256_mul_pd( ee.v , x.v ) , c.v );
+        }
+
+    /* store the result */
+    _mm256_store_pd( e , ee.v );
+    _mm256_store_pd( f , _mm256_mul_pd( eff.v , _mm256_div_pd( hi.v , r.v ) ) );
+        
+#elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
     int ind[4], j;
     union {
         __v2df v;
@@ -813,7 +1066,53 @@ void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
 
 void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f ) {
 
-#if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
+#if defined(__AVX__) && defined(FPTYPE_DOUBLE)
+    int ind[4], j;
+    union {
+        __v4df v;
+        double f[4];
+        } alpha0, alpha1, alpha2, rind, mi, hi, x, ee, eff, c, r;
+    double *data[4];
+    
+    /* Get r . */
+    r.v = _mm256_load_pd( r2 );
+    
+    /* compute the index */
+    alpha0.v = _mm256_setr_pd( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1.v = _mm256_setr_pd( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2.v = _mm256_setr_pd( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    rind.v = _mm256_max_pd( _mm256_setzero_pd() , _mm256_add_pd( alpha0.v , _mm256_mul_pd( r.v , _mm256_add_pd( alpha1.v , _mm256_mul_pd( r.v , alpha2.v ) ) ) ) );
+    ind[0] = rind.f[0];
+    ind[1] = rind.f[1];
+    ind[3] = rind.f[3];
+    ind[4] = rind.f[4];
+    
+    /* get the table offset */
+    data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
+    data[1] = &( p[1]->c[ ind[1] * potential_chunk ] );
+    data[2] = &( p[2]->c[ ind[2] * potential_chunk ] );
+    data[3] = &( p[3]->c[ ind[3] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi.v = _mm256_setr_pd( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi.v = _mm256_setr_pd( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    x.v = _mm256_mul_pd( _mm256_sub_pd( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = _mm256_setr_pd( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    c.v = _mm256_setr_pd( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    ee.v = _mm256_add_pd( _mm256_mul_pd( eff.v , x.v ) , c.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c.v = _mm256_setr_pd( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        eff.v = _mm256_add_pd( _mm256_mul_pd( eff.v , x.v ) , ee.v );
+        ee.v = _mm256_add_pd( _mm256_mul_pd( ee.v , x.v ) , c.v );
+        }
+
+    /* store the result */
+    _mm256_store_pd( e , ee.v );
+    _mm256_store_pd( f , _mm256_mul_pd( eff.v , hi.v ) );
+        
+#elif defined(__SSE2__) && defined(FPTYPE_DOUBLE)
     int ind[4], j;
     union {
         __v2df v;
@@ -888,102 +1187,6 @@ void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE 
         potential_eval_r( p[k] , r[k] , &e[k] , &f[k] );
 #endif
         
-    }
-
-
-/** 
- * @brief Evaluates the given potential at a set of points (interpolated)
- *      with explicit electrostatics.
- *
- * @param p The #potential to be evaluated.
- * @param ep The electrostatics #potential.
- * @param r2 The radius at which it is to be evaluated, squared.
- * @param q The product of charges from both particles
- * @param e Pointer to a floating-point value in which to store the
- *      interaction energy.
- * @param f Pointer to a floating-point value in which to store the
- *      magnitude of the interaction force.
- *
- * Note that for efficiency reasons, this function does not check if any
- * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
- * of the #potential @c p.
- * 
- * This function is only available if mdcore was compiled with SSE2 and
- * double precision!
- */
-
-void potential_eval_vec_2double_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f ) {
-
-#if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
-    int ind[2], j;
-    union {
-        __v2df v;
-        double f[2];
-        } alpha0, alpha1, alpha2, rind, mi, hi, x, ee, eff, c, r;
-    double *data[2];
-    int ind_e[2];
-    union {
-        __v2df v;
-        double f[2];
-        } alpha0_e, alpha1_e, alpha2_e, rind_e, mi_e, hi_e, x_e, ee_e, eff_e, c_e, qv;
-    double *data_e[2];
-    
-    /* Get r . */
-    r.v = _mm_sqrt_pd( _mm_load_pd( r2 ) );
-    
-    /* compute the index */
-    alpha0.v = _mm_setr_pd( p[0]->alpha[0] , p[1]->alpha[0] );
-    alpha1.v = _mm_setr_pd( p[0]->alpha[1] , p[1]->alpha[1] );
-    alpha2.v = _mm_setr_pd( p[0]->alpha[2] , p[1]->alpha[2] );
-    alpha0_e.v = _mm_set1_pd( ep->alpha[0] );
-    alpha1_e.v = _mm_set1_pd( ep->alpha[1] );
-    alpha2_e.v = _mm_set1_pd( ep->alpha[2] );
-    rind.v = _mm_max_pd( _mm_setzero_pd() , _mm_add_pd( alpha0.v , _mm_mul_pd( r.v , _mm_add_pd( alpha1.v , _mm_mul_pd( r.v , alpha2.v ) ) ) ) );
-    rind_e.v = _mm_max_pd( _mm_setzero_pd() , _mm_add_pd( alpha0_e.v , _mm_mul_pd( r.v , _mm_add_pd( alpha1_e.v , _mm_mul_pd( r.v , alpha2_e.v ) ) ) ) );
-    ind[0] = rind.f[0]; ind[1] = rind.f[1];
-    ind_e[0] = rind_e.f[0]; ind_e[1] = rind_e.f[1];
-    
-    /* get the table offset */
-    data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
-    data[1] = &( p[1]->c[ ind[1] * potential_chunk ] );
-    data_e[0] = &( ep->c[ ind_e[0] * potential_chunk ] );
-    data_e[1] = &( ep->c[ ind_e[1] * potential_chunk ] );
-    
-    /* adjust x to the interval */
-    mi.v = _mm_setr_pd( data[0][0] , data[1][0] );
-    hi.v = _mm_setr_pd( data[0][1] , data[1][1] );
-    x.v = _mm_mul_pd( _mm_sub_pd( r.v , mi.v ) , hi.v );
-    mi_e.v = _mm_setr_pd( data_e[0][0] , data_e[1][0] );
-    hi_e.v = _mm_setr_pd( data_e[0][1] , data_e[1][1] );
-    x_e.v = _mm_mul_pd( _mm_sub_pd( r.v , mi_e.v ) , hi_e.v );
-    
-    /* compute the potential and its derivative */
-    eff.v = _mm_setr_pd( data[0][2] , data[1][2] );
-    c.v = _mm_setr_pd( data[0][3] , data[1][3] );
-    ee.v = _mm_add_pd( _mm_mul_pd( eff.v , x.v ) , c.v );
-    eff_e.v = _mm_setr_pd( data_e[0][2] , data_e[1][2] );
-    c_e.v = _mm_setr_pd( data_e[0][3] , data_e[1][3] );
-    ee_e.v = _mm_add_pd( _mm_mul_pd( eff_e.v , x_e.v ) , c_e.v );
-    for ( j = 4 ; j < potential_chunk ; j++ ) {
-        c.v = _mm_setr_pd( data[0][j] , data[1][j] );
-        eff.v = _mm_add_pd( _mm_mul_pd( eff.v , x.v ) , ee.v );
-        ee.v = _mm_add_pd( _mm_mul_pd( ee.v , x.v ) , c.v );
-        c_e.v = _mm_setr_pd( data_e[0][j] , data_e[1][j] );
-        eff_e.v = _mm_add_pd( _mm_mul_pd( eff_e.v , x_e.v ) , ee_e.v );
-        ee_e.v = _mm_add_pd( _mm_mul_pd( ee_e.v , x_e.v ) , c_e.v );
-        }
-
-    /* store the result */
-    qv.v = _mm_load_pd( q );
-    _mm_store_pd( e , _mm_add_pd( ee.v , _mm_mul_pd( ee_e.v , qv.v ) ) );
-    _mm_store_pd( f , _mm_add_pd( _mm_mul_pd( eff.v , _mm_div_pd( hi.v , r.v ) ) , _mm_mul_pd( eff_e.v , _mm_mul_pd( _mm_div_pd( hi_e.v , r.v ) , qv.v ) ) ) );
-                
-#else
-    int k;
-    for ( k = 0 ; k < 2 ; k++ )
-        potential_eval_ee( p[k] , ep , r2[k] , q[k] , &e[k] , &f[k] );
-#endif
-
     }
 
 
@@ -1085,68 +1288,6 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
 
     /* store the result */
     *e = ee; *f = eff * c[1];
-        
-    }
-
-
-/** 
- * @brief Evaluates the given potential at the given point (interpolated)
- *      with explicit electrostatics.
- *
- * @param p The #potential to be evaluated.
- * @param ep The electrostatics #potential.
- * @param r2 The radius at which it is to be evaluated, squared.
- * @param q The product of charges from both particles
- * @param e Pointer to a floating-point value in which to store the
- *      interaction energy.
- * @param f Pointer to a floating-point value in which to store the
- *      magnitude of the interaction force.
- *
- * Note that for efficiency reasons, this function does not check if any
- * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
- * of the #potential @c p or @c ep.
- */
-
-void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 , FPTYPE q , FPTYPE *e , FPTYPE *f ) {
-
-    int ind, k;
-    FPTYPE x, ee, eff, *c, r;
-    int ind_e;
-    FPTYPE x_e, ee_e, eff_e, *c_e;
-    
-    /* Get r for the right type. */
-    r = FPTYPE_SQRT(r2);
-    
-    /* is r in the house? */
-    /* if ( r < p->a || r > p->b ) */
-    /*     printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
-    
-    /* compute the index */
-    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    ind_e = FPTYPE_FMAX( FPTYPE_ZERO , ep->alpha[0] + r * (ep->alpha[1] + r * ep->alpha[2]) );
-    
-    /* get the table offset */
-    c = &(p->c[ind * potential_chunk]);
-    c_e = &(p->c[ind_e * potential_chunk]);
-    
-    /* adjust x to the interval */
-    x = (r - c[0]) * c[1];
-    x_e = (r - c_e[0]) * c_e[1];
-    
-    /* compute the potential and its derivative */
-    ee = c[2] * x + c[3];
-    eff = c[2];
-    ee_e = c_e[2] * x_e + c_e[3];
-    eff_e = c_e[2];
-    for ( k = 4 ; k < potential_chunk ; k++ ) {
-        eff = eff * x + ee;
-        ee = ee * x + c[k];
-        eff_e = eff_e * x_e + ee_e;
-        ee_e = ee_e * x_e + c_e[k];
-        }
-
-    /* store the result */
-    *e = ee + q*ee_e; *f = eff * c[1] / r + q*eff_e*c_e[1] / r;
         
     }
 
@@ -2296,7 +2437,7 @@ int potential_init3 ( struct potential *p , double (*f)( double ) , double (*fp)
 int potential_getfp ( double (*f)( double ) , int n , FPTYPE *x , double *fp ) {
     
     int i, k;
-    double m, h, eff, fx[n+1], hx[n], ih[n], ih2[n];
+    double m, h, eff, fx[n+1], hx[n];
     double d0[n+1], d1[n+1], d2[n+1], b[n+1];
     double viwl1[n], viwr1[n];
     static double *w = NULL, *xi = NULL;
@@ -2328,11 +2469,8 @@ int potential_getfp ( double (*f)( double ) , int n , FPTYPE *x , double *fp ) {
     /* Get the values of fx and ih. */
     for ( i = 0 ; i <= n ; i++ )
         fx[i] = f( x[i] );
-    for ( i = 0 ; i < n ; i++ ) {
+    for ( i = 0 ; i < n ; i++ )
         hx[i] = x[i+1] - x[i];
-        ih[i] = 1.0 / hx[i];
-        ih2[i] = ih[i] * ih[i];
-        }
         
     /* Compute the products of f with respect to wl1 and wr1. */
     for ( i = 0 ; i < n ; i++ ) {

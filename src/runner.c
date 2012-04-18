@@ -642,17 +642,8 @@ int runner_run_dispatch ( struct runner *r ) {
 
         /* Otherwise, plain old... */
         else {
-
-            /* Explicit electrostatics? */
-            if ( e->flags & engine_flag_explepot ) {
-                if ( runner_dopair_ee( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift ) < 0 )
-                    return error(runner_err);
-                }
-            else {
-                if ( runner_dopair( r , &(e->s.cells[cid]) , &(e->s.cells[cjd]) , finger->shift ) < 0 )
-                    return error(runner_err);
-                }
-
+            if ( runner_dopair( r , &(e->s.cells[cid]) , &(e->s.cells[cjd]) , finger->shift ) < 0 )
+                return error(runner_err);
             }
 
         /* release this pair */
@@ -1297,15 +1288,9 @@ int runner_run_pairs ( struct runner *r ) {
                         }
                     }
 
-                /* Explicit electrostatics? */
-                if ( e->flags & engine_flag_explepot ) {
-                    if ( runner_dopair_ee( r , &(e->s.cells[finger->i]) , &(e->s.cells[finger->j]) , finger->shift ) < 0 )
-                        return error(runner_err);
-                    }
-                else {
-                    if ( runner_dopair( r , &(e->s.cells[finger->i]) , &(e->s.cells[finger->j]) , finger->shift ) < 0 )
-                        return error(runner_err);
-                    }
+                /* Compute interactions. */
+                if ( runner_dopair( r , &(e->s.cells[finger->i]) , &(e->s.cells[finger->j]) , finger->shift ) < 0 )
+                    return error(runner_err);
 
                 /* release this pair */
                 if ( space_releasepair( &(e->s) , finger->i , finger->j ) < 0 )
@@ -1420,24 +1405,12 @@ int runner_run_tuples ( struct runner *r ) {
                     
                     /* Sorted interactions? */
                     if ( e->flags & engine_flag_unsorted ) {
-                        if ( e->flags & engine_flag_explepot ) {
-                            if ( runner_dopair_unsorted_ee( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                                return error(runner_err);
-                            }
-                        else {
-                            if ( runner_dopair_unsorted( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                                return error(runner_err);
-                            }
+                        if ( runner_dopair_unsorted( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                            return error(runner_err);
                         }
                     else {
-                        if ( e->flags & engine_flag_explepot ) {
-                            if ( runner_dopair_ee( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                                return error(runner_err);
-                            }
-                        else {
-                            if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                                return error(runner_err);
-                            }
+                        if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
+                            return error(runner_err);
                         }
 
                     /* release this pair */

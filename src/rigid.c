@@ -84,7 +84,7 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
     struct part *p[rigid_maxparts], **partlist;
     struct cell *c[rigid_maxparts], **celllist;
     struct rigid *r;
-    FPTYPE dt, idt, xp[3*rigid_maxparts], im[rigid_maxparts];
+    FPTYPE dt, idt, xp[3*rigid_maxparts];
     FPTYPE m[rigid_maxparts], tol, lambda, w;
     FPTYPE vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
     FPTYPE wvc[3*rigid_maxconstr];
@@ -117,7 +117,6 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
                 break;
             c[k] = celllist[ r->parts[k] ];
             m[k] = e->types[ p[k]->type ].mass;
-            im[k] = e->types[ p[k]->type ].imass;
             }
         if ( k < nr_parts )
             continue;

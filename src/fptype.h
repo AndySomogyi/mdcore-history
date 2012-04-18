@@ -45,10 +45,16 @@
 #endif
 
 /* Define some macros for single/double precision vector operations. */
-#if ( (defined(__SSE__) || defined(__ALTIVEC__)) && defined(FPTYPE_SINGLE))
+#if ( defined(__AVX__) && defined(FPTYPE_SINGLE) )
     #define VEC_SINGLE
+    #define VEC_SIZE 8
     #define VECTORIZE
-#elif (defined(__SSE2__) && defined(FPTYPE_DOUBLE))
+#elif ( (defined(__SSE__) || defined(__ALTIVEC__)) && defined(FPTYPE_SINGLE) )
+    #define VEC_SINGLE
+    #define VEC_SIZE 4
+    #define VECTORIZE
+#elif ( (defined(__SSE2__) || defined(__AVX__)) && defined(FPTYPE_DOUBLE) )
     #define VEC_DOUBLE
+    #define VEC_SIZE 4
     #define VECTORIZE
 #endif

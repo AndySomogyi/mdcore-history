@@ -99,14 +99,14 @@ int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_di
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
         t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE dummy = 0.0;
-    FPTYPE *effi[4], *effj[4], *effk[4], *effl[4];
-    FPTYPE cphiq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], djq[12], dlq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -286,59 +286,48 @@ int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_di
             potq[icount] = pot;
             icount += 1;
         
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-        
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
+
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-        
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
-                        }
-        
-                    /* re-set the counter. */
-                    icount = 0;
-        
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-        
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cphiq , ee , eff );
-        
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
+                    #else
+                    potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                    #endif
+                #endif
+
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
+                        effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
+                        effk[l][k] += wi + wj + wl;
                         }
-        
-                    /* re-set the counter. */
-                    icount = 0;
-        
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the dihedral */
             #ifdef EXPLICIT_POTENTIALS
-                potential_eval_expl( pot , cphi , &ee , &eff );
+                potential_eval_expl( pot , cphiq , &ee , &eff );
             #else
-                potential_eval_r( pot , cphi , &ee , &eff );
+                potential_eval_r( pot , cphiq , &ee , &eff );
             #endif
             
             if ( pi->id == 2271 || pj->id == 2271 || pk->id == 2271 || pl->id == 2271 )
-                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphi , ee , eff );
+                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphiq , ee , eff );
             
             /* update the forces */
             for ( k = 0 ; k < 3 ; k++ ) {
@@ -358,43 +347,30 @@ int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_di
         
         } /* loop over dihedrals. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
     
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cphiq[k] = cphiq[0];
                 }
     
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-    
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                    effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                    effk[l][k] += wi + wj + wl;
-                    }
-                }
-    
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-    
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cphiq[k] = cphiq[0];
-                }
-    
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cphiq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                #endif
+            #endif
     
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
@@ -452,14 +428,14 @@ int dihedral_eval_mod ( struct dihedral *d , int N , int nr_threads , int cid_mo
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
         t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE dummy = 0.0;
-    FPTYPE *effi[4], *effj[4], *effk[4], *effl[4];
-    FPTYPE cphiq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], djq[12], dlq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -643,59 +619,48 @@ int dihedral_eval_mod ( struct dihedral *d , int N , int nr_threads , int cid_mo
             potq[icount] = pot;
             icount += 1;
         
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-        
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
+
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-        
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
-                        }
-        
-                    /* re-set the counter. */
-                    icount = 0;
-        
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-        
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cphiq , ee , eff );
-        
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
+                    #else
+                    potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                    #endif
+                #endif
+
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
+                        effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
+                        effk[l][k] += wi + wj + wl;
                         }
-        
-                    /* re-set the counter. */
-                    icount = 0;
-        
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the dihedral */
             #ifdef EXPLICIT_POTENTIALS
-                potential_eval_expl( pot , cphi , &ee , &eff );
+                potential_eval_expl( pot , cphiq , &ee , &eff );
             #else
-                potential_eval_r( pot , cphi , &ee , &eff );
+                potential_eval_r( pot , cphiq , &ee , &eff );
             #endif
             
             if ( pi->id == 2271 || pj->id == 2271 || pk->id == 2271 || pl->id == 2271 )
-                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphi , ee , eff );
+                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphiq , ee , eff );
             
             /* update the forces */
             for ( k = 0 ; k < 3 ; k++ ) {
@@ -715,43 +680,30 @@ int dihedral_eval_mod ( struct dihedral *d , int N , int nr_threads , int cid_mo
         
         } /* loop over dihedrals. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
     
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cphiq[k] = cphiq[0];
                 }
     
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-    
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                    effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                    effk[l][k] += wi + wj + wl;
-                    }
-                }
-    
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-    
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cphiq[k] = cphiq[0];
-                }
-    
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cphiq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                #endif
+            #endif
     
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
@@ -804,13 +756,13 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
         t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4], *effk[4], *effl[4];
-    FPTYPE cphiq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], djq[12], dlq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -985,59 +937,48 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
             potq[icount] = pot;
             icount += 1;
         
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-        
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
+
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-        
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
-                        }
-        
-                    /* re-set the counter. */
-                    icount = 0;
-        
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-        
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cphiq , ee , eff );
-        
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
+                    #else
+                    potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                    #endif
+                #endif
+
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
+                        effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
+                        effk[l][k] += wi + wj + wl;
                         }
-        
-                    /* re-set the counter. */
-                    icount = 0;
-        
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the dihedral */
             #ifdef EXPLICIT_POTENTIALS
-                potential_eval_expl( pot , cphi , &ee , &eff );
+                potential_eval_expl( pot , cphiq , &ee , &eff );
             #else
-                potential_eval_r( pot , cphi , &ee , &eff );
+                potential_eval_r( pot , cphiq , &ee , &eff );
             #endif
             
             if ( pi->id == 2271 || pj->id == 2271 || pk->id == 2271 || pl->id == 2271 )
-                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphi , ee , eff );
+                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphiq , ee , eff );
             
             /* update the forces */
             for ( k = 0 ; k < 3 ; k++ ) {
@@ -1053,43 +994,30 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
         
         } /* loop over dihedrals. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
     
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cphiq[k] = cphiq[0];
                 }
     
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-    
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                    effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                    effk[l][k] += wi + wj + wl;
-                    }
-                }
-    
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-    
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cphiq[k] = cphiq[0];
-                }
-    
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cphiq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                #endif
+            #endif
     
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
@@ -1145,13 +1073,13 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
         t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4], *effk[4], *effl[4];
-    FPTYPE cphiq[4] __attribute__ ((aligned (16)));
-    FPTYPE ee[4] __attribute__ ((aligned (16)));
-    FPTYPE eff[4] __attribute__ ((aligned (16)));
-    FPTYPE diq[12], djq[12], dlq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
 #endif
@@ -1311,55 +1239,44 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
             potq[icount] = pot;
             icount += 1;
 
-            #if defined(FPTYPE_SINGLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
 
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                    #else
                     potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #elif defined(FPTYPE_DOUBLE)
-                /* evaluate the dihedrals if the queue is full. */
-                if ( icount == 4 ) {
-
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
                     potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+                    #else
+                    potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                    #endif
+                #endif
 
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < 4 ; l++ ) {
-                        epot += ee[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                            effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                            effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                            effk[l][k] += wi + wj + wl;
-                            }
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
+                        effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
+                        effk[l][k] += wi + wj + wl;
                         }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
                     }
-            #endif
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
         #else
             /* evaluate the dihedral */
             #ifdef EXPLICIT_POTENTIALS
-                potential_eval_expl( pot , cphi , &ee , &eff );
+                potential_eval_expl( pot , cphiq , &ee , &eff );
             #else
-                potential_eval_r( pot , cphi , &ee , &eff );
+                potential_eval_r( pot , cphiq , &ee , &eff );
             #endif
             
             /* update the forces */
@@ -1376,19 +1293,31 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
         
         } /* loop over dihedrals. */
         
-    #if defined(VEC_SINGLE)
+    #if defined(VECTORIZE)
         /* are there any leftovers? */
         if ( icount > 0 ) {
-
+    
             /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
                 potq[k] = potq[0];
                 cphiq[k] = cphiq[0];
                 }
-
+    
             /* evaluate the potentials */
-            potential_eval_vec_4single_r( potq , cphiq , ee , eff );
-
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cphiq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cphiq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cphiq , ee , eff );
+                #endif
+            #endif
+    
             /* for each entry, update the forces and energy */
             for ( l = 0 ; l < icount ; l++ ) {
                 epot += ee[l];
@@ -1399,32 +1328,7 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
                     effk[l][k] += wi + wj + wl;
                     }
                 }
-
-            }
-    #elif defined(VEC_DOUBLE)
-        /* are there any leftovers (single entry)? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < 4 ; k++ ) {
-                potq[k] = potq[0];
-                cphiq[k] = cphiq[0];
-                }
-
-            /* evaluate the potentials */
-            potential_eval_vec_4double_r( potq , cphiq , ee , eff );
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += ee[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
-                    effj[l][k] -= ( wj = eff[l] * djq[3*l+k] );
-                    effl[l][k] -= ( wl = eff[l] * dlq[3*l+k] );
-                    effk[l][k] += wi + wj + wl;
-                    }
-                }
-
+    
             }
     #endif
     

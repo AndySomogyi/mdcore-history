@@ -254,7 +254,8 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
     int *setid_bonds, *setid_angles, *setid_dihedrals, *setid_exclusions, *setid_rigids;
     int nr_sets;
     int i, jj , j , k, min_i, min_j, min_weight, max_weight, max_confl, nr_confl;
-    double avg_nconfl, avg_weight, tot_weight;
+    double avg_weight;
+    // double avg_nconfl;
     char *confl_counts;
     
     /* Function to add a conflict. */
@@ -321,7 +322,6 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
         
     /* Start with one set per bonded interaction. */
     nr_sets = e->nr_bonds + e->nr_angles + e->nr_dihedrals + e->nr_exclusions + e->nr_rigids;
-    tot_weight = e->nr_bonds + 2*e->nr_angles + 3*e->nr_dihedrals + e->nr_exclusions;
     if ( ( weight = (int *)malloc( sizeof(int) * nr_sets ) ) == NULL ||
          ( nconfl = (int *)calloc( nr_sets , sizeof(int) ) ) == NULL ||
          ( confl_counts = (char *)malloc( sizeof(char) * nr_sets ) ) == NULL )
@@ -638,7 +638,7 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
     while ( nr_sets > max_sets ) {
     
         /* Get the average number of conflicts. */
-        avg_nconfl = (2.0 * confl_count) / nr_sets;
+        // avg_nconfl = (2.0 * confl_count) / nr_sets;
         min_weight = weight[0]; max_weight = weight[0];
         for ( k = 1 ; k < nr_sets ; k++ )
             if ( weight[k] < min_weight )

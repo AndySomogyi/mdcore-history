@@ -95,16 +95,13 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol );
 struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol );
 void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_ee ( struct potential *p , struct potential *ep , FPTYPE r2 , FPTYPE q , FPTYPE *e , FPTYPE *f );
 void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f );
 void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f );
 void potential_eval_vec_8single ( struct potential *p[4] , float *r2 , float *e , float *f );
-void potential_eval_vec_4single_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_2double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f );
-void potential_eval_vec_2double_ee ( struct potential *p[4] , struct potential *ep , FPTYPE *r2 , FPTYPE *q , FPTYPE *e , FPTYPE *f );
 void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f );
 
 /* helper functions */
