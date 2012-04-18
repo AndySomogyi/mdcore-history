@@ -191,8 +191,8 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
                     epot += ee[l];
                     for ( k = 0 ; k < 3 ; k++ ) {
                         w = eff[l] * dxq[l*3+k];
-                        effi[l][k] -= w;
-                        effj[l][k] += w;
+                        effi[l][k] += w;
+                        effj[l][k] -= w;
                         }
                     }
 
@@ -253,8 +253,8 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
                 epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
@@ -397,8 +397,8 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
                     epot += ee[l];
                     for ( k = 0 ; k < 3 ; k++ ) {
                         w = eff[l] * dxq[l*3+k];
-                        effi[l][k] -= w;
-                        effj[l][k] += w;
+                        effi[l][k] += w;
+                        effj[l][k] -= w;
                         }
                     }
 
@@ -459,8 +459,8 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
                 epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
@@ -590,8 +590,8 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
                     epot += ee[l];
                     for ( k = 0 ; k < 3 ; k++ ) {
                         w = eff[l] * dxq[l*3+k];
-                        effi[l][k] -= w;
-                        effj[l][k] += w;
+                        effi[l][k] += w;
+                        effj[l][k] -= w;
                         }
                     }
 
@@ -650,8 +650,8 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
                 epot += ee[l];
                 for ( k = 0 ; k < 3 ; k++ ) {
                     w = eff[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
                     }
                 }
 
