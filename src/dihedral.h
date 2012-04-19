@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* dihedral error codes */
 #define dihedral_err_ok                    0
 #define dihedral_err_null                  -1

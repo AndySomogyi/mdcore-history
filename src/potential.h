@@ -18,10 +18,6 @@
  ******************************************************************************/
 
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* potential error codes */
 #define potential_err_ok                    0
 #define potential_err_null                  -1

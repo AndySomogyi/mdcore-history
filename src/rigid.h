@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* rigid error codes */
 #define rigid_err_ok                    0
 #define rigid_err_null                  -1

@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* reader error codes */
 #define reader_err_ok                    0
 #define reader_err_null                  -1

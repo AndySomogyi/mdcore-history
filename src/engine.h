@@ -18,10 +18,6 @@
  ******************************************************************************/
 
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* engine error codes */
 #define engine_err_ok                    0
 #define engine_err_null                  -1

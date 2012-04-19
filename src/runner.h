@@ -17,9 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
 /* runner error codes */
 #define runner_err_ok                    0
 #define runner_err_null                  -1

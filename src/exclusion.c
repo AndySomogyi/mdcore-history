@@ -91,7 +91,7 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
     struct part *pi, *pj, **partlist;
     struct cell **celllist, *ci, *cj;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w;
+    FPTYPE pix[4], dx[4], r2, w;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -118,6 +118,7 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
     ld_pots = e->max_type;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
+    pix[3] = FPTYPE_ZERO;
         
     /* Loop over the exclusions. */
     for ( bid = 0 ; bid < N ; bid++ ) {
@@ -150,9 +151,9 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
                 shift[k] = -1;
             else if ( shift[k] < -1 )
                 shift[k] = 1;
-            dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
-            r2 += dx[k] * dx[k];
+            pix[k] = pi->x[k] + h[k]*shift[k];
             }
+        r2 = fptype_r2( pix , pj->x , dx );
         
         /* Out of range? */
         if ( r2 > pot->b*pot->b )

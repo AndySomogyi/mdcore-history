@@ -91,7 +91,7 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
     struct part *pi, *pj, **partlist;
     struct cell **celllist, *ci, *cj;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w, incr;
+    FPTYPE dx[4], pix[4], r2, w, incr;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -118,6 +118,7 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
     ld_pots = e->max_type;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
+    pix[3] = FPTYPE_ZERO;
         
     /* Loop over the bonds. */
     for ( bid = 0 ; bid < N ; bid++ ) {
@@ -144,15 +145,15 @@ int bond_eval_div ( struct bond *b , int N , int nr_threads , int cid_div , stru
     
         /* get the distance between both particles */
         loci = ci->loc; locj = cj->loc;
-        for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+        for ( k = 0 ; k < 3 ; k++ ) {
             shift[k] = loci[k] - locj[k];
             if ( shift[k] > 1 )
                 shift[k] = -1;
             else if ( shift[k] < -1 )
                 shift[k] = 1;
-            dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
-            r2 += dx[k] * dx[k];
+            pix[k] = pi->x[k] + h[k]*shift[k];
             }
+        r2 = fptype_r2( pix , pj->x , dx );
         
         if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
             printf( "bond_eval: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
@@ -292,7 +293,7 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
     struct part *pi, *pj, **partlist;
     struct cell **celllist;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w;
+    FPTYPE pix[4], dx[4], r2, w;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -317,6 +318,7 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
     ld_pots = e->max_type;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
+    pix[3] = FPTYPE_ZERO;
         
     /* Loop over the bonds. */
     for ( bid = 0 ; bid < N ; bid++ ) {
@@ -339,15 +341,15 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
     
         /* get the distance between both particles */
         loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
-        for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+        for ( k = 0 ; k < 3 ; k++ ) {
             shift[k] = loci[k] - locj[k];
             if ( shift[k] > 1 )
                 shift[k] = -1;
             else if ( shift[k] < -1 )
                 shift[k] = 1;
-            dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
-            r2 += dx[k] * dx[k];
+            pix[k] = pi->x[k] + h[k]*shift[k];
             }
+        r2 = fptype_r2( pix , pj->x , dx );
         
         if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
             printf( "bond_eval: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,
@@ -490,7 +492,7 @@ int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double 
     struct part *pi, *pj, **partlist;
     struct cell **celllist;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w;
+    FPTYPE pix[4], dx[4], r2, w;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -515,6 +517,7 @@ int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double 
     ld_pots = e->max_type;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
+    pix[3] = FPTYPE_ZERO;
         
     /* Loop over the bonds. */
     for ( bid = 0 ; bid < N ; bid++ ) {
@@ -536,15 +539,15 @@ int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double 
     
         /* get the distance between both particles */
         loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
-        for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+        for ( k = 0 ; k < 3 ; k++ ) {
             shift[k] = loci[k] - locj[k];
             if ( shift[k] > 1 )
                 shift[k] = -1;
             else if ( shift[k] < -1 )
                 shift[k] = 1;
-            dx[k] = pi->x[k] - pj->x[k] + shift[k]*h[k];
-            r2 += dx[k] * dx[k];
+            pix[k] = pi->x[k] + h[k]*shift[k];
             }
+        r2 = fptype_r2( pix , pj->x , dx );
 
         if ( r2 < pot->a*pot->a || r2 > pot->b*pot->b ) {
             printf( "bond_evalf: bond %i (%s-%s) out of range [%e,%e], r=%e.\n" ,

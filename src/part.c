@@ -23,6 +23,7 @@
 #include <math.h>
 
 /* include local headers */
+#include "fptype.h"
 #include "part.h"
 
 

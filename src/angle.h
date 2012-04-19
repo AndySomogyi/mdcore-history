@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* angle error codes */
 #define angle_err_ok                    0
 #define angle_err_null                  -1

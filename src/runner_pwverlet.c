@@ -98,11 +98,11 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff;
-    FPTYPE cutoff, cutoff2, skin, skin2, r2, dx[3], w;
+    FPTYPE cutoff, cutoff2, skin, skin2, r2, dx[4], w;
     unsigned int *parts, dmaxdist;
     FPTYPE dscale;
     FPTYPE shift[3], inshift, nshift;
-    FPTYPE pix[3], *pif;
+    FPTYPE pix[4], *pif;
     int pind, pid, nr_pairs, count_i, count_j;
     double epot = 0.0;
     short int *pairs;
@@ -135,6 +135,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
     cutoff2 = cutoff*cutoff;
     dscale = (FPTYPE)SHRT_MAX / ( 3 * sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] ) );
     dmaxdist = 2 + dscale*skin;
+    pix[3] = FPTYPE_ZERO;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -176,10 +177,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                 part_j = &(parts_j[j]);
 
                 /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
 
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
@@ -337,11 +335,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     part_j = &( parts_j[ parts[count_i+j] >> 16 ] );
                     
                     /* get the distance between both particles */
-                    r2 = 0.0;
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        dx[k] = pix[k] - part_j->x[k];
-                        r2 += dx[k] * dx[k];
-                        }
+                    r2 = fptype_r2( pix , part_j->x , dx );
 
                     /* is this within cutoff? */
                     if ( r2 > skin2 )
@@ -458,10 +452,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
                     part_j = &( parts_j[ pairs[j] ] );
 
                     /* get the distance between both particles */
-                    for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                        dx[k] = pix[k] - part_j->x[k];
-                        r2 += dx[k] * dx[k];
-                        }
+                    r2 = fptype_r2( pix , part_j->x , dx );
 
                     /* is this within cutoff? */
                     if ( r2 > cutoff2 )
@@ -638,11 +629,11 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff, dmaxdist, dnshift;
-    FPTYPE cutoff, cutoff2, r2, dx[3], w;
+    FPTYPE cutoff, cutoff2, r2, dx[4], w;
     unsigned int *iparts, *jparts;
     FPTYPE dscale;
     FPTYPE shift[3], shiftn[3], nshift, bias;
-    FPTYPE pix[3], *pif;
+    FPTYPE pix[4], *pif;
     int pid, count_i, count_j;
     double epot = 0.0;
 #if defined(VECTORIZE)
@@ -673,6 +664,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
     bias = sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
     dscale = (FPTYPE)SHRT_MAX / (2 * bias );
     dmaxdist = 2 + dscale * (cutoff + 2*eng->s.verlet_maxdx);
+    pix[3] = FPTYPE_ZERO;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -714,10 +706,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                 part_j = &(parts_j[j]);
 
                 /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
 
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
@@ -895,11 +884,7 @@ int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell
                     continue;
 
                 /* get the distance between both particles */
-                r2 = 0.0;
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
 
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )

@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* bond error codes */
 #define bond_err_ok                    0
 #define bond_err_null                  -1

@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* space error codes */
 #define space_err_ok                    0
 #define space_err_null                  -1

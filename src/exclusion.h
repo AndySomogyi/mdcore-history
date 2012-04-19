@@ -17,10 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
-
 /* exclusion error codes */
 #define exclusion_err_ok                    0
 #define exclusion_err_null                  -1

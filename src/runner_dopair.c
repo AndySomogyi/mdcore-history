@@ -36,9 +36,6 @@
     #include <libmisc.h>
     #define ceil128(v) (((v) + 127) & ~127)
 #endif
-#ifdef __SSE__
-    #include <xmmintrin.h>
-#endif
 #ifdef HAVE_SETAFFINITY
     #include <sched.h>
 #endif
@@ -72,7 +69,7 @@
 /* list of error messages. */
 extern char *runner_err_msg[];
 extern unsigned int runner_rcount;
-    
+
 
 /**
  * @brief Compute the pairwise interactions for the given pair using the sorted
@@ -106,11 +103,11 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff, count_i, count_j;
-    FPTYPE cutoff, cutoff2, r2, dx[3], w;
+    FPTYPE cutoff, cutoff2, r2, dx[4], w;
     unsigned int *parts, dcutoff;
     FPTYPE dscale;
     FPTYPE shift[3], nshift, inshift;
-    FPTYPE pix[3], *pif;
+    FPTYPE pix[4], *pif;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -138,6 +135,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
     cutoff2 = s->cutoff2;
     dscale = (FPTYPE)SHRT_MAX / ( 3 * sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] ) );
     dcutoff = 2 + dscale * cutoff;
+    pix[3] = FPTYPE_ZERO;
     
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -179,10 +177,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                 part_j = &(parts_i[j]);
                 
                 /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
                     
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
@@ -321,11 +316,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
                     continue;
 
                 /* get the distance between both particles */
-                r2 = 0.0;
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
 
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
@@ -487,7 +478,7 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
 int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
     int i, j, k, emt, pioff, count_i, count_j;
-    FPTYPE cutoff2, r2, dx[3], pix[3], w;
+    FPTYPE cutoff2, r2, dx[4], pix[4], w;
     double epot = 0.0;
     struct engine *eng;
     struct part *part_i, *part_j, *parts_i, *parts_j;
@@ -516,6 +507,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
     emt = eng->max_type;
     s = &(eng->s);
     cutoff2 = s->cutoff2;
+    pix[3] = FPTYPE_ZERO;
         
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -556,10 +548,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                 part_j = &(parts_i[j]);
                 
                 /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
                     
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )
@@ -659,10 +648,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
 
                 /* fetch the potential, if any */
                 /* get the distance between both particles */
-                for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
-                    dx[k] = pix[k] - part_j->x[k];
-                    r2 += dx[k] * dx[k];
-                    }
+                r2 = fptype_r2( pix , part_j->x , dx );
                     
                 /* is this within cutoff? */
                 if ( r2 > cutoff2 )

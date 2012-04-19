@@ -17,9 +17,6 @@
  * 
  ******************************************************************************/
 
-/* Local includes. */
-#include "fptype.h"
-
 /* fifo error codes */
 #define fifo_err_ok                    0
 #define fifo_err_null                  -1

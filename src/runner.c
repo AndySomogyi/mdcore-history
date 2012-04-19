@@ -1249,7 +1249,8 @@ int runner_run_pairs ( struct runner *r ) {
     struct cellpair *p = NULL;
     struct cellpair *finger;
     struct engine *e;
-    struct cell *c;
+    struct space *s;
+    struct cell *ci, *cj;
 
     /* check the inputs */
     if ( r == NULL )
@@ -1257,6 +1258,7 @@ int runner_run_pairs ( struct runner *r ) {
         
     /* get a pointer on the engine. */
     e = r->e;
+    s = &e->s;
         
     /* give a hoot */
     printf("runner_run: runner %i is up and running (pairs)...\n",r->id); fflush(stdout);
@@ -1271,29 +1273,44 @@ int runner_run_pairs ( struct runner *r ) {
                         
         /* while i can still get a pair... */
         /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
-        while ( ( p = space_getpair( &e->s , r->id , runner_bitesize , NULL , &err , 1 ) ) != NULL ) {
+        while ( ( p = space_getpair( s , r->id , runner_bitesize , NULL , &err , 1 ) ) != NULL ) {
 
             /* work this list of pair... */
             for ( finger = p ; finger != NULL ; finger = finger->next ) {
 
+                /* Get the cells. */
+                ci = &( s->cells[ finger->i ] );
+                cj = &( s->cells[ finger->j ] );
+                
                 /* for each cell, prefetch the parts involved. */
                 if ( e->flags & engine_flag_prefetch ) {
-                    c = &( e->s.cells[finger->i] );
-                    for ( k = 0 ; k < c->count ; k++ )
-                        acc += c->parts[k].id;
-                    if ( finger->i != finger->j ) {
-                        c = &( e->s.cells[finger->j] );
-                        for ( k = 0 ; k < c->count ; k++ )
-                            acc += c->parts[k].id;
-                        }
+                    for ( k = 0 ; k < ci->count ; k++ )
+                        acc += ci->parts[k].id;
+                    if ( finger->i != finger->j )
+                        for ( k = 0 ; k < cj->count ; k++ )
+                            acc += cj->parts[k].id;
                     }
 
-                /* Compute interactions. */
-                if ( runner_dopair( r , &(e->s.cells[finger->i]) , &(e->s.cells[finger->j]) , finger->shift ) < 0 )
-                    return error(runner_err);
+                /* Sorted interactions? */
+                if ( e->flags & engine_flag_verlet_pairwise2 ) {
+                    if ( runner_dopair_verlet2( r , ci , cj , finger->shift , finger ) < 0 )
+                        return error(runner_err);
+                    }
+                else if ( e->flags & engine_flag_verlet_pairwise ) {
+                    if ( runner_dopair_verlet( r , ci , cj , finger->shift , finger ) < 0 )
+                        return error(runner_err);
+                    }
+                else if ( e->flags & engine_flag_unsorted ) {
+                    if ( runner_dopair_unsorted( r , ci , cj , finger->shift ) < 0 )
+                        return error(runner_err);
+                    }
+                else {
+                    if ( runner_dopair( r , ci , cj , finger->shift ) < 0 )
+                        return error(runner_err);
+                    }
 
                 /* release this pair */
-                if ( space_releasepair( &(e->s) , finger->i , finger->j ) < 0 )
+                if ( space_releasepair( s , finger->i , finger->j ) < 0 )
                     return error(runner_err_space);
 
                 }
@@ -1404,7 +1421,15 @@ int runner_run_tuples ( struct runner *r ) {
                         }
                     
                     /* Sorted interactions? */
-                    if ( e->flags & engine_flag_unsorted ) {
+                    if ( e->flags & engine_flag_verlet_pairwise2 ) {
+                        if ( runner_dopair_verlet2( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
+                            return error(runner_err);
+                        }
+                    else if ( e->flags & engine_flag_verlet_pairwise ) {
+                        if ( runner_dopair_verlet( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
+                            return error(runner_err);
+                        }
+                    else if ( e->flags & engine_flag_unsorted ) {
                         if ( runner_dopair_unsorted( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
                             return error(runner_err);
                         }
@@ -1425,138 +1450,6 @@ int runner_run_tuples ( struct runner *r ) {
 
         /* give the reaction count */
         // printf("runner_run_tuples: runner_rcount=%u.\n",runner_rcount);
-        r->err = acc;
-            
-        }
-
-    /* end well... */
-    return runner_err_ok;
-
-    }
-
-    
-/**
- * @brief The #runner's main routine (#celltuple model with pairwise Verlet lists).
- *
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, calls #space_gettuple until there are no
- * tuples available.
- */
-
-int runner_run_verlet_pairwise ( struct runner *r ) {
-
-    int res, i, j, k, ci, cj, acc = 0;
-    struct celltuple *t;
-    FPTYPE shift[3];
-    struct space *s;
-    struct engine *e;
-    struct cell *c;
-    struct cellpair *p;
-
-    /* check the inputs */
-    if ( r == NULL )
-        return error(runner_err_null);
-        
-    /* Remember who the engine and the space are. */
-    e = r->e;
-    s = &(r->e->s);
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running (pairwise Verlet)...\n",r->id); fflush(stdout);
-    
-    /* main loop, in which the runner should stay forever... */
-    while ( 1 ) {
-    
-        /* wait at the engine barrier */
-        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
-        if ( engine_barrier(e) < 0 )
-            return r->err = runner_err_engine;
-            
-        // runner_rcount = 0;
-                        
-        /* Loop over tuples. */
-        while ( 1 ) {
-        
-            /* Get a tuple. */
-            if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
-                return r->err = runner_err_space;
-                
-            /* If there were no tuples left, bail. */
-            if ( res < 1 )
-                break;
-                
-            /* for each cell, prefetch the parts involved. */
-            if ( e->flags & engine_flag_prefetch )
-                for ( i = 0 ; i < t->n ; i++ ) {
-                    c = &( s->cells[t->cellid[i]] );
-                    for ( k = 0 ; k < c->count ; k++ )
-                        acc += c->parts[k].id;
-                    }
-
-            /* Loop over all pairs in this tuple. */
-            for ( i = 0 ; i < t->n ; i++ ) { 
-                        
-                /* Get the cell ID. */
-                ci = t->cellid[i];
-                    
-                for ( j = i ; j < t->n ; j++ ) {
-                
-                    /* Is this pair active? */
-                    if ( t->pairid[ space_pairind( i , j ) ] < 0 )
-                        continue;
-                        
-                    /* Get the cell ID. */
-                    cj = t->cellid[j];
-
-                    /* Compute the shift between ci and cj. */
-                    if ( i == j )
-                        for ( k = 0 ; k < 3 ; k++ )
-                            shift[k] = 0.0;
-                    else
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            shift[k] = s->cells[cj].origin[k] - s->cells[ci].origin[k];
-                            if ( shift[k] * 2 > s->dim[k] )
-                                shift[k] -= s->dim[k];
-                            else if ( shift[k] * 2 < -s->dim[k] )
-                                shift[k] += s->dim[k];
-                            }
-                            
-                    /* Prefetch the pairlist. */
-                    if ( i != j && e->flags & engine_flag_prefetch ) {
-                        p = &( s->pairs[ t->pairid[ space_pairind(i,j) ] ] );
-                        for ( k = 0 ; k < s->cells[ci].count * s->cells[cj].count ; k += 32 )
-                            acc += p->pairs[k];
-                        for ( k = 0 ; k < s->cells[ci].count + s->cells[cj].count ; k += 64 )
-                            acc += p->nr_pairs[k];
-                        }
-                    
-                    /* Compute the interactions of this pair. */
-                    if ( e->flags & engine_flag_verlet_pairwise2 ) {
-                        if ( runner_dopair_verlet2( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
-                            return error(runner_err);
-                        }
-                    else {
-                        if ( runner_dopair_verlet( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
-                            return error(runner_err);
-                        }
-
-                    /* release this pair */
-                    if ( space_releasepair( s , ci , cj ) < 0 )
-                        return error(runner_err_space);
-                        
-                    }
-                    
-                }
-                
-            } /* loop over the tuples. */
-
-        /* give the reaction count */
-        // printf("runner_run_verlet_pairwise: runner_rcount=%u.\n",runner_rcount);
         r->err = acc;
             
         }
@@ -1774,14 +1667,8 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
 		    return error(runner_err_pthread);
         }
         
-    /* init the thread using a pairwise Verlet list. */
-    else if ( e->flags & engine_flag_verlet_pairwise ) {
-	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_verlet_pairwise , r ) != 0 )
-		    return error(runner_err_pthread);
-        }
-        
     /* init the thread using a global Verlet list. */
-    else if ( e->flags & engine_flag_verlet ) {
+    else if ( e->flags & engine_flag_verlet && !(e->flags & engine_flag_verlet_pairwise) ) {
 	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_verlet , r ) != 0 )
 		    return error(runner_err_pthread);
         }
