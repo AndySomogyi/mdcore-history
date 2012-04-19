@@ -55,6 +55,7 @@
 #include "fifo.h"
 #include "space.h"
 #include "potential.h"
+#include "potential_eval.h"
 #include "engine.h"
 #include "runner.h"
 

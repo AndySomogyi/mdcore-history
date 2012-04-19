@@ -90,15 +90,19 @@ struct potential *potential_create_Coulomb ( double a , double b , double q , do
 struct potential *potential_create_harmonic ( double a , double b , double K , double r0 , double tol );
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol );
 struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol );
-void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f );
-void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f );
-void potential_eval_vec_8single ( struct potential *p[4] , float *r2 , float *e , float *f );
-void potential_eval_vec_2double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
-void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f );
-void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f );
+
+/* These functions are now all in potential_eval.h. */
+/*
+    void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
+    void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
+    void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f );
+    void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f );
+    void potential_eval_vec_8single ( struct potential *p[4] , float *r2 , float *e , float *f );
+    void potential_eval_vec_2double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+    void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
+    void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f );
+    void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f );
+*/
 
 /* helper functions */
 double potential_LJ126 ( double r , double A , double B );

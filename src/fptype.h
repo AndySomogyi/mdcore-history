@@ -107,7 +107,7 @@
  * SSE registers and horizontal adds.
  */
  
-__attribute__ ((always_inline)) static inline FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
+__attribute__ ((always_inline)) extern inline FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
 
 #if defined(FPTYPE_SINGLE) && defined(__SSE3__)
     union {
