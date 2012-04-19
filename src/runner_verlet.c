@@ -86,7 +86,7 @@ extern unsigned int runner_rcount;
  * @return #runner_err_ok or <0 on error (see #runner_err)
  */
  
-int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out ) {
+__attribute__ ((flatten)) int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out ) {
 
     struct space *s;
     struct part *part_i, *part_j;
@@ -274,7 +274,7 @@ int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out ) {
  *
  */
  
-int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
+__attribute__ ((flatten)) int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
 
     struct part *part_i, *part_j;
     struct space *s;

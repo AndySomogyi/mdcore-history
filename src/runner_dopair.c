@@ -92,7 +92,7 @@ extern unsigned int runner_rcount;
  * @sa #runner_dopair.
  */
  
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
+__attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift ) {
 
     struct part *part_i, *part_j;
     struct space *s;
@@ -475,10 +475,10 @@ int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j
  * @sa #runner_sortedpair.
  */
 
-int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
+__attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
 
     int i, j, k, emt, pioff, count_i, count_j;
-    FPTYPE cutoff2, r2, dx[4], pix[4], w;
+    FPTYPE cutoff2, r2, dx[4], pix[4], w, *pif;
     double epot = 0.0;
     struct engine *eng;
     struct part *part_i, *part_j, *parts_i, *parts_j;
@@ -539,6 +539,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             pix[0] = part_i->x[0];
             pix[1] = part_i->x[1];
             pix[2] = part_i->x[2];
+            pif = part_i->f;
             pioff = part_i->type * emt;
         
             /* loop over all other particles */
@@ -566,7 +567,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                     dxq[icount*3] = dx[0];
                     dxq[icount*3+1] = dx[1];
                     dxq[icount*3+2] = dx[2];
-                    effi[icount] = part_i->f;
+                    effi[icount] = pif;
                     effj[icount] = part_j->f;
                     potq[icount] = pot;
                     icount += 1;
@@ -638,6 +639,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
             pix[0] = part_i->x[0] - shift[0];
             pix[1] = part_i->x[1] - shift[1];
             pix[2] = part_i->x[2] - shift[2];
+            pif = part_i->f;
             pioff = part_i->type * emt;
             
             /* loop over all other particles */
@@ -665,7 +667,7 @@ int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cel
                     dxq[icount*3] = dx[0];
                     dxq[icount*3+1] = dx[1];
                     dxq[icount*3+2] = dx[2];
-                    effi[icount] = part_i->f;
+                    effi[icount] = pif;
                     effj[icount] = part_j->f;
                     potq[icount] = pot;
                     icount += 1;

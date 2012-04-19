@@ -88,7 +88,7 @@ extern unsigned int runner_rcount;
  *
  */
  
-int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp ) {
+__attribute__ ((flatten)) int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp ) {
 
     struct part *part_i, *part_j;
     struct space *s;
@@ -619,7 +619,7 @@ int runner_dopair_verlet ( struct runner *r , struct cell *cell_i , struct cell 
  *
  */
  
-int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp ) {
+__attribute__ ((flatten)) int runner_dopair_verlet2 ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift , struct cellpair *cp ) {
 
     struct part *part_i, *part_j;
     struct space *s;
