@@ -110,6 +110,9 @@ struct space {
     /** Mutex for accessing the cell pairs. */
     pthread_mutex_t cellpairs_mutex;
     
+    /** Spin-lock for accessing the cell pairs. */
+    pthread_spinlock_t cellpairs_spinlock;
+    
     /** Condition to wait for free cells on. */
     pthread_cond_t cellpairs_avail;
     
@@ -213,7 +216,9 @@ struct verlet_entry {
 /* associated functions */
 int space_init ( struct space *s , const double *origin , const double *dim , double L , double cutoff , unsigned int period );
 struct cellpair *space_getpair ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
+struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
 int space_releasepair ( struct space *s , int ci , int cj );
+int space_releasepair_spin ( struct space *s , int ci , int cj );
 int space_shuffle ( struct space *s );
 int space_shuffle_local ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
@@ -221,6 +226,7 @@ int space_pairs_sort ( struct space *s );
 int space_prepare ( struct space *s );
 int space_maketuples ( struct space *s );
 int space_gettuple ( struct space *s , struct celltuple **out , int wait );
+int space_gettuple_spin ( struct space *s , struct celltuple **out , int wait );
 int space_getpos ( struct space *s , int id , double *x );
 int space_setpos ( struct space *s , int id , double *x );
 int space_flush ( struct space *s );

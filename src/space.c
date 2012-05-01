@@ -523,6 +523,90 @@ int space_gettuple ( struct space *s , struct celltuple **out , int wait ) {
 
 
 /**
+ * @brief Get the next free #celltuple from the space.
+ * 
+ * @param s The #space in which to look for tuples.
+ * @param out A pointer to a #celltuple in which to copy the result.
+ * @param wait A boolean value specifying if to wait for free tuples
+ *      or not.
+ *
+ * @return The number of #celltuple found or 0 if the list is empty and
+ *      < 0 on error (see #space_err).
+ */
+ 
+int space_gettuple_spin ( struct space *s , struct celltuple **out , int wait ) {
+
+    int i, j, k;
+    struct celltuple *t, temp;
+
+    /* Main loop, while there are still tuples left. */
+    while ( s->next_tuple < s->nr_tuples ) {
+    
+        /* Try to get a hold of the cells spinlock */
+	    if ( pthread_spin_lock( &s->cellpairs_spinlock ) != 0 )
+		    return error(space_err_pthread);
+        
+        /* Loop over all tuples. */
+        for ( k = s->next_tuple ; k < s->nr_tuples ; k++ ) {
+        
+            /* Put a t on this tuple. */
+            t = &( s->tuples[ k ] );
+            
+            /* Check if all the cells of this tuple are free. */
+            for ( i = 0 ; i < t->n ; i++ )
+                if ( s->cells_taboo[ t->cellid[i] ] != 0 )
+                    break;
+            if ( i < t->n )
+                continue;
+                
+            /* If so, mark-off the cells pair by pair. */
+            for ( i = 0 ; i < t->n ; i++ )
+                for ( j = i ; j < t->n ; j++ )
+                    if ( t->pairid[ space_pairind(i,j) ] >= 0 ) {
+                        s->cells_taboo[ t->cellid[i] ] += 1;
+                        s->cells_taboo[ t->cellid[j] ] += 1;
+                        }
+                        
+            /* Swap this tuple to the top of the list. */
+            if ( k != s->next_tuple ) {
+                temp = s->tuples[k];
+                s->tuples[k] = s->tuples[ s->next_tuple ];
+                s->tuples[ s->next_tuple ] = temp;
+                s->nr_swaps += 1;
+                }
+                
+            /* Copy this tuple out. */
+            *out = &( s->tuples[ s->next_tuple ] );
+            
+            /* Increase the top of the list. */
+            s->next_tuple += 1;
+            
+            /* And leave. */
+            break;
+            
+            }
+            
+        /* Release the cells spinlock */
+	    if ( pthread_spin_unlock( &s->cellpairs_spinlock ) != 0 )
+		    return error(space_err_pthread);
+        
+        /* Did we get a tuple? */
+        if ( k < s->nr_tuples )
+            return 1;
+            
+        /* Should we try again? */
+        else if ( !wait )
+            break;
+            
+        }
+        
+    /* Bring good tidings. */
+    return space_err_ok;
+        
+    }
+
+
+/**
  * @brief Generate the list of #celltuple.
  * 
  * @param s Pointer to the #space to make tuples for.
@@ -1095,6 +1179,34 @@ int space_releasepair ( struct space *s , int ci , int cj ) {
     
 
 /**
+ * @brief Free the cells involved in the current pair.
+ *
+ * @param s The #space to operate on.
+ * @param ci ID of the first cell.
+ * @param cj ID of the second cell.
+ *
+ * @returns #space_err_ok or < 0 on error (see #space_err).
+ *
+ * Decreases the taboo-counter of the cells involved in the pair
+ * and signals any #runner that might be waiting.
+ * Note that only a single waiting #runner is released per released cell
+ * and therefore, if two different cells become free, the condition
+ * @c cellpairs_avail is signaled twice.
+ */
+
+int space_releasepair_spin ( struct space *s , int ci , int cj ) {
+
+    /* release the cells in the given pair */
+    s->cells_taboo[ ci ] -= 1;
+    s->cells_taboo[ cj ] -= 1;
+    
+    /* all is well... */
+    return space_err_ok;
+        
+    }
+    
+
+/**
  * @brief Get a set of #cellpair from the space.
  *
  * @param s The #space from which to get pairs.
@@ -1243,6 +1355,105 @@ struct cellpair *space_getpair ( struct space *s , int owner , int count , struc
         return NULL;
         }
     
+    /* return the pair (if any) */
+    *err = space_err_ok;
+    return res;
+    
+    }
+
+
+struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait ) {
+
+    struct cellpair *res = NULL;
+    struct cellpair temp;
+    int i;
+    
+    /* did the user return any old pairs */
+    if ( old != NULL ) {
+    
+        /* release any old pairs */
+        while ( old != NULL ) {
+            s->cells_taboo[ old->i ] -= 1;
+            s->cells_taboo[ old->j ] -= 1;
+            old = old->next;
+            }
+
+        }
+        
+    /* Main loop... */
+    while ( s->next_pair < s->nr_pairs ) {
+    
+        /* Try to get a hold of the cells spin-lock */
+	    if ( pthread_spin_lock( &s->cellpairs_spinlock ) != 0 ) {
+		    *err = space_err_pthread;
+            return NULL;
+            }
+
+        /* set i */
+        i = s->next_pair;
+    
+        /* try to find an unused pair */
+        while ( s->next_pair < s->nr_pairs && count > 0 ) {
+
+            /* run through the list of pairs */
+            for (  ; i < s->nr_pairs ; i++ )
+                if ( ( s->cells_taboo[s->pairs[i].i] == 0  || s->cells_owner[s->pairs[i].i] == owner ) &&
+                    ( s->cells_taboo[s->pairs[i].j] == 0  || s->cells_owner[s->pairs[i].j] == owner ) )
+                    break;
+
+            /* did we actually find a pair? */
+            if ( i < s->nr_pairs ) {
+
+                /* do we need to swap this pair up? */
+                if ( i > s->next_pair ) {
+                    temp = s->pairs[i];
+                    s->pairs[i] = s->pairs[s->next_pair];
+                    s->pairs[s->next_pair] = temp;
+                    s->nr_swaps += 1;
+                    }
+
+                /* does this pair actually require any work? */
+                if ( s->cells[ s->pairs[ s->next_pair ].i ].count > 0 &&
+                    s->cells[ s->pairs[ s->next_pair ].j ].count > 0 ) {
+
+                    /* set the result */
+                    s->pairs[s->next_pair].next = res;
+                    res = &s->pairs[s->next_pair++];
+
+                    /* mark the cells as taken */
+                    s->cells_taboo[res->i] += 1;
+                    s->cells_taboo[res->j] += 1;
+                    s->cells_owner[res->i] = owner;
+                    s->cells_owner[res->j] = owner;
+
+                    /* adjust the counters */
+                    count -= 1;
+                    
+                    }
+
+                /* otherwise, just skip this pair */
+                else
+                    s->next_pair += 1;
+
+                /* move the finger one up */
+                i += 1;
+
+                }
+
+            } /* main loop. */
+        
+        /* Release the cells spin-lock */
+	    if (pthread_spin_unlock( &s->cellpairs_spinlock ) != 0) {
+		    *err = space_err_pthread;
+            return NULL;
+            }
+            
+        /* Did we get anything this time? */
+        if ( res != NULL || !wait )
+            break;
+             
+        }
+     
     /* return the pair (if any) */
     *err = space_err_ok;
     return res;
@@ -1512,6 +1723,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     
     /* init the cellpair mutexes */
     if ( pthread_mutex_init( &s->cellpairs_mutex , NULL ) != 0 ||
+        pthread_spin_init( &s->cellpairs_spinlock , PTHREAD_PROCESS_PRIVATE ) != 0 ||
         pthread_cond_init( &s->cellpairs_avail , NULL ) != 0 ||
         pthread_mutex_init( &s->verlet_force_mutex , NULL ) != 0 )
         return error(space_err_pthread);

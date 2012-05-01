@@ -1273,7 +1273,17 @@ int runner_run_pairs ( struct runner *r ) {
                         
         /* while i can still get a pair... */
         /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
-        while ( ( p = space_getpair( s , r->id , runner_bitesize , NULL , &err , 1 ) ) != NULL ) {
+        while ( 1 ) {
+        
+            /* Try to get at least one pair. */
+            if ( e->flags & engine_flag_affinity ) {
+                if ( ( p = space_getpair_spin( s , r->id , runner_bitesize , NULL , &err , 1 ) ) == NULL )
+                    break;
+                }
+            else {
+                if ( ( p = space_getpair( s , r->id , runner_bitesize , NULL , &err , 1 ) ) == NULL )
+                    break;
+                }
 
             /* work this list of pair... */
             for ( finger = p ; finger != NULL ; finger = finger->next ) {
@@ -1310,8 +1320,14 @@ int runner_run_pairs ( struct runner *r ) {
                     }
 
                 /* release this pair */
-                if ( space_releasepair( s , finger->i , finger->j ) < 0 )
-                    return error(runner_err_space);
+                if ( e->flags & engine_flag_affinity ) {
+                    if ( space_releasepair_spin( s , finger->i , finger->j ) < 0 )
+                        return error(runner_err_space);
+                    }
+                else {
+                    if ( space_releasepair( s , finger->i , finger->j ) < 0 )
+                        return error(runner_err_space);
+                    }
 
                 }
 
@@ -1381,8 +1397,14 @@ int runner_run_tuples ( struct runner *r ) {
         while ( 1 ) {
         
             /* Get a tuple. */
-            if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
-                return r->err = runner_err_space;
+            if ( e->flags & engine_flag_affinity ) {
+                if ( ( res = space_gettuple_spin( s , &t , 1 ) ) < 0 )
+                    return r->err = runner_err_space;
+                }
+            else {
+                if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
+                    return r->err = runner_err_space;
+                }
                 
             /* If there were no tuples left, bail. */
             if ( res < 1 )
@@ -1439,8 +1461,14 @@ int runner_run_tuples ( struct runner *r ) {
                         }
 
                     /* release this pair */
-                    if ( space_releasepair( s , ci , cj ) < 0 )
-                        return error(runner_err_space);
+                    if ( e->flags & engine_flag_affinity ) {
+                        if ( space_releasepair_spin( s , ci , cj ) < 0 )
+                            return error(runner_err_space);
+                        }
+                    else {
+                        if ( space_releasepair( s , ci , cj ) < 0 )
+                            return error(runner_err_space);
+                        }
                         
                     }
                     
