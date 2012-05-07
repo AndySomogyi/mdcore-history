@@ -346,7 +346,9 @@ int engine_rigid_sort ( struct engine *e ) {
 int engine_rigid_eval ( struct engine *e ) {
 
     int nr_local = e->rigids_local, nr_rigids = e->rigids_semilocal;
-    ticks tic;
+    #ifdef HAVE_MPI
+        ticks tic;
+    #endif
     #ifdef HAVE_OPENMP
         // int k;
         int nr_threads, count = nr_rigids - nr_local;
