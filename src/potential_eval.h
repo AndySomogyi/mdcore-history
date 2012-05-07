@@ -63,6 +63,168 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
 __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
+    // int j, k;
+    union {
+        __v4sf v;
+        __m128i m;
+        float f[4];
+        int i[4];
+        } alpha[4], mi, hi, x, ee, eff, c[6], r, ind, t[8];
+    // float *data[4];
+    
+    /* Get r . */
+    r.v = _mm_sqrt_ps( _mm_load_ps( r2 ) );
+    
+    /* compute the index */
+    alpha[0].v = _mm_load_ps( p[0]->alpha );
+    alpha[1].v = _mm_load_ps( p[1]->alpha );
+    alpha[2].v = _mm_load_ps( p[2]->alpha );
+    alpha[3].v = _mm_load_ps( p[3]->alpha );
+    t[0].m = _mm_unpacklo_epi32( alpha[0].m , alpha[1].m );
+    t[1].m = _mm_unpacklo_epi32( alpha[2].m , alpha[3].m );
+    t[2].m = _mm_unpackhi_epi32( alpha[0].m , alpha[1].m );
+    t[3].m = _mm_unpackhi_epi32( alpha[2].m , alpha[3].m );
+    alpha[0].m = _mm_unpacklo_epi64( t[0].m , t[1].m );
+    alpha[1].m = _mm_unpackhi_epi64( t[0].m , t[1].m );
+    alpha[2].m = _mm_unpacklo_epi64( t[2].m , t[3].m );
+    ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha[0].v , _mm_mul_ps( r.v , _mm_add_ps( alpha[1].v , _mm_mul_ps( r.v , alpha[2].v ) ) ) ) ) );
+    
+    /* Check ranges. */
+    /* for ( j = 0 ; j < 4 ; j++ )
+        if ( ind.i[j] == 0 || ind.i[j] > p[j]->n ) {
+            printf( "potential_eval_vec_4single: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
+                r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
+                p[j]->n , p[j]->a , p[j]->b );
+            fflush(stdout);
+            } */
+            
+    /* Unpack/transpose the coefficient data. */
+    mi.v = _mm_load_ps( &p[0]->c[ ind.i[0] * potential_chunk ] );
+    hi.v = _mm_load_ps( &p[1]->c[ ind.i[1] * potential_chunk ] );
+    c[0].v = _mm_load_ps( &p[2]->c[ ind.i[2] * potential_chunk ] );
+    c[1].v = _mm_load_ps( &p[3]->c[ ind.i[3] * potential_chunk ] );
+    c[2].v = _mm_load_ps( &p[0]->c[ ind.i[0] * potential_chunk + 4 ] );
+    c[3].v = _mm_load_ps( &p[1]->c[ ind.i[1] * potential_chunk + 4 ] );
+    c[4].v = _mm_load_ps( &p[2]->c[ ind.i[2] * potential_chunk + 4 ] );
+    c[5].v = _mm_load_ps( &p[3]->c[ ind.i[3] * potential_chunk + 4 ] );
+    t[0].m = _mm_unpacklo_epi32( mi.m , hi.m );
+    t[1].m = _mm_unpacklo_epi32( c[0].m , c[1].m );
+    t[2].m = _mm_unpackhi_epi32( mi.m , hi.m );
+    t[3].m = _mm_unpackhi_epi32( c[0].m , c[1].m );
+    t[4].m = _mm_unpacklo_epi32( c[2].m , c[3].m );
+    t[5].m = _mm_unpacklo_epi32( c[4].m , c[5].m );
+    t[6].m = _mm_unpackhi_epi32( c[2].m , c[3].m );
+    t[7].m = _mm_unpackhi_epi32( c[4].m , c[5].m );
+    mi.m = _mm_unpacklo_epi64( t[0].m , t[1].m );
+    hi.m = _mm_unpackhi_epi64( t[0].m , t[1].m );
+    c[0].m = _mm_unpacklo_epi64( t[2].m , t[3].m );
+    c[1].m = _mm_unpackhi_epi64( t[2].m , t[3].m );
+    c[2].m = _mm_unpacklo_epi64( t[4].m , t[5].m );
+    c[3].m = _mm_unpackhi_epi64( t[4].m , t[5].m );
+    c[4].m = _mm_unpacklo_epi64( t[6].m , t[7].m );
+    c[5].m = _mm_unpackhi_epi64( t[6].m , t[7].m );
+    
+    /* adjust x to the interval */
+    x.v = _mm_mul_ps( _mm_sub_ps( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = c[0].v;
+    ee.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , c[1].v );
+    eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
+    ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c[2].v );
+    eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
+    ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c[3].v );
+    eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
+    ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c[4].v );
+    eff.v = _mm_add_ps( _mm_mul_ps( eff.v , x.v ) , ee.v );
+    ee.v = _mm_add_ps( _mm_mul_ps( ee.v , x.v ) , c[5].v );
+
+    /* store the result */
+    _mm_store_ps( e , ee.v );
+    _mm_store_ps( f , _mm_mul_ps( eff.v , _mm_div_ps( hi.v , r.v ) ) );
+    
+#elif defined(__ALTIVEC__) && defined(FPTYPE_SINGLE)
+    int j, k;
+    union {
+        vector float v;
+        float f[4];
+        } alpha0, alpha1, alpha2, mi, hi, x, ee, eff, c, r;
+    union {
+        vector unsigned int v;
+        unsigned int i[4];
+        } ind;
+    float *data[4];
+    
+    /* Get r . */
+    r.v = vec_sqrt( *((vector float *)r2) );
+    
+    /* compute the index (vec_ctu maps negative floats to 0) */
+    alpha0.v = vec_load4( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
+    alpha1.v = vec_load4( p[0]->alpha[1] , p[1]->alpha[1] , p[2]->alpha[1] , p[3]->alpha[1] );
+    alpha2.v = vec_load4( p[0]->alpha[2] , p[1]->alpha[2] , p[2]->alpha[2] , p[3]->alpha[2] );
+    ind.v = vec_ctu( vec_madd( r.v , vec_madd( r.v , alpha2.v , alpha1.v ) , alpha0.v ) , 0 );
+    
+    /* get the table offset */
+    for ( k = 0 ; k < 4 ; k++ )
+        data[k] = &( p[k]->c[ ind.i[k] * potential_chunk ] );
+    
+    /* adjust x to the interval */
+    mi.v = vec_load4( data[0][0] , data[1][0] , data[2][0] , data[3][0] );
+    hi.v = vec_load4( data[0][1] , data[1][1] , data[2][1] , data[3][1] );
+    x.v = vec_mul( vec_sub( r.v , mi.v ) , hi.v );
+    
+    /* compute the potential and its derivative */
+    eff.v = vec_load4( data[0][2] , data[1][2] , data[2][2] , data[3][2] );
+    c.v = vec_load4( data[0][3] , data[1][3] , data[2][3] , data[3][3] );
+    ee.v = vec_madd( eff.v , x.v , c.v );
+    for ( j = 4 ; j < potential_chunk ; j++ ) {
+        c.v = vec_load4( data[0][j] , data[1][j] , data[2][j] , data[3][j] );
+        eff.v = vec_madd( eff.v , x.v , ee.v );
+        ee.v = vec_madd( ee.v , x.v , c.v );
+        }
+
+    /* store the result */
+    *((vector float *)e) = ee.v;
+    *((vector float *)f) = vec_mul( eff.v , vec_div( hi.v , r.v ) );
+        
+#else
+    int k;
+    FPTYPE ee, eff;
+    for ( k = 0 ; k < 4 ; k++ ) {
+        potential_eval_r( p[k] , r2[k] , &ee , &eff );
+        e[k] = ee; f[k] = eff;
+        }
+#endif
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at a set of points (interpolated).
+ *
+ * @param p Pointer to an array of pointers to the #potentials to be evaluated.
+ * @param r2 Pointer to an array of the radii at which the potentials
+ *      are to be evaluated, squared.
+ * @param e Pointer to an array of floating-point values in which to store the
+ *      interaction energies.
+ * @param f Pointer to an array of floating-point values in which to store the
+ *      magnitude of the interaction forces.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ *
+ * Computes four single-precision interactions simultaneously using vectorized
+ * instructions.
+ * 
+ * This function is only available if mdcore was compiled with SSE or AltiVec
+ * and single precision! If @c mdcore was not compiled with SSE or AltiVec,
+ * this function simply calls #potential_eval on each entry.
+ */
+
+__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_old ( struct potential *p[4] , float *r2 , float *e , float *f ) {
+
+#if defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j, k;
     union {
         __v4sf v;
@@ -170,7 +332,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single ( 
 
 
 #ifdef STILL_NOT_READY_FOR_PRIME_TIME
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_new ( struct potential *p[4] , float *r2 , float *e , float *f ) {
+__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_gccvec ( struct potential *p[4] , float *r2 , float *e , float *f ) {
 
     int j, k;
     union {
