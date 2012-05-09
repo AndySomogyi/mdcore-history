@@ -29,6 +29,9 @@
 #include <string.h>
 #include <limits.h>
 
+/* Include headers for overloaded vector functions. */
+#include "cutil_math.h"
+
 /* Include some conditional headers. */
 #ifdef HAVE_MPI
     #include <mpi.h>
@@ -36,6 +39,12 @@
 
 /* Force single precision. */
 #define FPTYPE_SINGLE 1
+
+/* Disable vectorization for the nvcc compiler's sake. */
+#undef __SSE__
+#undef __SSE2__
+#undef __ALTIVEC__
+#undef __AVX__
 
 /* Include local headers */
 #include "cycle.h"
@@ -66,15 +75,21 @@ __constant__ int cuda_nr_cells = 0;
 
 /* The mutex for accessing the cell pair list. */
 __device__ int cuda_cell_mutex = 0;
+__device__ int cuda_barrier = 0;
 
 /* The list of cell pairs. */
 __device__ struct cellpair_cuda *cuda_pairs;
 __device__ struct celltuple_cuda *cuda_tuples;
-__device__ unsigned int *cuda_taboo;
+__device__ int *cuda_taboo, *cuda_owner;
 
 /* The index of the next free cell pair. */
-__device__ int cuda_pair_next = 0;
-__device__ int cuda_tuple_next = 0;
+volatile __device__ int cuda_pair_next = 0;
+volatile __device__ int cuda_tuple_next = 0;
+
+/* Indices for the "new" queue. */
+__device__ int cuda_pair_count = 0;
+__device__ int cuda_pair_curr = 0;
+__device__ int *cuda_pairIDs;
 
 /* Some constants. */
 __constant__ float cuda_cutoff2 = 0.0f;
@@ -113,6 +128,9 @@ __device__ struct fifo_cuda cuda_fifos_out[ cuda_maxblocks ];
 __device__ float cuda_fio[32];
 __device__ int cuda_io[32];
 
+/* Timers. */
+__device__ float cuda_timers[ tid_count ];
+
 
 /**
  * @brief Lock a device mutex.
@@ -124,8 +142,37 @@ __device__ int cuda_io[32];
  * each block should call it.
  */
 
-__device__ inline void cuda_mutex_lock ( int *m ) {
+__device__ void cuda_mutex_lock ( int *m ) {
+    TIMER_TIC
     while ( atomicCAS( m , 0 , 1 ) != 0 );
+    TIMER_TOC( tid_mutex )
+    }
+
+
+/**
+ * @brief Lock a device mutex with an additional condition.
+ *
+ * @param m The mutex.
+ * @param c the condition
+ *
+ * @return @c 1 if the mutex could be locked or zero if the condition @c c
+ * was reached first.
+ *
+ * Loops until the mutex can be set or until @c *c is non-zero.
+ * Note that only one thread
+ * can do this at a time, so to synchronize blocks, only a single thread of
+ * each block should call it.
+ */
+
+__device__ int cuda_mutex_lock_cond ( int *m , int *c ) {
+    TIMER_TIC
+    while ( atomicCAS( c , 0 , 0 ) == 0 )
+        if ( atomicCAS( m , 0 , 1 ) == 0 ) {
+            TIMER_TOC( tid_mutex )
+            return 1;
+            }
+    TIMER_TOC( tid_mutex )
+    return 0;
     }
 
 
@@ -137,7 +184,7 @@ __device__ inline void cuda_mutex_lock ( int *m ) {
  * Does not check if the mutex had been locked.
  */
 
-__device__ inline void cuda_mutex_unlock ( int *m ) {
+__device__ void cuda_mutex_unlock ( int *m ) {
     atomicExch( m , 0 );
     }
     
@@ -203,11 +250,40 @@ __device__ inline unsigned int cuda_fifo_pop ( struct fifo_cuda *f ) {
  
 __device__ inline void cuda_memcpy ( void *dest , void *source , int count ) {
 
-    int k, *idest = (int *)dest, *isource = (int *)source;
+    int j, k, icount = count / sizeof(int) / cuda_frame / cuda_memcpy_chunk;
+    int *idest = (int *)dest, *isource = (int *)source;
+    int chunk[cuda_memcpy_chunk];
+    int threadID = threadIdx.x;
+    
+    TIMER_TIC
+    
+    /* Copy the data in chunks of sizeof(int). */
+    for ( k = 0 ; k < icount ; k += 1 ) {
+        for ( j = 0 ; j < cuda_memcpy_chunk ; j++ )
+            chunk[j] = isource[ (cuda_memcpy_chunk*k+j)*cuda_frame + threadID ];
+        for ( j = 0 ; j < cuda_memcpy_chunk ; j++ )
+            idest[ (cuda_memcpy_chunk*k+j)*cuda_frame + threadID ] = chunk[j];
+        }
+    for ( k = cuda_memcpy_chunk*cuda_frame*icount + threadID ; k < count/sizeof(int) ; k += cuda_frame )
+        idest[k] = isource[k];
+        
+    TIMER_TOC(tid_memcpy)
+        
+    }
+    
+    
+__device__ inline void cuda_memcpy_old ( void *dest , void *source , int count ) {
+
+    int k;
+    volatile int *idest = (int *)dest, *isource = (int *)source;
+    
+    TIMER_TIC
     
     /* Copy the data in chunks of sizeof(int). */
     for ( k = 0 + threadIdx.x ; k < count/sizeof(int) ; k += cuda_frame )
         idest[k] = isource[k];
+        
+    TIMER_TOC(tid_memcpy)
         
     }
 
@@ -233,6 +309,8 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
     int ind, k;
     float x, ee, eff, r, ir, qir, c[potential_chunk];
     
+    TIMER_TIC
+    
     /* Get r for the right type. */
     ir = rsqrtf(r2);
     r = r2*ir;
@@ -245,6 +323,7 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
     ind += tex1D( tex_offsets , pid );
     
     /* pre-load the coefficients. */
+    #pragma unroll
     for ( k = 0 ; k < potential_chunk ; k++ )
         c[k] = tex2D( tex_coeffs , k , ind );
     
@@ -254,6 +333,7 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
     /* compute the potential and its derivative */
     eff = c[2];
     ee = c[2] * x + c[3];
+    #pragma unroll
     for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
         ee = ee * x + c[k];
@@ -262,6 +342,8 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
     /* store the result */
     *e = ee + qir;
     *f = ( eff * c[1] + qir ) * ir;
+        
+    TIMER_TOC(tid_potential)
         
     }
 
@@ -287,6 +369,8 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     int ind, k;
     float x, ee, eff, r, ir, c[potential_chunk];
     
+    TIMER_TIC
+    
     /* Get r for the right type. */
     ir = rsqrtf(r2);
     r = r2*ir;
@@ -297,6 +381,7 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     ind += tex1D( tex_offsets , pid );
     
     /* pre-load the coefficients. */
+    #pragma unroll
     for ( k = 0 ; k < potential_chunk ; k++ )
         c[k] = tex2D( tex_coeffs , k , ind );
     
@@ -306,6 +391,7 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     /* compute the potential and its derivative */
     eff = c[2];
     ee = c[2] * x + c[3];
+    #pragma unroll
     for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
         ee = ee * x + c[k];
@@ -313,6 +399,71 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
 
     /* store the result */
     *e = ee; *f = eff * c[1] * ir;
+        
+    TIMER_TOC(tid_potential)
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at the given point (interpolated) using
+ *      texture memory on the device.
+ *
+ * @param pid The index of the #potential to be evaluated.
+ * @param r2 The radius at which it is to be evaluated, squared.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force divided by r.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ */
+
+__device__ inline void potential_eval4_cuda_tex ( int4 pid , float4 r2 , float4 *e , float4 *f ) {
+
+    int k;
+    int4 ind;
+    float4 x, ee, eff, r, ir, c[potential_chunk], a0, a1, a2;
+    
+    TIMER_TIC
+    
+    /* Get r for the right type. */
+    ir.x = rsqrtf(r2.x);
+    ir.y = rsqrtf(r2.y);
+    ir.z = rsqrtf(r2.z);
+    ir.w = rsqrtf(r2.w);
+    r = r2*ir;
+    
+    /* compute the interval index */
+    ind = make_int4( tex1D( tex_offsets , pid.x ) , tex1D( tex_offsets , pid.y ) , tex1D( tex_offsets , pid.z ) , tex1D( tex_offsets , pid.w ) );
+    a0 = make_float4( tex2D( tex_alphas , 0 , pid.x ) , tex2D( tex_alphas , 0 , pid.y ) , tex2D( tex_alphas , 0 , pid.z ) , tex2D( tex_alphas , 0 , pid.w ) );
+    a1 = make_float4( tex2D( tex_alphas , 1 , pid.x ) , tex2D( tex_alphas , 1 , pid.y ) , tex2D( tex_alphas , 1 , pid.z ) , tex2D( tex_alphas , 1 , pid.w ) );
+    a2 = make_float4( tex2D( tex_alphas , 2 , pid.x ) , tex2D( tex_alphas , 2 , pid.y ) , tex2D( tex_alphas , 2 , pid.z ) , tex2D( tex_alphas , 2 , pid.w ) );
+    ind += max( make_int4(0) , make_int4( a0 + r * ( a1 + r * a2 ) ) );
+
+    /* pre-load the coefficients. */
+    #pragma unroll
+    for ( k = 0 ; k < potential_chunk ; k++ )
+        c[k] = make_float4( tex2D( tex_coeffs , k , ind.x ) , tex2D( tex_coeffs , k , ind.y ) , tex2D( tex_coeffs , k , ind.z ) , tex2D( tex_coeffs , k , ind.w ) );
+        
+    /* adjust x to the interval */
+    x = (r - c[0]) * c[1];
+    
+    /* compute the potential and its derivative */
+    eff = c[2];
+    ee = c[2] * x + c[3];
+    #pragma unroll
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
+        eff = eff * x + ee;
+        ee = ee * x + c[k];
+        }
+
+    /* store the result */
+    *e = ee; *f = eff * c[1] * ir;
+        
+    TIMER_TOC(tid_potential)
         
     }
 
@@ -337,6 +488,8 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
     int ind, k;
     float x, ee, eff, *c, ir, r;
     
+    TIMER_TIC
+    
     /* Get r for the right type. */
     ir = rsqrtf(r2);
     r = r2*ir;
@@ -353,6 +506,7 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
     /* compute the potential and its derivative */
     ee = c[2] * x + c[3];
     eff = c[2];
+    #pragma unroll
     for ( k = 4 ; k < potential_chunk ; k++ ) {
         eff = eff * x + ee;
         ee = ee * x + c[k];
@@ -360,6 +514,8 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
 
     /* store the result */
     *e = ee; *f = eff * c[1] * ir;
+        
+    TIMER_TOC(tid_potential)
         
     }
 
@@ -383,6 +539,8 @@ __device__ inline void potential_eval_cuda_expl ( int type_i , int type_j , floa
 
     float eps, ir, rminr, rminr2, rminr6;
     
+    TIMER_TIC
+    
     /* Get the inverse of r. */
     ir = rsqrtf(r2);
     
@@ -399,6 +557,8 @@ __device__ inline void potential_eval_cuda_expl ( int type_i , int type_j , floa
     
     /* Compute the force. */
     *f = 12.0f * eps * rminr6 * ir * ( 1 - rminr6 ) - potential_escale / r2;
+        
+    TIMER_TOC(tid_potential)
         
     }
 
@@ -432,7 +592,10 @@ __device__ void runner_dopair_cuda ( struct part_cuda *parts_i , int count_i , s
     #elif !defined(EXPLPOT)
         struct potential *pot;
     #endif
-    float epot = 0.0f, dx[3], pjx[3], pjf[3], shift[3], r2, w, ee = 0.0f, eff = 0.0f;
+    float epot = 0.0f, dx[3], pjx[3], pjf[3], shift[3], r2, w;
+    float ee = 0.0f, eff = 0.0f;
+    
+    TIMER_TIC
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
@@ -534,7 +697,9 @@ __device__ void runner_dopair_cuda ( struct part_cuda *parts_i , int count_i , s
         __threadfence_block();
             
         } /* loop over the particles in cell_j. */
-    
+        
+    TIMER_TOC(tid_pair)
+        
     }
 
 
@@ -572,6 +737,8 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *parts_i , i
     float dx[3], pix[3], pif[3], shift[3], shiftn[3];
     __shared__ unsigned int sort_i[ cuda_maxparts ], sort_j[ cuda_maxparts ];
     
+    TIMER_TIC
+    
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
     
@@ -592,9 +759,11 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *parts_i , i
     shiftn[0] = inshift*shift[0]; shiftn[1] = inshift*shift[1]; shiftn[2] = inshift*shift[2];
     dmaxdist = 2 + cuda_dscale * cuda_maxdist;
        
+    TIMER_TIC2
+        
     /* Re-build sorted pairs list? */
     if ( verlet_rebuild ) {
-        
+    
         /* Pack the parts of i and j into the sort arrays. */
         for ( k = threadID ; k < count_i ; k += cuda_frame )
             sort_i[k] = ( k << 16 ) |
@@ -656,6 +825,8 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *parts_i , i
         cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(int) * count_j );
         __threadfence_block();
         }
+        
+    TIMER_TOC2(tid_sort)
         
         
     /* Loop over the particles in cell_j, frame-wise. */
@@ -755,6 +926,244 @@ __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *parts_i , i
         __threadfence_block();
         
         } /* loop over the particles in cell_j. */
+        
+    TIMER_TOC(tid_pair)
+    
+    }
+
+
+/**
+ * @brief Compute the pairwise interactions for the given pair on a CUDA device.
+ *
+ * @param iparts_i Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param iparts_j Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param parts_i Part buffer in local memory.
+ * @param parts_j Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+__device__ void runner_dopair_sorted4_verlet_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
+
+    int k, j, i, ind, jnd, pid, pjdid, threadID, wrap, cj;
+    int pioff;
+    unsigned int swap_i, dmaxdist;
+    struct part_cuda *pi, *pj[4];
+    struct part_cuda *temp;
+    int4 pot, pjd, valid;
+    float4 ee, eff, r2;
+    float epot = 0.0f, w, nshift, inshift;
+    float dx[12], pix[3], pif[3], shift[3], shiftn[3];
+    __shared__ unsigned int sort_i[ cuda_maxparts ], sort_j[ cuda_maxparts ];
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Swap cells? cell_j loops in steps of frame... */
+    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+        temp = parts_i; parts_i = parts_j; parts_j = temp;
+        k = count_i; count_i = count_j; count_j = k;
+        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
+        }
+    else {
+        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
+        }
+
+        
+    /* Pre-compute the inverse norm of the shift. */
+    nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
+    inshift = 1.0f / nshift;
+    shiftn[0] = inshift*shift[0]; shiftn[1] = inshift*shift[1]; shiftn[2] = inshift*shift[2];
+    dmaxdist = 2 + cuda_dscale * cuda_maxdist;
+       
+    TIMER_TIC2
+        
+    /* Re-build sorted pairs list? */
+    if ( verlet_rebuild ) {
+    
+        /* Pack the parts of i and j into the sort arrays. */
+        for ( k = threadID ; k < count_i ; k += cuda_frame )
+            sort_i[k] = ( k << 16 ) |
+                (unsigned int)( cuda_dscale * (nshift + parts_i[k].x[0]*shiftn[0] + parts_i[k].x[1]*shiftn[1] + parts_i[k].x[2]*shiftn[2]) );
+        for ( k = threadID ; k < count_j ; k += cuda_frame )
+            sort_j[k] = ( k << 16 ) | 
+                (unsigned int)( cuda_dscale * (nshift + (shift[0]+parts_j[k].x[0])*shiftn[0] + (shift[1]+parts_j[k].x[1])*shiftn[1] + (shift[2]+parts_j[k].x[2])*shiftn[2]) );
+            
+        /* Make sure all the memory is in the right place. */
+        __threadfence_block();
+        
+        /* Sort using normalized bitonic sort. */
+        for ( k = 1 ; k < count_i ; k *= 2 ) {
+            for ( i = threadID ; ( ind = ( i & ~(k - 1) ) * 2 + ( i & (k - 1) ) ) < count_i ; i += cuda_frame ) {
+                jnd = ( i & ~(k - 1) ) * 2 + 2*k - ( i & (k - 1) ) - 1;
+                if ( jnd < count_i && ( sort_i[ind] & 0xffff ) < ( sort_i[jnd] & 0xffff ) ) {
+                    swap_i = sort_i[ind]; sort_i[ind] = sort_i[jnd]; sort_i[jnd] = swap_i;
+                    }
+                }
+            __threadfence_block();
+            for ( j = k/2 ; j > 0 ; j = j / 2 ) {
+                for ( i = threadID ; ( ind = ( i & ~(j - 1) ) * 2 + ( i & (j - 1) ) ) + j < count_i ; i += cuda_frame ) {
+                    jnd = ind + j;
+                    if ( ( sort_i[ind] & 0xffff ) < ( sort_i[jnd] & 0xffff ) ) {
+                        swap_i = sort_i[ind]; sort_i[ind] = sort_i[jnd]; sort_i[jnd] = swap_i;
+                        }
+                    }
+                __threadfence_block();
+                }
+            }
+        for ( k = 1 ; k < count_j ; k *= 2 ) {
+            for ( i = threadID ; ( ind = ( i & ~(k - 1) ) * 2 + ( i & (k - 1) ) ) < count_j ; i += cuda_frame ) {
+                jnd = ( i & ~(k - 1) ) * 2 + 2*k - ( i & (k - 1) ) - 1;
+                if ( jnd < count_j && ( sort_j[ind] & 0xffff ) > ( sort_j[jnd] & 0xffff ) ) {
+                    swap_i = sort_j[ind]; sort_j[ind] = sort_j[jnd]; sort_j[jnd] = swap_i;
+                    }
+                }
+            __threadfence_block();
+            for ( j = k/2 ; j > 0 ; j = j / 2 ) {
+                for ( i = threadID ; ( ind = ( i & ~(j - 1) ) * 2 + ( i & (j - 1) ) ) + j < count_j ; i += cuda_frame ) {
+                    jnd = ind + j;
+                    if ( ( sort_j[ind] & 0xffff ) > ( sort_j[jnd] & 0xffff ) ) {
+                        swap_i = sort_j[ind]; sort_j[ind] = sort_j[jnd]; sort_j[jnd] = swap_i;
+                        }
+                    }
+                __threadfence_block();
+                }
+            }
+
+        /* Store the sorted list back to global memory. */
+        cuda_memcpy( sortlist , sort_i , sizeof(int) * count_i );
+        cuda_memcpy( &sortlist[count_i] , sort_j , sizeof(int) * count_j );
+            
+        } /* re-build sorted pairs list. */
+        
+    /* Otherwise, just read it from memory. */
+    else {
+        cuda_memcpy( sort_i , sortlist , sizeof(int) * count_i );
+        cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(int) * count_j );
+        __threadfence_block();
+        }
+        
+    TIMER_TOC2(tid_sort)
+        
+        
+    /* Loop over the particles in cell_j, frame-wise. */
+    cj = count_j;
+    for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
+    
+        /* Get the wrap. */
+        while ( cj > 0 && ( sort_j[cj-1] & 0xffff ) - ( sort_i[pid & ~(cuda_frame - 1)] & 0xffff ) > dmaxdist )
+            cj -= 1;
+        if ( cj == 0 )
+            break;
+        else if ( cj < cuda_frame )
+            wrap = max( cj , min( count_i - (pid & ~(cuda_frame - 1)) , cuda_frame ) );
+        else
+            wrap = cj;
+            
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        pi = &parts_i[ sort_i[pid] >> 16 ];
+        pioff = pi->type * cuda_maxtype;
+        for ( k = 0 ; k < 3 ; k++ ) {
+            pix[k] = pi->x[k] - shift[k];
+            pif[k] = 0.0f;
+            }
+        #if defined(USETEX_E) || defined(EXPLPOT)
+        qi = pi->q;
+        #endif
+        
+        /* Loop over the particles in cell_i. */
+        for ( pjdid = 0 ; pjdid < wrap ; pjdid += 4 ) {
+        
+            /* Wrap the particle index correctly. */
+            if ( ( pjd.x = pjdid + threadID ) >= wrap )
+                pjd.x -= wrap;
+            if ( ( pjd.y = pjdid + threadID + 1 ) >= wrap )
+                pjd.y -= wrap;
+            if ( ( pjd.z = pjdid + threadID + 2 ) >= wrap )
+                pjd.z -= wrap;
+            if ( ( pjd.w = pjdid + threadID + 3 ) >= wrap )
+                pjd.w -= wrap;
+                
+            /* Get the particle pointers. */
+            pj[0] = ( valid.x = ( pjd.x < cj ) ) ? &parts_j[ sort_j[pjd.x] >> 16 ] : pi;
+            pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? &parts_j[ sort_j[pjd.y] >> 16 ] : pi;
+            pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? &parts_j[ sort_j[pjd.z] >> 16 ] : pi;
+            pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? &parts_j[ sort_j[pjd.w] >> 16 ] : pi;
+            
+            /* Compute the pairwise distances. */
+            r2 = make_float4( 0.0f );
+            #pragma unroll
+            for ( k = 0 ; k < 3 ; k++ ) {
+                dx[k] = pix[k] - pj[0]->x[k];
+                r2.x += dx[k] * dx[k];
+                dx[3+k] = pix[k] - pj[1]->x[k];
+                r2.y += dx[3+k] * dx[3+k];
+                dx[6+k] = pix[k] - pj[2]->x[k];
+                r2.z += dx[6+k] * dx[6+k];
+                dx[9+k] = pix[k] - pj[3]->x[k];
+                r2.w += dx[9+k] * dx[9+k];
+                }
+                
+            /* Get the potentials. */
+            valid.x = ( valid.x && r2.x < cuda_cutoff2 );
+            valid.y = ( valid.y && r2.y < cuda_cutoff2 );
+            valid.z = ( valid.z && r2.z < cuda_cutoff2 );
+            valid.w = ( valid.w && r2.w < cuda_cutoff2 );
+            pot.x = valid.x ? tex1D( tex_pind , pioff + pj[0]->type ) : 0;
+            pot.y = valid.y ? tex1D( tex_pind , pioff + pj[1]->type ) : 0;
+            pot.z = valid.z ? tex1D( tex_pind , pioff + pj[2]->type ) : 0;
+            pot.w = valid.w ? tex1D( tex_pind , pioff + pj[3]->type ) : 0;
+            
+            /* Compute the interaction. */
+            potential_eval4_cuda_tex( pot , r2 , &ee , &eff );
+            
+            /* Store the interaction energy. */
+            epot += ee.x + ee.y + ee.z + ee.w;
+            
+            /* Update the particle forces. */
+            if ( valid.x ) {
+                pif[0] -= ( w = eff.x * dx[0] ); pj[0]->f[0] += w;
+                pif[1] -= ( w = eff.x * dx[1] ); pj[0]->f[1] += w;
+                pif[2] -= ( w = eff.x * dx[2] ); pj[0]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.y ) {
+                pif[0] -= ( w = eff.y * dx[3] ); pj[1]->f[0] += w;
+                pif[1] -= ( w = eff.y * dx[4] ); pj[1]->f[1] += w;
+                pif[2] -= ( w = eff.y * dx[5] ); pj[1]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.z ) {
+                pif[0] -= ( w = eff.z * dx[6] ); pj[2]->f[0] += w;
+                pif[1] -= ( w = eff.z * dx[7] ); pj[2]->f[1] += w;
+                pif[2] -= ( w = eff.z * dx[8] ); pj[2]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.w ) {
+                pif[0] -= ( w = eff.w * dx[9] ); pj[3]->f[0] += w;
+                pif[1] -= ( w = eff.w * dx[10] ); pj[3]->f[1] += w;
+                pif[2] -= ( w = eff.w * dx[11] ); pj[3]->f[2] += w;
+                }
+            __threadfence_block();
+            
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            pi->f[k] += pif[k];
+    
+        /* Sync the shared memory values. */
+        __threadfence_block();
+        
+        } /* loop over the particles in cell_j. */
+        
+    TIMER_TOC(tid_pair)
     
     }
 
@@ -793,6 +1202,8 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *parts_i , int coun
     float dx[3], pix[3], pif[3], shift[3], shiftn[3];
     __shared__ unsigned int sort_i[ cuda_maxparts ], sort_j[ cuda_maxparts ];
     
+    TIMER_TIC
+    
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
     
@@ -812,6 +1223,7 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *parts_i , int coun
     shiftn[0] = inshift*shift[0]; shiftn[1] = inshift*shift[1]; shiftn[2] = inshift*shift[2];
     dcutoff = 2 + cuda_dscale * cuda_cutoff;
        
+    TIMER_TIC2
        
     /* Pack the parts of i and j into the sort arrays. */
     for ( k = threadID ; k < count_i ; k += cuda_frame )
@@ -861,6 +1273,8 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *parts_i , int coun
             __threadfence_block();
             }
         }
+        
+    TIMER_TOC2(tid_sort)
         
 
     /* Loop over the particles in cell_j, frame-wise. */
@@ -961,6 +1375,223 @@ __device__ void runner_dopair_sorted_cuda ( struct part_cuda *parts_i , int coun
         
         } /* loop over the particles in cell_j. */
     
+    TIMER_TOC(tid_pair)
+    
+    }
+
+
+/**
+ * @brief Compute the pairwise interactions for the given pair on a CUDA device.
+ *
+ * @param iparts_i Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param iparts_j Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param parts_i Part buffer in local memory.
+ * @param parts_j Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+__device__ void runner_dopair_sorted4_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j , float *pshift ) {
+
+    int k, j, i, ind, jnd, pid, pjdid, threadID, wrap, cj;
+    int pioff, dcutoff;
+    unsigned int swap_i;
+    struct part_cuda *pi, *pj[4];
+    struct part_cuda *temp;
+    int4 pot, pjd, valid;
+    float4 ee, eff, r2;
+    float epot = 0.0f, w, nshift, inshift;
+    float dx[12], pix[3], pif[3], shift[3], shiftn[3];
+    __shared__ unsigned int sort_i[ cuda_maxparts ], sort_j[ cuda_maxparts ];
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Swap cells? cell_j loops in steps of frame... */
+    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+        temp = parts_i; parts_i = parts_j; parts_j = temp;
+        k = count_i; count_i = count_j; count_j = k;
+        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
+        }
+    else {
+        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
+        }
+        
+    /* Pre-compute the inverse norm of the shift. */
+    nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
+    inshift = 1.0f / nshift;
+    shiftn[0] = inshift*shift[0]; shiftn[1] = inshift*shift[1]; shiftn[2] = inshift*shift[2];
+    dcutoff = 2 + cuda_dscale * cuda_cutoff;
+       
+    TIMER_TIC2
+       
+    /* Pack the parts of i and j into the sort arrays. */
+    for ( k = threadID ; k < count_i ; k += cuda_frame )
+        sort_i[k] = ( k << 16 ) |
+            (unsigned int)( cuda_dscale * (nshift + parts_i[k].x[0]*shiftn[0] + parts_i[k].x[1]*shiftn[1] + parts_i[k].x[2]*shiftn[2]) );
+    for ( k = threadID ; k < count_j ; k += cuda_frame )
+        sort_j[k] = ( k << 16 ) | 
+            (unsigned int)( cuda_dscale * (nshift + (shift[0]+parts_j[k].x[0])*shiftn[0] + (shift[1]+parts_j[k].x[1])*shiftn[1] + (shift[2]+parts_j[k].x[2])*shiftn[2]) );
+        
+    /* Make sure all the memory is in the right place. */
+    __threadfence_block();
+    
+    /* Sort using normalized bitonic sort. */
+    for ( k = 1 ; k < count_i ; k *= 2 ) {
+        for ( i = threadID ; ( ind = ( i & ~(k - 1) ) * 2 + ( i & (k - 1) ) ) < count_i ; i += cuda_frame ) {
+            jnd = ( i & ~(k - 1) ) * 2 + 2*k - ( i & (k - 1) ) - 1;
+            if ( jnd < count_i && ( sort_i[ind] & 0xffff ) < ( sort_i[jnd] & 0xffff ) ) {
+                swap_i = sort_i[ind]; sort_i[ind] = sort_i[jnd]; sort_i[jnd] = swap_i;
+                }
+            }
+        __threadfence_block();
+        for ( j = k/2 ; j > 0 ; j = j / 2 ) {
+            for ( i = threadID ; ( ind = ( i & ~(j - 1) ) * 2 + ( i & (j - 1) ) ) + j < count_i ; i += cuda_frame ) {
+                jnd = ind + j;
+                if ( ( sort_i[ind] & 0xffff ) < ( sort_i[jnd] & 0xffff ) ) {
+                    swap_i = sort_i[ind]; sort_i[ind] = sort_i[jnd]; sort_i[jnd] = swap_i;
+                    }
+                }
+            __threadfence_block();
+            }
+        }
+    for ( k = 1 ; k < count_j ; k *= 2 ) {
+        for ( i = threadID ; ( ind = ( i & ~(k - 1) ) * 2 + ( i & (k - 1) ) ) < count_j ; i += cuda_frame ) {
+            jnd = ( i & ~(k - 1) ) * 2 + 2*k - ( i & (k - 1) ) - 1;
+            if ( jnd < count_j && ( sort_j[ind] & 0xffff ) > ( sort_j[jnd] & 0xffff ) ) {
+                swap_i = sort_j[ind]; sort_j[ind] = sort_j[jnd]; sort_j[jnd] = swap_i;
+                }
+            }
+        __threadfence_block();
+        for ( j = k/2 ; j > 0 ; j = j / 2 ) {
+            for ( i = threadID ; ( ind = ( i & ~(j - 1) ) * 2 + ( i & (j - 1) ) ) + j < count_j ; i += cuda_frame ) {
+                jnd = ind + j;
+                if ( ( sort_j[ind] & 0xffff ) > ( sort_j[jnd] & 0xffff ) ) {
+                    swap_i = sort_j[ind]; sort_j[ind] = sort_j[jnd]; sort_j[jnd] = swap_i;
+                    }
+                }
+            __threadfence_block();
+            }
+        }
+        
+    TIMER_TOC2(tid_sort)
+        
+
+    /* Loop over the particles in cell_j, frame-wise. */
+    cj = count_j;
+    for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
+    
+        /* Get the wrap. */
+        while ( cj > 0 && ( sort_j[cj-1] & 0xffff ) - ( sort_i[pid & ~(cuda_frame - 1)] & 0xffff ) > dcutoff )
+            cj -= 1;
+        if ( cj == 0 )
+            break;
+        else if ( cj < cuda_frame )
+            wrap = max( cj , min( count_i - (pid & ~(cuda_frame - 1)) , cuda_frame ) );
+        else
+            wrap = cj;
+            
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        pi = &parts_i[ sort_i[pid] >> 16 ];
+        pioff = pi->type * cuda_maxtype;
+        for ( k = 0 ; k < 3 ; k++ ) {
+            pix[k] = pi->x[k] - shift[k];
+            pif[k] = 0.0f;
+            }
+        #if defined(USETEX_E) || defined(EXPLPOT)
+        qi = pi->q;
+        #endif
+        
+        /* Loop over the particles in cell_i. */
+        for ( pjdid = 0 ; pjdid < wrap ; pjdid += 4 ) {
+        
+            /* Wrap the particle index correctly. */
+            if ( ( pjd.x = pjdid + threadID ) >= wrap )
+                pjd.x -= wrap;
+            if ( ( pjd.y = pjdid + threadID + 1 ) >= wrap )
+                pjd.y -= wrap;
+            if ( ( pjd.z = pjdid + threadID + 2 ) >= wrap )
+                pjd.z -= wrap;
+            if ( ( pjd.w = pjdid + threadID + 3 ) >= wrap )
+                pjd.w -= wrap;
+                
+            /* Get the particle pointers. */
+            pj[0] = ( valid.x = ( pjd.x < cj ) ) ? &parts_j[ sort_j[pjd.x] >> 16 ] : pi;
+            pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? &parts_j[ sort_j[pjd.y] >> 16 ] : pi;
+            pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? &parts_j[ sort_j[pjd.z] >> 16 ] : pi;
+            pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? &parts_j[ sort_j[pjd.w] >> 16 ] : pi;
+            
+            /* Compute the pairwise distances. */
+            r2 = make_float4( 0.0f );
+            #pragma unroll
+            for ( k = 0 ; k < 3 ; k++ ) {
+                dx[k] = pix[k] - pj[0]->x[k]; r2.x += dx[k] * dx[k];
+                dx[3+k] = pix[k] - pj[1]->x[k]; r2.y += dx[3+k] * dx[3+k];
+                dx[6+k] = pix[k] - pj[2]->x[k]; r2.z += dx[6+k] * dx[6+k];
+                dx[9+k] = pix[k] - pj[3]->x[k]; r2.w += dx[9+k] * dx[9+k];
+                }
+                
+            /* Get the potentials. */
+            valid.x = ( valid.x && r2.x < cuda_cutoff2 );
+            valid.y = ( valid.y && r2.y < cuda_cutoff2 );
+            valid.z = ( valid.z && r2.z < cuda_cutoff2 );
+            valid.w = ( valid.w && r2.w < cuda_cutoff2 );
+            pot.x = valid.x ? tex1D( tex_pind , pioff + pj[0]->type ) : 0;
+            pot.y = valid.y ? tex1D( tex_pind , pioff + pj[1]->type ) : 0;
+            pot.z = valid.z ? tex1D( tex_pind , pioff + pj[2]->type ) : 0;
+            pot.w = valid.w ? tex1D( tex_pind , pioff + pj[3]->type ) : 0;
+            
+            /* Compute the interaction. */
+            potential_eval4_cuda_tex( pot , r2 , &ee , &eff );
+            
+            /* Store the interaction energy. */
+            epot += ee.x + ee.y + ee.z + ee.w;
+            
+            /* Update the particle forces. */
+            if ( valid.x ) {
+                pif[0] -= ( w = eff.x * dx[0] ); pj[0]->f[0] += w;
+                pif[1] -= ( w = eff.x * dx[1] ); pj[0]->f[1] += w;
+                pif[2] -= ( w = eff.x * dx[2] ); pj[0]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.y ) {
+                pif[0] -= ( w = eff.y * dx[3] ); pj[1]->f[0] += w;
+                pif[1] -= ( w = eff.y * dx[4] ); pj[1]->f[1] += w;
+                pif[2] -= ( w = eff.y * dx[5] ); pj[1]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.z ) {
+                pif[0] -= ( w = eff.z * dx[6] ); pj[2]->f[0] += w;
+                pif[1] -= ( w = eff.z * dx[7] ); pj[2]->f[1] += w;
+                pif[2] -= ( w = eff.z * dx[8] ); pj[2]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.w ) {
+                pif[0] -= ( w = eff.w * dx[9] ); pj[3]->f[0] += w;
+                pif[1] -= ( w = eff.w * dx[10] ); pj[3]->f[1] += w;
+                pif[2] -= ( w = eff.w * dx[11] ); pj[3]->f[2] += w;
+                }
+            __threadfence_block();
+            
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            pi->f[k] += pif[k];
+    
+        /* Sync the shared memory values. */
+        __threadfence_block();
+        
+        } /* loop over the particles in cell_j. */
+    
+    TIMER_TOC(tid_pair)
+    
     }
 
 
@@ -988,6 +1619,8 @@ __device__ void runner_doself_cuda ( struct part_cuda *parts , int count ) {
         struct potential *pot;
     #endif
     float epot = 0.0f, dx[3], pjx[3], pjf[3], r2, w, ee, eff;
+    
+    TIMER_TIC
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
@@ -1066,6 +1699,8 @@ __device__ void runner_doself_cuda ( struct part_cuda *parts , int count ) {
         __threadfence_block();
 
         } /* loop over the particles in cell_j. */
+        
+    TIMER_TOC(tid_self)
     
     }
     
@@ -1093,6 +1728,8 @@ __device__ void runner_doself_diag_cuda ( struct part_cuda *parts , int count ) 
         struct potential *pot;
     #endif
     float epot = 0.0f, dx[3], r2, w[3], ee, eff;
+    
+    TIMER_TIC
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x % cuda_frame;
@@ -1180,6 +1817,8 @@ __device__ void runner_doself_diag_cuda ( struct part_cuda *parts , int count ) 
             } /* is it this thread's turn? */
     
         } /* Loop over diagonal indices. */
+        
+    TIMER_TOC(tid_self)
     
     }
     
@@ -1232,17 +1871,21 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaA
  *
  */
  
-__global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild ) {
+__global__ void runner_run_verlet_cuda_old ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild ) {
 
-    int threadID; //, blockID;
+    int threadID, blockID;
     int i, nf, cpn, itemp, cid, cjd;
-    __shared__ int nr_fingers, finds[max_fingers];
+    volatile __shared__ int nr_fingers, finds[max_fingers];
     __shared__ struct cellpair_cuda finger[max_fingers];
     __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
     
     /* Get the block and thread ids. */
-    // blockID = blockIdx.x;
+    blockID = blockIdx.x;
     threadID = threadIdx.x;
+    
+    /* Check in at the barrier. */
+    if ( threadID == 0 )
+        atomicAdd( &cuda_barrier , 1 );
     
     /* Check that we've got the correct warp size! */
     /* if ( warpSize != cuda_frame ) {
@@ -1259,6 +1902,8 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
         /* Let the first thread get a pair. */
         if ( threadID == 0 ) {
         
+            TIMER_TIC
+        
             /* Lock the mutex. */
             cuda_mutex_lock( &cuda_cell_mutex );
             
@@ -1267,14 +1912,16 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
             for ( i = cpn , nf = 0 ; nf < max_fingers && i < cuda_nr_pairs ; i++ ) {
                     
                 /* Pick up this pair? */
-                if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
-                     cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
+                if ( ( atomicCAS( &cuda_taboo[ cuda_pairs[i].i ] , 0 , 0 ) == 0 ) &&
+                     ( atomicCAS( &cuda_taboo[ cuda_pairs[i].j ] , 0 , 0 ) == 0 ) ) {
                         
                     /* Swap entries in the pair list. */
                     finds[ nf ] = cpn;
                     finger[ nf ] = cuda_pairs[ i ];
-                    cuda_pairs[ i ] = cuda_pairs[ cpn ];
-                    cuda_pairs[ cpn ] = finger[ nf ];
+                    if ( cpn != i ) {
+                        cuda_pairs[ i ] = cuda_pairs[ cpn ];
+                        cuda_pairs[ cpn ] = finger[ nf ];
+                        }
                     
                     /* Swap sortlist index. */
                     itemp = cuda_sortlists_ind[ i ];
@@ -1294,8 +1941,8 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
             
                 /* Mark the cells. */
                 for ( i = 0 ; i < nf ; i++ ) {
-                    cuda_taboo[ finger[i].i ] += 1;
-                    cuda_taboo[ finger[i].j ] += 1;
+                    atomicAdd( &cuda_taboo[ finger[i].i ] , 1 );
+                    atomicAdd( &cuda_taboo[ finger[i].j ] , 1 );
                     }
                     
                 /* Store the modified cell_pair_next. */
@@ -1315,6 +1962,8 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
         
             /* Un-lock the mutex. */
             cuda_mutex_unlock( &cuda_cell_mutex );
+            
+            TIMER_TOC(tid_queue)
             
             } /* threadID=0 doing it's own thing. */
             
@@ -1364,18 +2013,29 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
                 
                 }
         
+            /* Release the cells in the taboo list. */
+            if ( threadID == 0 ) {
+                atomicSub( &cuda_taboo[ cid ] , 1 );
+                atomicSub( &cuda_taboo[ cjd ] , 1 );
+                }
+                
             /* Sync the memory before retuning the particle data. */
             __threadfence();
 
-            /* Release the cells in the taboo list. */
-            if ( threadID == 0 ) {
-                cuda_taboo[ cid ] -= 1;
-                cuda_taboo[ cjd ] -= 1;
-                }
-                
             }
             
         } /* main loop. */
+
+    /* Check out at the barrier. */
+    if ( threadID == 0 )
+        atomicSub( &cuda_barrier , 1 );
+    
+    /* The last one out cleans up the mess... */
+    if ( threadID == 0 && blockID == 0 ) {
+        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+        cuda_pair_next = 0;
+        __threadfence();
+        }
 
     }
     
@@ -1387,17 +2047,190 @@ __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts ,
  *
  */
  
-__global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind ) {
+__global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild ) {
 
-    int threadID; //, blockID;
-    int i, nf, cpn, cid, cjd;
-    __shared__ int nr_fingers;
-    __shared__ struct cellpair_cuda finger[max_fingers];
+    int threadID, blockID;
+    int k, cid, cjd;
+    volatile __shared__ int pid;
     __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
+    struct part_cuda *parts_k;
+    
+    TIMER_TIC2
     
     /* Get the block and thread ids. */
-    // blockID = blockIdx.x;
+    blockID = blockIdx.x;
     threadID = threadIdx.x;
+    
+    /* Make a notch on the barrier. */
+    if ( threadID == 0 )
+        atomicAdd( &cuda_barrier , 1 );
+    
+    /* Check that we've got the correct warp size! */
+    /* if ( warpSize != cuda_frame ) {
+        if ( blockID == 0 && threadID == 0 )
+            printf( "runner_run_cuda: error: the warp size of the device (%i) does not match the warp size mdcore was compiled for (%i).\n" ,
+                warpSize , cuda_frame );
+        return;
+        } */
+        
+
+    /* Main loop... */
+    while ( 1 ) {
+    
+        /* Let the first thread grab a pair. */
+        if ( threadID == 0 ) {
+            pid = atomicAdd( (int *)&cuda_pair_next , 1 );
+            __threadfence_block();
+            }
+            
+        /* Are we at the end of the list? */
+        if ( pid >= cuda_nr_pairs )
+            break;
+        
+        /* Get a hold of the pair cells. */
+        cid = cuda_pairs[pid].i;
+        cjd = cuda_pairs[pid].j;
+    
+        /* Do the pair. */
+        if ( cid != cjd ) {
+        
+            /* Get a local copy of the particle data. */
+            cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+            TIMER_TIC
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_i[k].f[0] = 0.0f;
+                parts_i[k].f[1] = 0.0f;
+                parts_i[k].f[2] = 0.0f;
+                }
+            TIMER_TOC(tid_queue)
+            cuda_memcpy( parts_j , &parts[ind[cjd]] , sizeof( struct part_cuda ) * counts[cjd] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cjd] ; k += cuda_frame ) {
+                parts_j[k].f[0] = 0.0f;
+                parts_j[k].f[1] = 0.0f;
+                parts_j[k].f[2] = 0.0f;
+                }
+            TIMER_TOC_ND(tid_queue)
+            __threadfence_block();
+            
+            /* Compute the cell pair interactions. */
+            runner_dopair_sorted4_verlet_cuda(
+                parts_i , counts[cid] ,
+                parts_j , counts[cjd] ,
+                cuda_pairs[pid].shift ,
+                verlet_rebuild , &cuda_sortlists[ cuda_sortlists_ind[ pid ] ] );
+                
+            /* Write the particle data back. */
+            parts_k = &parts[ ind[ cid ] ];
+            if ( threadID == 0 )
+                cuda_mutex_lock( &cuda_taboo[cid] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_k[k].f[0] += parts_i[k].f[0];
+                parts_k[k].f[1] += parts_i[k].f[1];
+                parts_k[k].f[2] += parts_i[k].f[2];
+                }
+            TIMER_TOC_ND(tid_queue)
+            if ( threadID == 0 )
+                cuda_mutex_unlock( &cuda_taboo[cid] );
+                
+            parts_k = &parts[ ind[ cjd ] ];
+            if ( threadID == 0 )
+                cuda_mutex_lock( &cuda_taboo[cjd] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cjd] ; k += cuda_frame ) {
+                parts_k[k].f[0] += parts_j[k].f[0];
+                parts_k[k].f[1] += parts_j[k].f[1];
+                parts_k[k].f[2] += parts_j[k].f[2];
+                }
+            TIMER_TOC_ND(tid_queue)
+            if ( threadID == 0 )
+                cuda_mutex_unlock( &cuda_taboo[cjd] );
+            __threadfence();
+                
+            }
+        else {
+        
+            /* Get a local copy of the particle data. */
+            cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+            TIMER_TIC
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_i[k].f[0] = 0.0f;
+                parts_i[k].f[1] = 0.0f;
+                parts_i[k].f[2] = 0.0f;
+                }
+            TIMER_TOC(tid_queue)
+            __threadfence_block();
+            
+            /* Compute the cell self interactions. */
+            if ( counts[cid] <= cuda_frame )
+                runner_doself_cuda( parts_i , counts[cid] );
+            else
+                runner_doself_diag_cuda( parts_i , counts[cid] );
+                
+            /* Write the particle data back. */
+            parts_k = &parts[ ind[ cid ] ];
+            if ( threadID == 0 )
+                cuda_mutex_lock( &cuda_taboo[cid] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_k[k].f[0] += parts_i[k].f[0];
+                parts_k[k].f[1] += parts_i[k].f[1];
+                parts_k[k].f[2] += parts_i[k].f[2];
+                }
+            TIMER_TOC_ND(tid_queue)
+            if ( threadID == 0 )
+                cuda_mutex_unlock( &cuda_taboo[cid] );
+            __threadfence();
+            
+            }
+        
+        } /* main loop. */
+
+    /* Check out at the barrier. */
+    if ( threadID == 0 )
+        atomicSub( &cuda_barrier , 1 );
+    
+    /* The last one out cleans up the mess... */
+    if ( threadID == 0 && blockID == 0 ) {
+        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+        cuda_pair_next = 0;
+        __threadfence();
+        }
+        
+    TIMER_TOC2(tid_total)
+
+    }
+    
+    
+/**
+ * @brief Loop over the cell pairs and process them.
+ *
+ * @param cells Array of cells on the device.
+ *
+ */
+ 
+__global__ void runner_run_cuda_old ( struct part_cuda *parts , int *counts , int *ind ) {
+
+    int threadID, blockID;
+    int i, nf, cpn, cid, cjd;
+    volatile __shared__ int nr_fingers;
+    __shared__ struct cellpair_cuda finger[max_fingers];
+    #ifdef SHARED_BUFF
+        __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
+    #else
+        struct part_cuda *parts_i, *parts_j;
+    #endif
+    
+    TIMER_TIC2
+    
+    /* Get the block and thread ids. */
+    blockID = blockIdx.x;
+    threadID = threadIdx.x;
+    
+    /* Make a notch on the barrier. */
+    if ( threadID == 0 )
+        atomicAdd( &cuda_barrier , 1 );
     
     /* Check that we've got the correct warp size! */
     /* if ( warpSize != cuda_frame ) {
@@ -1417,25 +2250,28 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
             /* Lock the mutex. */
             cuda_mutex_lock( &cuda_cell_mutex );
             
+            TIMER_TIC
+        
             /* Get as many fingers as possible. */
-            cpn = cuda_pair_next;
-            for ( i = cpn , nf = 0 ; nf < max_fingers && i < cuda_nr_pairs ; i++ ) {
-                    
+            for ( i = cuda_pair_next , nf = 0 ; nf < max_fingers && i < cuda_nr_pairs ; i++ ) {
+            
                 /* Pick up this pair? */
-                if ( cuda_taboo[ cuda_pairs[i].i ] == 0 &&
-                     cuda_taboo[ cuda_pairs[i].j ] == 0 ) {
+                if ( ( atomicCAS( &cuda_taboo[ cuda_pairs[i].i ] , 0 , 0 ) == 0 ) &&
+                     ( atomicCAS( &cuda_taboo[ cuda_pairs[i].j ] , 0 , 0 ) == 0 ) ) {
                         
                     /* Swap entries in the pair list. */
+                    cpn = cuda_pair_next + nf;
                     finger[ nf ] = cuda_pairs[ i ];
-                    cuda_pairs[ i ] = cuda_pairs[ cpn ];
-                    cuda_pairs[ cpn ] = finger[ nf ];
+                    if ( cpn != i ) {
+                        cuda_pairs[ i ] = cuda_pairs[ cpn ];
+                        cuda_pairs[ cpn ] = finger[ nf ];
+                        }
                     
                     /* Store this pair to the fingers. */
                     nf += 1;
-                    cpn += 1;
                     
                     }
-                
+                    
                 } /* get fingers. */
             
             /* Did we get anything? */
@@ -1443,13 +2279,13 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
             
                 /* Mark the cells. */
                 for ( i = 0 ; i < nf ; i++ ) {
-                    cuda_taboo[ finger[i].i ] += 1;
-                    cuda_taboo[ finger[i].j ] += 1;
+                    atomicAdd( &cuda_taboo[ finger[i].i ] , 1 );
+                    atomicAdd( &cuda_taboo[ finger[i].j ] , 1 );
                     }
                     
                 /* Store the modified cell_pair_next. */
                 nr_fingers = nf;
-                cuda_pair_next = cpn;
+                cuda_pair_next += nf;
                     
                 /* Make sure everybody is on the same page. */
                 __threadfence();
@@ -1465,9 +2301,11 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
             /* Un-lock the mutex. */
             cuda_mutex_unlock( &cuda_cell_mutex );
             
+            TIMER_TOC(tid_queue)
+            
             } /* threadID=0 doing it's own thing. */
             
-            
+
         /* If we actually got a set of pairs, do them! */
         nf = nr_fingers;
         for ( i = 0 ; i < nf ; i++ ) {
@@ -1480,9 +2318,14 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
             if ( cid != cjd ) {
             
                 /* Get a local copy of the particle data. */
-                cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
-                cuda_memcpy( parts_j , &parts[ind[cjd]] , sizeof( struct part_cuda ) * counts[cjd] );
-                __threadfence_block();
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+                    cuda_memcpy( parts_j , &parts[ind[cjd]] , sizeof( struct part_cuda ) * counts[cjd] );
+                    __threadfence_block();
+                #else
+                    parts_i = &parts[ ind[cid] ];
+                    parts_j = &parts[ ind[cjd] ];
+                #endif
                 
                 /* Compute the cell pair interactions. */
                 if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
@@ -1497,15 +2340,21 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
                         finger[i].shift );
                     
                 /* Write the particle data back. */
-                cuda_memcpy( &parts[ind[cid]] , parts_i , sizeof( struct part_cuda ) * counts[cid] );
-                cuda_memcpy( &parts[ind[cjd]] , parts_j , sizeof( struct part_cuda ) * counts[cjd] ); 
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( &parts[ind[cid]] , parts_i , sizeof( struct part_cuda ) * counts[cid] );
+                    cuda_memcpy( &parts[ind[cjd]] , parts_j , sizeof( struct part_cuda ) * counts[cjd] );
+                #endif
                     
                 }
             else {
             
                 /* Get a local copy of the particle data. */
-                cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
-                __threadfence_block();
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+                    __threadfence_block();
+                #else
+                    parts_i = &parts[ ind[cid] ];
+                #endif
                 
                 /* Compute the cell self interactions. */
                 if ( counts[cid] <= cuda_frame )
@@ -1514,7 +2363,9 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
                     runner_doself_diag_cuda( parts_i , counts[cid] );
                     
                 /* Write the particle data back. */
-                cuda_memcpy( &parts[ind[cid]] , parts_i , sizeof( struct part_cuda ) * counts[cid] );
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( &parts[ind[cid]] , parts_i , sizeof( struct part_cuda ) * counts[cid] );
+                #endif
                 
                 }
         
@@ -1523,13 +2374,415 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
 
             /* Release the cells in the taboo list. */
             if ( threadID == 0 ) {
-                cuda_taboo[ cid ] -= 1;
-                cuda_taboo[ cjd ] -= 1;
+                atomicSub( &cuda_taboo[ cid ] , 1 );
+                atomicSub( &cuda_taboo[ cjd ] , 1 );
+                } 
+                
+            }
+            
+        } /* main loop. */
+
+    /* Check out at the barrier. */
+    if ( threadID == 0 )
+        atomicSub( &cuda_barrier , 1 );
+    
+    /* The last one out cleans up the mess... */
+    if ( threadID == 0 && blockID == 0 ) {
+        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+        cuda_pair_next = 0;
+        __threadfence();
+        }
+        
+    TIMER_TOC2(tid_total)
+
+    }
+    
+    
+/**
+ * @brief Loop over the cell pairs and process them.
+ *
+ * @param cells Array of cells on the device.
+ *
+ */
+ 
+__global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind ) {
+
+    int threadID, blockID;
+    int k, cid, cjd;
+    volatile __shared__ int pid;
+    __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
+    struct part_cuda *parts_k;
+    
+    TIMER_TIC2
+    
+    /* Get the block and thread ids. */
+    blockID = blockIdx.x;
+    threadID = threadIdx.x;
+    
+    /* Make a notch on the barrier. */
+    if ( threadID == 0 )
+        atomicAdd( &cuda_barrier , 1 );
+    
+    /* Check that we've got the correct warp size! */
+    /* if ( warpSize != cuda_frame ) {
+        if ( blockID == 0 && threadID == 0 )
+            printf( "runner_run_cuda: error: the warp size of the device (%i) does not match the warp size mdcore was compiled for (%i).\n" ,
+                warpSize , cuda_frame );
+        return;
+        } */
+        
+
+    /* Main loop... */
+    while ( 1 ) {
+    
+        /* Let the first thread grab a pair. */
+        if ( threadID == 0 ) {
+            pid = atomicAdd( (int *)&cuda_pair_next , 1 );
+            __threadfence_block();
+            }
+            
+        /* Are we at the end of the list? */
+        if ( pid >= cuda_nr_pairs )
+            break;
+        
+        /* Get a hold of the pair cells. */
+        cid = cuda_pairs[pid].i;
+        cjd = cuda_pairs[pid].j;
+    
+        /* Do the pair. */
+        if ( cid != cjd ) {
+        
+            /* Get a local copy of the particle data. */
+            cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+            TIMER_TIC
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_i[k].f[0] = 0.0f;
+                parts_i[k].f[1] = 0.0f;
+                parts_i[k].f[2] = 0.0f;
+                }
+            TIMER_TOC(tid_queue)
+            cuda_memcpy( parts_j , &parts[ind[cjd]] , sizeof( struct part_cuda ) * counts[cjd] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cjd] ; k += cuda_frame ) {
+                parts_j[k].f[0] = 0.0f;
+                parts_j[k].f[1] = 0.0f;
+                parts_j[k].f[2] = 0.0f;
+                }
+            TIMER_TOC_ND(tid_queue)
+            __threadfence_block();
+            
+            /* Compute the cell pair interactions. */
+            if ( counts[cid] <= cuda_frame || counts[cjd] <= cuda_frame )
+                runner_dopair_cuda(
+                    parts_i , counts[cid] ,
+                    parts_j , counts[cjd] ,
+                    cuda_pairs[pid].shift );
+            else
+                runner_dopair_sorted4_cuda(
+                    parts_i , counts[cid] ,
+                    parts_j , counts[cjd] ,
+                    cuda_pairs[pid].shift );
+                
+            /* Write the particle data back. */
+            parts_k = &parts[ ind[ cid ] ];
+            if ( threadID == 0 )
+                cuda_mutex_lock( &cuda_taboo[cid] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_k[k].f[0] += parts_i[k].f[0];
+                parts_k[k].f[1] += parts_i[k].f[1];
+                parts_k[k].f[2] += parts_i[k].f[2];
+                }
+            TIMER_TOC_ND(tid_queue)
+            if ( threadID == 0 )
+                cuda_mutex_unlock( &cuda_taboo[cid] );
+                
+            parts_k = &parts[ ind[ cjd ] ];
+            if ( threadID == 0 )
+                cuda_mutex_lock( &cuda_taboo[cjd] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cjd] ; k += cuda_frame ) {
+                parts_k[k].f[0] += parts_j[k].f[0];
+                parts_k[k].f[1] += parts_j[k].f[1];
+                parts_k[k].f[2] += parts_j[k].f[2];
+                }
+            TIMER_TOC_ND(tid_queue)
+            if ( threadID == 0 )
+                cuda_mutex_unlock( &cuda_taboo[cjd] );
+            __threadfence();
+                
+            }
+        else {
+        
+            /* Get a local copy of the particle data. */
+            cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+            TIMER_TIC
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_i[k].f[0] = 0.0f;
+                parts_i[k].f[1] = 0.0f;
+                parts_i[k].f[2] = 0.0f;
+                }
+            TIMER_TOC(tid_queue)
+            __threadfence_block();
+            
+            /* Compute the cell self interactions. */
+            if ( counts[cid] <= cuda_frame )
+                runner_doself_cuda( parts_i , counts[cid] );
+            else
+                runner_doself_diag_cuda( parts_i , counts[cid] );
+                
+            /* Write the particle data back. */
+            parts_k = &parts[ ind[ cid ] ];
+            if ( threadID == 0 )
+                cuda_mutex_lock( &cuda_taboo[cid] );
+            TIMER_TIC_ND
+            for ( k = threadID ; k < counts[cid] ; k += cuda_frame ) {
+                parts_k[k].f[0] += parts_i[k].f[0];
+                parts_k[k].f[1] += parts_i[k].f[1];
+                parts_k[k].f[2] += parts_i[k].f[2];
+                }
+            TIMER_TOC_ND(tid_queue)
+            if ( threadID == 0 )
+                cuda_mutex_unlock( &cuda_taboo[cid] );
+            __threadfence();
+            
+            }
+        
+        } /* main loop. */
+
+    /* Check out at the barrier. */
+    if ( threadID == 0 )
+        atomicSub( &cuda_barrier , 1 );
+    
+    /* The last one out cleans up the mess... */
+    if ( threadID == 0 && blockID == 0 ) {
+        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+        cuda_pair_next = 0;
+        __threadfence();
+        }
+        
+    TIMER_TOC2(tid_total)
+
+    }
+    
+    
+/**
+ * @brief Loop over the cell pairs and process them.
+ *
+ * @param cells Array of cells on the device.
+ *
+ */
+ 
+__global__ void runner_run_cuda_new ( struct part_cuda *parts , int *counts , int *ind ) {
+
+    int threadID, blockID;
+    int i, pid, cid, cjd, oid, ojd;
+    __shared__ int spid;
+    #ifdef SHARED_BUFF
+        __shared__ struct part_cuda parts_i[ cuda_maxparts ], parts_j[ cuda_maxparts ];
+    #else
+        struct part_cuda *parts_i, *parts_j;
+    #endif
+    
+    TIMER_TIC2
+    
+    /* Get the block and thread ids. */
+    blockID = blockIdx.x;
+    threadID = threadIdx.x;
+    
+    /* Make a notch on the barrier. */
+    if ( threadID == 0 )
+        atomicAdd( &cuda_barrier , 1 );
+    
+    /* Main loop... */
+    while ( cuda_pair_count < cuda_nr_pairs ) {
+    
+        /* Let the first thread get a pair. */
+        if ( threadID == 0 ) {
+        
+            /* Lock the mutex. */
+            if ( cuda_mutex_lock_cond( &cuda_cell_mutex , &cuda_fifos_in[ blockID ].count ) ) {
+            
+                TIMER_TIC
+            
+                /* Run through the available pairs. */
+                for ( i = cuda_pair_curr ; i < cuda_nr_pairs ; i++ ) {
+                
+                    /* Get the cell IDs of the ith pair. */
+                    pid = cuda_pairIDs[i];
+                    cid = cuda_pairs[ pid ].i;
+                    cjd = cuda_pairs[ pid ].j;
+                    oid = atomicCAS( &cuda_owner[ cid ] , 0 , 0 );
+                    ojd = atomicCAS( &cuda_owner[ cjd ] , 0 , 0 );
+                    
+                    /* Is this pair free? */
+                    if ( ( oid == 0 || oid == blockID+1 ) && ( ojd == 0 || ojd == blockID+1 ) ) {
+                    
+                        /* Own the cells. */
+                        atomicAdd( &cuda_taboo[ cid ] , 1 );
+                        atomicAdd( &cuda_taboo[ cjd ] , 1 );
+                        atomicExch( &cuda_owner[ cid ] , blockID+1 );
+                        if ( cid != cjd )
+                            atomicExch( &cuda_owner[ cjd ] , blockID+1 );
+                    
+                        /* Push this pair onto the queue. */
+                        cuda_fifo_push( &cuda_fifos_in[ blockID ] , pid );
+                        
+                        /* Swap back to curr if needed. */
+                        if ( i != cuda_pair_curr )
+                            cuda_pairIDs[i] = cuda_pairIDs[ cuda_pair_curr ];
+                            
+                        /* Increase the counters and stuff. */
+                        cuda_pair_curr += 1;
+                        cuda_pairIDs[ cuda_pair_count ] = pid;
+                        cuda_pair_count += 1;
+                        
+                        /* Leave this loop. */
+                        __threadfence();
+                        break;
+                    
+                        }
+                
+                    /* Does this pair have a single owner? */
+                    else if ( ( oid == 0 ) || ( ojd == 0 ) || ( oid == ojd ) ) {
+                    
+                        /* Get the unique owner. */
+                        oid |= ojd;
+                        
+                        /* Does the owner's queue have any space left? */
+                        if ( cuda_fifos_in[ oid-1 ].count < cuda_fifo_size ) {
+                        
+                            /* Set the ownership. */
+                            atomicAdd( &cuda_taboo[ cid ] , 1 );
+                            atomicAdd( &cuda_taboo[ cjd ] , 1 );
+                            atomicExch( &cuda_owner[ cid ] , oid );
+                            atomicExch( &cuda_owner[ cjd ] , oid );
+                                
+                            /* Put this pair on the owner's queue. */
+                            cuda_fifo_push( &cuda_fifos_in[ oid-1 ] , pid );
+                                
+                            /* Swap back to curr if needed. */
+                            if ( i != cuda_pair_curr )
+                                cuda_pairIDs[i] = cuda_pairIDs[ cuda_pair_curr ];
+                                
+                            /* Increase the counters and stuff. */
+                            cuda_pair_curr += 1;
+                            cuda_pairIDs[ cuda_pair_count ] = pid;
+                            cuda_pair_count += 1;
+                        
+                            } /* there is space in the queue. */
+                    
+                        } /* pair has single owner. */
+                        
+                    } /* run through the available pairs. */
+                
+                /* Un-lock the mutex. */
+                cuda_mutex_unlock( &cuda_cell_mutex );
+                
+                /* Sync the memory. */
+                __threadfence();
+                
+                TIMER_TOC(tid_queue)
+                
+                } /* got mutex? */
+            
+            } /* threadID=0 doing it's own thing. */
+            
+
+        /* Loop over the pairs in our own queue. */
+        while ( cuda_fifos_in[blockID].count > 0 ) {
+        
+            /* Get a hold of the pair. */
+            if ( threadID == 0 ) {
+                spid = cuda_fifo_pop( &cuda_fifos_in[ blockID ] );
+                __threadfence_block();
+                }
+            cid = cuda_pairs[ spid ].i;
+            cjd = cuda_pairs[ spid ].j;
+        
+            /* Do the pair. */
+            if ( cid != cjd ) {
+            
+                /* Get a local copy of the particle data. */
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+                    cuda_memcpy( parts_j , &parts[ind[cjd]] , sizeof( struct part_cuda ) * counts[cjd] );
+                    __threadfence_block();
+                #else
+                    parts_i = &parts[ ind[cid] ];
+                    parts_j = &parts[ ind[cjd] ];
+                #endif
+                
+                /* Compute the cell pair interactions. */
+                if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
+                    runner_dopair_cuda(
+                        parts_i , counts[cid] ,
+                        parts_j , counts[cjd] ,
+                        cuda_pairs[spid].shift );
+                else
+                    runner_dopair_sorted_cuda(
+                        parts_i , counts[cid] ,
+                        parts_j , counts[cjd] ,
+                        cuda_pairs[spid].shift );
+                    
+                /* Write the particle data back. */
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( &parts[ind[cid]] , parts_i , sizeof( struct part_cuda ) * counts[cid] );
+                    cuda_memcpy( &parts[ind[cjd]] , parts_j , sizeof( struct part_cuda ) * counts[cjd] );
+                #endif
+                    
+                }
+            else {
+            
+                /* Get a local copy of the particle data. */
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( parts_i , &parts[ind[cid]] , sizeof( struct part_cuda ) * counts[cid] );
+                    __threadfence_block();
+                #else
+                    parts_i = &parts[ ind[cid] ];
+                #endif
+                
+                /* Compute the cell self interactions. */
+                if ( counts[cid] <= cuda_frame )
+                    runner_doself_cuda( parts_i , counts[cid] );
+                else
+                    runner_doself_diag_cuda( parts_i , counts[cid] );
+                    
+                /* Write the particle data back. */
+                #ifdef SHARED_BUFF
+                    cuda_memcpy( &parts[ind[cid]] , parts_i , sizeof( struct part_cuda ) * counts[cid] );
+                #endif
+                
+                }
+                
+            /* Sync the memory before retuning the particle data. */
+            __threadfence();
+
+            /* Release the cells in the taboo list. */
+            if ( threadID == 0 ) {
+                if ( atomicSub( &cuda_taboo[ cid ] , 1 ) == 1 )
+                    atomicExch( &cuda_owner[ cid ] , 0 );
+                if ( atomicSub( &cuda_taboo[ cjd ] , 1 ) == 1 )
+                    atomicExch( &cuda_owner[ cjd ] , 0 );
                 }
                 
             }
             
         } /* main loop. */
+        
+    /* Check out at the barrier. */
+    if ( threadID == 0 )
+        atomicSub( &cuda_barrier , 1 );
+    
+    /* The last one out cleans up the mess... */
+    if ( threadID == 0 && blockID == 0 ) {
+        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+        cuda_pair_count = 0;
+        cuda_pair_curr = 0;
+        __threadfence();
+        }
+
+    TIMER_TOC2(tid_total)
 
     }
     
@@ -1605,8 +2858,8 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
                                  ( ( cjd == 0 ) || ( cjd >> 16 == k ) ) ) {
 
                                 /* Get the number of common threads. */
-                                comm = ( ( cid >> 16 ) == k ) +
-                                       ( ( cjd >> 16 ) == k );
+                                comm = ( ( cid > 0 ) && ( cid >> 16 ) == k ) +
+                                       ( ( cjd > 0 ) && ( cjd >> 16 ) == k );
 
                                 /* Store as new maximum? */
                                 if ( comm > max_comm ) {
@@ -1793,7 +3046,7 @@ __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *coun
  
 __global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts , int *ind ) {
 
-    int threadID; //, blockID;
+    int threadID, blockID;
     int i, k, cid, cjd, ckd, ctn;
     __shared__ struct celltuple_cuda temp;
     __shared__ int finger;
@@ -1801,8 +3054,12 @@ __global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts ,
     float shift[3];
     
     /* Get the block and thread ids. */
-    // blockID = blockIdx.x;
+    blockID = blockIdx.x;
     threadID = threadIdx.x;
+    
+    /* Check in at the barrier. */
+    if ( threadID == 0 )
+        atomicAdd( &cuda_barrier , 1 );
     
     /* Check that we've got the correct warp size! */
     /* if ( warpSize != cuda_frame ) {
@@ -1998,6 +3255,17 @@ __global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts ,
             }
             
         } /* main loop. */
+
+    /* Check out at the barrier. */
+    if ( threadID == 0 )
+        atomicSub( &cuda_barrier , 1 );
+    
+    /* The last one out cleans up the mess... */
+    if ( threadID == 0 && blockID == 0 ) {
+        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+        cuda_tuple_next = 0;
+        __threadfence();
+        }
 
     }
     

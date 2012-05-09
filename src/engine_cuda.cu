@@ -35,6 +35,12 @@
     #include <omp.h>
 #endif
 
+/* Disable vectorization for the nvcc compiler's sake. */
+#undef __SSE__
+#undef __SSE2__
+#undef __ALTIVEC__
+#undef __AVX__
+
 /* include local headers */
 #include "cycle.h"
 #include "errs.h"
@@ -66,6 +72,8 @@
 /* Forward declaration of runner kernel. */
 __global__ void runner_run_verlet_cuda ( struct part_cuda *parts , int *counts , int *ind , int verlet_rebuild );
 __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *ind );
+__global__ void runner_run_cuda_new ( struct part_cuda *parts , int *counts , int *ind );
+__global__ void runner_run_loose_cuda ( struct part_cuda *parts , int *counts , int *ind );
 __global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts , int *ind );
 __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *counts , int *ind );
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
@@ -81,25 +89,41 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaA
  
 extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
-    dim3 nr_threads( 32 , 1 );
+    dim3 nr_threads( cuda_frame , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
-    int zero = 0;
+    // int zero = 0;
     // int cuda_io[32];
     // float cuda_fio[32];
+    #ifdef TIMERS
+        float timers[ tid_count ];
+        double icpms = 1000.0 / 1.4e9; 
+    #endif
 
     /* Load the particle data onto the device. */
     if ( engine_cuda_load_parts( e ) < 0 )
         return error(engine_err);
 
     /* Init the pointer to the next entry. */    
-    if ( cudaMemcpyToSymbol( "cuda_pair_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    /* if ( cudaMemcpyToSymbol( "cuda_pair_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_tuple_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda); */
+    /* if ( cudaMemcpyToSymbol( "cuda_pair_count" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_pair_curr" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda); */
     /* if ( cudaMemcpyToSymbol( "cuda_pairs_done" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
     /* if ( cudaMemcpyToSymbol( "cuda_cell_mutex" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
+        
+    /* Re-set timers */
+    #ifdef TIMERS
+        for ( int k = 0 ; k < tid_count ; k++ )
+            timers[k] = 0.0f;
+        if ( cudaMemcpyToSymbol( "cuda_timers" , timers , sizeof(float) * tid_count , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+    #endif
     
     /* Start the kernel. */
     if ( e->flags & engine_flag_dispatch )
@@ -114,6 +138,16 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     /* Check for CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
+        
+    /* Get and dump timers. */
+    #ifdef TIMERS
+        if ( cudaMemcpyFromSymbol( timers , "cuda_timers" , sizeof(float) * tid_count , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        printf( "engine_nonbond_cuda: timers = [ %.2f " , icpms * timers[0] );
+        for ( int k = 1 ; k < tid_count ; k++ )
+            printf( "%.2f " , icpms * timers[k] );
+        printf( "] ms\n" );
+    #endif
         
     /* Get the IO data. */
     /*if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
@@ -165,8 +199,10 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     
     /* Load the counts. */
     for ( k = 0 ; k < s->nr_marked ; k++ )
-        if ( ( s->counts_cuda_local[ s->cid_marked[k] ] = s->cells[ s->cid_marked[k] ].count ) > cuda_maxparts )
+        if ( ( s->counts_cuda_local[ s->cid_marked[k] ] = s->cells[ s->cid_marked[k] ].count ) > cuda_maxparts ) {
+            printf( "engine_cuda_load_parts: cell %i has %i parts (max=%i).\n" , s->cid_marked[k] , s->cells[ s->cid_marked[k] ].count , cuda_maxparts );
             return error(engine_err_range);
+            }
         
     /* Compute the indices. */
     s->ind_cuda_local[0] = 0;
@@ -347,6 +383,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     void *devptr;
+    unsigned int *taboo_cuda, *owner_cuda, *pairIDs_cuda, pairIDs[ e->s.nr_pairs ];
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -620,11 +657,27 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
         
     /* Allocate and init the taboo list on the device. */
-    if ( cudaMalloc( &e->s.taboo_cuda , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+    if ( cudaMalloc( &taboo_cuda , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemset( e->s.taboo_cuda , 0 , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+    if ( cudaMemset( taboo_cuda , 0 , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( "cuda_taboo" , &(e->s.taboo_cuda) , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToSymbol( "cuda_taboo" , &taboo_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMalloc( &owner_cuda , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemset( owner_cuda , 0 , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_owner" , &owner_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
+    /* Pack and send the pairIDs. */
+    for ( k = 0 ; k < e->s.nr_pairs ; k++ )
+        pairIDs[k] = k;
+    if ( cudaMalloc( &pairIDs_cuda , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpy( pairIDs_cuda , pairIDs , sizeof(int) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_pairIDs" , &pairIDs_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* He's done it! */

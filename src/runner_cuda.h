@@ -18,13 +18,14 @@
  ******************************************************************************/
 
 /* Set the max number of parts for shared buffers. */
-#define cuda_maxparts                       160
+#define cuda_maxparts                       192
 #define cuda_ndiags                         ( ( (cuda_maxparts + 1) * cuda_maxparts ) / 2 )
 #define cuda_frame                          32
 #define cuda_maxpots                        100
-#define max_fingers                         3
+#define max_fingers                         1
 #define cuda_fifo_size                      4
 #define cuda_maxblocks                      64
+#define cuda_memcpy_chunk                   8
 
 
 /* Use textured or global potential data? */
@@ -32,6 +33,40 @@
 // #define EXPLPOT
 #define PACK_PARTS
 // #define USETEX_E
+#define SHARED_BUFF
+// #define TIMERS
+
+
+/** Timers for the cuda parts. */
+enum {
+    tid_mutex = 0,
+    tid_memcpy,
+    tid_queue,
+    tid_sort,
+    tid_pair,
+    tid_self,
+    tid_potential,
+    tid_total,
+    tid_count
+    };
+    
+
+/* Timer functions. */
+#ifdef TIMERS
+    #define TIMER_TIC_ND if ( threadIdx.x == 0 ) tic = clock();
+    #define TIMER_TOC_ND(tid) toc = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc > tic ) ? (toc - tic) : ( toc + (0xffffffff - tic) ) );
+    #define TIMER_TIC clock_t tic; if ( threadIdx.x == 0 ) tic = clock();
+    #define TIMER_TOC(tid) clock_t toc = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc > tic ) ? (toc - tic) : ( toc + (0xffffffff - tic) ) );
+    #define TIMER_TIC2 clock_t tic2; if ( threadIdx.x == 0 ) tic2 = clock();
+    #define TIMER_TOC2(tid) clock_t toc2 = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc2 > tic2 ) ? (toc2 - tic2) : ( toc2 + (0xffffffff - tic2) ) );
+#else
+    #define TIMER_TIC_ND
+    #define TIMER_TOC_ND(tid)
+    #define TIMER_TIC
+    #define TIMER_TOC(tid)
+    #define TIMER_TIC2
+    #define TIMER_TOC2(tid)
+#endif
 
 
 #ifdef PACK_PARTS
