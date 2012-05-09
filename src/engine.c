@@ -1844,8 +1844,6 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         flags |= engine_flag_verlet_pairwise;
     if ( flags & engine_flag_verlet_pairwise )
         flags |= engine_flag_verlet;
-    if ( flags & engine_flag_verlet )
-        flags |= engine_flag_tuples;
     if ( flags & engine_flag_cuda )
         flags |= engine_flag_nullpart;
         
@@ -1918,7 +1916,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     e->nr_sets = 0;
     
     /* allocate the interaction matrices */
-    if ( (e->p = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type )) == NULL)
+    if ( ( e->p = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type ) ) == NULL )
         return error(engine_err_malloc);
     bzero( e->p , sizeof(struct potential *) * max_type * max_type );
     if ( (e->p_bond = (struct potential **)malloc( sizeof(struct potential *) * max_type * max_type )) == NULL)
