@@ -76,7 +76,7 @@ __global__ void runner_run_cuda_new ( struct part_cuda *parts , int *counts , in
 __global__ void runner_run_loose_cuda ( struct part_cuda *parts , int *counts , int *ind );
 __global__ void runner_run_tuples_cuda ( struct part_cuda *parts , int *counts , int *ind );
 __global__ void runner_run_dispatcher_cuda ( struct part_cuda *parts , int *counts , int *ind );
-int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
+int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
 
 
 /**
@@ -371,7 +371,7 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
 extern "C" int engine_cuda_load ( struct engine *e ) {
 
     int i, j, k, nr_pots, nr_coeffs, *diags;
-    int pind_cuda[ e->max_type * e->max_type ], *offsets_cuda;
+    int pind_cuda[ e->max_type * e->max_type ];
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
     struct potential *p_cuda[ e->max_type * e->max_type ];
     struct potential *pots_cuda;
@@ -379,9 +379,10 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     struct celltuple_cuda *tuples_cuda;
     float *finger, *coeffs_cuda, *alphas_cuda;
     float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, dscale, buff[ e->nr_types ];
-    cudaArray *cuArray_coeffs, *cuArray_offsets, *cuArray_alphas, *cuArray_pind, *cuArray_diags;
+    cudaArray *cuArray_coeffs, *cuArray_alphas, *cuArray_pind, *cuArray_diags;
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
+    cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     void *devptr;
     unsigned int *taboo_cuda, *owner_cuda, *pairIDs_cuda, pairIDs[ e->s.nr_pairs ];
     
@@ -481,18 +482,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpyToArray( cuArray_coeffs , 0 , 0 , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
-    /* Pack the potential offsets into a newly allocated array and 
-       copy to the device. */
-    if ( ( offsets_cuda = (int *)alloca( sizeof(int) * nr_pots ) ) == NULL )
-        return error(engine_err_malloc);
-    offsets_cuda[0] = 0;
-    for ( i = 1 ; i < nr_pots ; i++ )
-        offsets_cuda[i] = offsets_cuda[i-1] + pots_cuda[i-1].n + 1;
-    if ( cudaMallocArray( &cuArray_offsets , &channelDesc_int , nr_pots , 1 ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( cuArray_offsets , 0 , 0 , offsets_cuda , sizeof(int) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    
     /* Pack the diagonal offsets into a newly allocated array and 
        copy to the device. */
     if ( ( diags = (int *)alloca( sizeof(int) * 2 * cuda_ndiags ) ) == NULL )
@@ -525,13 +514,13 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     alphas_cuda[3] = 0;
     for ( i = 1 ; i < nr_pots ; i++ )
         alphas_cuda[ 4*i + 3 ] = alphas_cuda[ 4*(i-1) + 3 ] + pots_cuda[i-1].n + 1;
-    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , nr_pots , 1 ) != cudaSuccess )
+    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float4 , nr_pots , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 4 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Bind the textures on the device. */
-    if ( runner_bind( cuArray_coeffs , cuArray_offsets , cuArray_alphas , cuArray_pind , cuArray_diags ) < 0 )
+    if ( runner_bind( cuArray_coeffs , cuArray_alphas , cuArray_pind , cuArray_diags ) < 0 )
         return error(engine_err_runner);
         
         

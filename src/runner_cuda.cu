@@ -107,7 +107,6 @@ __device__ int *cuda_sortlists_ind;
 /* The potential coefficients, as a texture. */
 texture< float , cudaTextureType2D > tex_coeffs;
 texture< float4 , cudaTextureType1D > tex_alphas;
-texture< int , cudaTextureType1D > tex_offsets;
 
 /* Other textures. */
 texture< int , cudaTextureType1D > tex_pind;
@@ -1988,18 +1987,13 @@ __device__ void runner_doself_diag_cuda ( struct part_cuda *parts , int count ) 
  * be externalized.
  */
  
-int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_offsets , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags ) {
+int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags ) {
 
     /* Bind the coeffs. */
     cuda_coeffs = cuArray_coeffs;
     if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
-    /* Bind the offsets. */
-    cuda_offsets = cuArray_offsets;
-    if ( cudaBindTextureToArray( tex_offsets , cuArray_offsets ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-        
     /* Bind the alphas. */
     cuda_alphas = cuArray_alphas;
     if ( cudaBindTextureToArray( tex_alphas , cuArray_alphas ) != cudaSuccess )
