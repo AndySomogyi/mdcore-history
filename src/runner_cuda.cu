@@ -718,6 +718,157 @@ __device__ void runner_dopair_cuda ( struct part_cuda *parts_i , int count_i , s
  * @sa #runner_dopair.
  */
  
+__device__ void runner_dopair4_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j, float *pshift ) {
+
+    int k, pjd, ind, wrap_i, threadID;
+    int pjoff;
+    struct part_cuda *pi[4], *pj;
+    struct part_cuda *temp;
+    int4 pot, pid, valid;
+    float4 r2, ee, eff;
+    float epot = 0.0f, dx[12], pjx[3], pjf[3], shift[3], r2, w;
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Swap cells? cell_j loops in steps of frame... */
+    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+        temp = parts_i; parts_i = parts_j; parts_j = temp;
+        k = count_i; count_i = count_j; count_j = k;
+        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
+        }
+    else {
+        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
+        }
+
+    /* Get the wraps. */
+    wrap_i = (count_i < cuda_frame) ? cuda_frame : count_i;
+    
+    /* Make sure everybody is in the same place. */
+    __threadfence_block();
+
+    /* Loop over the particles in cell_j, frame-wise. */
+    for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        pj = &parts_j[pjd];
+        pjoff = pj->type * cuda_maxtype;
+        for ( k = 0 ; k < 3 ; k++ ) {
+            pjx[k] = pj->x[k] + shift[k];
+            pjf[k] = 0.0f;
+            }
+        #if defined(USETEX_E) || defined(EXPLPOT)
+        qj = pj->q;
+        #endif
+        
+        /* Loop over the particles in cell_i. */
+        for ( ind = 0 ; ind < wrap_i ; ind += 4 ) {
+        
+            /* Wrap the particle index correctly. */
+            if ( ( pid.x = ind + threadID ) >= wrap_i )
+                pid.x -= wrap_i;
+            if ( ( pid.y = ind + threadID + 1 ) >= wrap_i )
+                pid.x -= wrap_i;
+            if ( ( pid.z = ind + threadID + 2 ) >= wrap_i )
+                pid.x -= wrap_i;
+            if ( ( pid.w = ind + threadID + 3 ) >= wrap_i )
+                pid.x -= wrap_i;
+                
+            /* Get the particle pointers. */
+            pi[0] = ( valid.x = ( pid.x < count_i ) ) ? &parts_i[ pid.x ] : pj;
+            pi[1] = ( valid.y = ( pid.y < count_i ) && ( ind + 1 < wrap_i ) ) ? &parts_i[ pjd.y ] : pj;
+            pi[2] = ( valid.z = ( pid.z < count_i ) && ( ind + 2 < wrap_i ) ) ? &parts_i[ pjd.z ] : pj;
+            pi[3] = ( valid.w = ( pid.w < count_i ) && ( ind + 3 < wrap_i ) ) ? &parts_i[ pjd.w ] : pj;
+            
+            /* Compute the pairwise distances. */
+            r2 = make_float4( 0.0f );
+            #pragma unroll
+            for ( k = 0 ; k < 3 ; k++ ) {
+                dx[k] = pjx[k] - pi[0]->x[k];
+                r2.x += dx[k] * dx[k];
+                dx[3+k] = pjx[k] - pi[1]->x[k];
+                r2.y += dx[3+k] * dx[3+k];
+                dx[6+k] = pjx[k] - pi[2]->x[k];
+                r2.z += dx[6+k] * dx[6+k];
+                dx[9+k] = pjx[k] - pi[3]->x[k];
+                r2.w += dx[9+k] * dx[9+k];
+                }
+                
+            /* Get the potentials. */
+            valid.x = ( valid.x && r2.x < cuda_cutoff2 );
+            valid.y = ( valid.y && r2.y < cuda_cutoff2 );
+            valid.z = ( valid.z && r2.z < cuda_cutoff2 );
+            valid.w = ( valid.w && r2.w < cuda_cutoff2 );
+            pot.x = valid.x ? tex1D( tex_pind , pjoff + pi[0]->type ) : 0;
+            pot.y = valid.y ? tex1D( tex_pind , pjoff + pi[1]->type ) : 0;
+            pot.z = valid.z ? tex1D( tex_pind , pjoff + pi[2]->type ) : 0;
+            pot.w = valid.w ? tex1D( tex_pind , pjoff + pi[3]->type ) : 0;
+            
+            /* Compute the interaction. */
+            potential_eval4_cuda_tex( pot , r2 , &ee , &eff );
+            
+            /* Store the interaction energy. */
+            epot += ee.x + ee.y + ee.z + ee.w;
+            
+            /* Update the forces. */
+            if ( valid.x ) {
+                pjf[0] -= ( w = eff.x * dx[0] ); pi[0]->f[0] += w;
+                pjf[1] -= ( w = eff.x * dx[1] ); pi[0]->f[1] += w;
+                pjf[2] -= ( w = eff.x * dx[2] ); pi[0]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.y ) {
+                pjf[0] -= ( w = eff.y * dx[3] ); pi[1]->f[0] += w;
+                pjf[1] -= ( w = eff.y * dx[4] ); pi[1]->f[1] += w;
+                pjf[2] -= ( w = eff.y * dx[5] ); pi[1]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.z ) {
+                pjf[0] -= ( w = eff.z * dx[6] ); pi[2]->f[0] += w;
+                pjf[1] -= ( w = eff.z * dx[7] ); pi[2]->f[1] += w;
+                pjf[2] -= ( w = eff.z * dx[8] ); pi[2]->f[2] += w;
+                }
+            __threadfence_block();
+            if ( valid.w ) {
+                pjf[0] -= ( w = eff.w * dx[9] ); pi[3]->f[0] += w;
+                pjf[1] -= ( w = eff.w * dx[10] ); pi[3]->f[1] += w;
+                pjf[2] -= ( w = eff.w * dx[11] ); pi[3]->f[2] += w;
+                }
+            __threadfence_block();
+        
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            pj->f[k] += pjf[k];
+
+        /* Sync the shared memory values. */
+        __threadfence_block();
+            
+        } /* loop over the particles in cell_j. */
+        
+    TIMER_TOC(tid_pair)
+        
+    }
+
+
+/**
+ * @brief Compute the pairwise interactions for the given pair on a CUDA device.
+ *
+ * @param iparts_i Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param iparts_j Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param parts_i Part buffer in local memory.
+ * @param parts_j Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
 __device__ void runner_dopair_sorted_verlet_cuda ( struct part_cuda *parts_i , int count_i , struct part_cuda *parts_j , int count_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
 
     int k, j, i, ind, jnd, pid, pjd, pjdid, threadID, wrap, cj;
@@ -2473,7 +2624,7 @@ __global__ void runner_run_cuda ( struct part_cuda *parts , int *counts , int *i
             
             /* Compute the cell pair interactions. */
             if ( counts[cid] <= cuda_frame || counts[cjd] <= cuda_frame )
-                runner_dopair_cuda(
+                runner_dopair4_cuda(
                     parts_i , counts[cid] ,
                     parts_j , counts[cjd] ,
                     cuda_pairs[pid].shift );
