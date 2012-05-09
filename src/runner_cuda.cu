@@ -105,7 +105,7 @@ __device__ unsigned int *cuda_sortlists = NULL;
 __device__ int *cuda_sortlists_ind;
 
 /* The potential coefficients, as a texture. */
-texture< float , cudaTextureType2D > tex_coeffs;
+texture< float4 , cudaTextureType2D > tex_coeffs;
 texture< float4 , cudaTextureType1D > tex_alphas;
 
 /* Other textures. */
@@ -305,9 +305,9 @@ __device__ inline void cuda_memcpy_old ( void *dest , void *source , int count )
 
 __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 , float *e , float *f ) {
 
-    int ind, k;
-    float x, ee, eff, r, ir, qir, c[potential_chunk];
-    float4 alpha;
+    int ind;
+    float x, ee, eff, r, ir, qir;
+    float4 alpha, c1, c2;
     
     TIMER_TIC
     
@@ -323,25 +323,27 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
     ind += alpha.w;
     
     /* pre-load the coefficients. */
-    #pragma unroll
-    for ( k = 0 ; k < potential_chunk ; k++ )
-        c[k] = tex2D( tex_coeffs , k , ind );
+    c1 = tex2D( tex_coeffs , 0 , ind );
+    c2 = tex2D( tex_coeffs , 1 , ind );
     
     /* adjust x to the interval */
-    x = (r - c[0]) * c[1];
+    x = (r - c1.x) * c1.y;
     
     /* compute the potential and its derivative */
-    eff = c[2];
-    ee = c[2] * x + c[3];
-    #pragma unroll
-    for ( k = 4 ; k < potential_chunk ; k++ ) {
-        eff = eff * x + ee;
-        ee = ee * x + c[k];
-        }
+    eff = c1.z;
+    ee = c1.z * x + c1.w;
+    eff = eff * x + ee;
+    ee = ee * x + c2.x;
+    eff = eff * x + ee;
+    ee = ee * x + c2.y;
+    eff = eff * x + ee;
+    ee = ee * x + c2.z;
+    eff = eff * x + ee;
+    ee = ee * x + c2.w;
 
     /* store the result */
     *e = ee + qir;
-    *f = ( eff * c[1] + qir ) * ir;
+    *f = ( eff * c1.y + qir ) * ir;
         
     TIMER_TOC(tid_potential)
         
@@ -366,9 +368,9 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
 
 __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e , float *f ) {
 
-    int ind, k;
-    float x, ee, eff, r, ir, c[potential_chunk];
-    float4 alpha;
+    int ind;
+    float x, ee, eff, r, ir;
+    float4 alpha, c1, c2;
     
     TIMER_TIC
     
@@ -383,24 +385,26 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     ind += alpha.w;
     
     /* pre-load the coefficients. */
-    #pragma unroll
-    for ( k = 0 ; k < potential_chunk ; k++ )
-        c[k] = tex2D( tex_coeffs , k , ind );
+    c1 = tex2D( tex_coeffs , 0 , ind );
+    c2 = tex2D( tex_coeffs , 1 , ind );
     
     /* adjust x to the interval */
-    x = (r - c[0]) * c[1];
+    x = (r - c1.x) * c1.y;
     
     /* compute the potential and its derivative */
-    eff = c[2];
-    ee = c[2] * x + c[3];
-    #pragma unroll
-    for ( k = 4 ; k < potential_chunk ; k++ ) {
-        eff = eff * x + ee;
-        ee = ee * x + c[k];
-        }
+    eff = c1.z;
+    ee = c1.z * x + c1.w;
+    eff = eff * x + ee;
+    ee = ee * x + c2.x;
+    eff = eff * x + ee;
+    ee = ee * x + c2.y;
+    eff = eff * x + ee;
+    ee = ee * x + c2.z;
+    eff = eff * x + ee;
+    ee = ee * x + c2.w;
 
     /* store the result */
-    *e = ee; *f = eff * c[1] * ir;
+    *e = ee; *f = eff * c1.y * ir;
         
     TIMER_TOC(tid_potential)
         
@@ -427,7 +431,7 @@ __device__ inline void potential_eval4_cuda_tex ( int4 pid , float4 r2 , float4 
 
     int k;
     int4 ind;
-    float4 x, ee, eff, r, ir, c[potential_chunk], a[4];
+    float4 x, ee, eff, r, ir, t1[4], t2[4], c[potential_chunk], a[4];
     
     TIMER_TIC
     
@@ -449,10 +453,23 @@ __device__ inline void potential_eval4_cuda_tex ( int4 pid , float4 r2 , float4 
     ind.w = a[3].w + max( 0 , (int)( a[3].x + r.w * ( a[3].y + r.w * a[3].z ) ) );
     
     /* pre-load the coefficients. */
-    #pragma unroll
-    for ( k = 0 ; k < potential_chunk ; k++ )
-        c[k] = make_float4( tex2D( tex_coeffs , k , ind.x ) , tex2D( tex_coeffs , k , ind.y ) , tex2D( tex_coeffs , k , ind.z ) , tex2D( tex_coeffs , k , ind.w ) );
-        
+    t1[0] = tex2D( tex_coeffs , 0 , ind.x );
+    t2[0] = tex2D( tex_coeffs , 1 , ind.x );
+    t1[1] = tex2D( tex_coeffs , 0 , ind.y );
+    t2[1] = tex2D( tex_coeffs , 1 , ind.y );
+    t1[2] = tex2D( tex_coeffs , 0 , ind.z );
+    t2[2] = tex2D( tex_coeffs , 1 , ind.z );
+    t1[3] = tex2D( tex_coeffs , 0 , ind.w );
+    t2[3] = tex2D( tex_coeffs , 1 , ind.w );
+    c[0] = make_float4( t1[0].x , t1[1].x , t1[2].x , t1[3].x );
+    c[1] = make_float4( t1[0].y , t1[1].y , t1[2].y , t1[3].y );
+    c[2] = make_float4( t1[0].z , t1[1].z , t1[2].z , t1[3].z );
+    c[3] = make_float4( t1[0].w , t1[1].w , t1[2].w , t1[3].w );
+    c[4] = make_float4( t2[0].x , t2[1].x , t2[2].x , t2[3].x );
+    c[5] = make_float4( t2[0].y , t2[1].y , t2[2].y , t2[3].y );
+    c[6] = make_float4( t2[0].z , t2[1].z , t2[2].z , t2[3].z );
+    c[7] = make_float4( t2[0].w , t2[1].w , t2[2].w , t2[3].w );
+    
     /* adjust x to the interval */
     x = (r - c[0]) * c[1];
     
