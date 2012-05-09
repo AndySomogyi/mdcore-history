@@ -583,7 +583,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( e->flags & engine_flag_tuples ) {
     
         /* Allocate and fill the compact list of tuples. */
-        if ( ( tuples_cuda = (struct celltuple_cuda *)alloca( sizeof(struct celltuple_cuda) * e->s.nr_pairs ) ) == NULL )
+        if ( ( tuples_cuda = (struct celltuple_cuda *)malloc( sizeof(struct celltuple_cuda) * e->s.nr_pairs ) ) == NULL )
             return error(engine_err_malloc);
         for ( i = 0 ; i < e->s.nr_tuples ; i++ ) {
             tuples_cuda[i].i = ( e->s.tuples[i].n > 0 ) ? e->s.tuples[i].cellid[0] : -1;
@@ -629,6 +629,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( "cuda_nr_tuples" , &(e->s.nr_tuples) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
+            
+        /* Clean up. */
+        free(tuples_cuda);
             
         }
 
