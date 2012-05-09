@@ -516,7 +516,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         alphas_cuda[ 4*i + 3 ] = alphas_cuda[ 4*(i-1) + 3 ] + pots_cuda[i-1].n + 1;
     if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float4 , nr_pots , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 4 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float4) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Bind the textures on the device. */
