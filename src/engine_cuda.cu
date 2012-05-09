@@ -479,7 +479,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Bind the potential coefficients to a texture. */
     if ( cudaMallocArray( &cuArray_coeffs , &channelDesc_float4 , 2 , nr_coeffs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( cuArray_coeffs , 0 , 0 , coeffs_cuda , sizeof(float) * nr_coeffs * 2 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToArray( cuArray_coeffs , 0 , 0 , coeffs_cuda , sizeof(float4) * nr_coeffs * 2 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
     /* Pack the diagonal offsets into a newly allocated array and 
