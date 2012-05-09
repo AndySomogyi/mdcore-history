@@ -515,16 +515,19 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     
     /* Pack the potential alphas into a newly allocated array and copy
        to the device as a texture. */
-    if ( ( alphas_cuda = (float *)alloca( sizeof(float) * nr_pots * 3 ) ) == NULL )
+    if ( ( alphas_cuda = (float *)alloca( sizeof(float) * nr_pots * 4 ) ) == NULL )
         return error(engine_err_malloc);
     for ( i = 0 ; i < nr_pots ; i++ ) {
-        alphas_cuda[ 3*i ] = pots_cuda[i].alpha[0];
-        alphas_cuda[ 3*i + 1 ] = pots_cuda[i].alpha[1];
-        alphas_cuda[ 3*i + 2 ] = pots_cuda[i].alpha[2];
+        alphas_cuda[ 4*i ] = pots_cuda[i].alpha[0];
+        alphas_cuda[ 4*i + 1 ] = pots_cuda[i].alpha[1];
+        alphas_cuda[ 4*i + 2 ] = pots_cuda[i].alpha[2];
         }
-    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , 3 , nr_pots ) != cudaSuccess )
+    alphas_cuda[3] = 0;
+    for ( i = 1 ; i < nr_pots ; i++ )
+        alphas_cuda[ 4*i + 3 ] = alphas_cuda[ 4*(i-1) + 3 ] + pots_cuda[i-1].n + 1;
+    if ( cudaMallocArray( &cuArray_alphas , &channelDesc_float , nr_pots , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 3 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToArray( cuArray_alphas , 0 , 0 , alphas_cuda , sizeof(float) * nr_pots * 4 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Bind the textures on the device. */

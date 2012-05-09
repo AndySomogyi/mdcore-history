@@ -106,7 +106,7 @@ __device__ int *cuda_sortlists_ind;
 
 /* The potential coefficients, as a texture. */
 texture< float , cudaTextureType2D > tex_coeffs;
-texture< float , cudaTextureType2D > tex_alphas;
+texture< float4 , cudaTextureType1D > tex_alphas;
 texture< int , cudaTextureType1D > tex_offsets;
 
 /* Other textures. */
@@ -308,6 +308,7 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
 
     int ind, k;
     float x, ee, eff, r, ir, qir, c[potential_chunk];
+    float4 alpha;
     
     TIMER_TIC
     
@@ -317,10 +318,10 @@ __device__ inline void potential_eval_cuda_tex_e ( int pid , float q , float r2 
     qir = q*ir;
     
     /* compute the interval index */
-    // ind = fmaxf( 0.0f , tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) );
-    if ( ( ind = tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) ) < 0 )
+    alpha = tex1D( tex_alphas , pid );
+    if ( ( ind = alpha.x + r * ( alpha.y + r * alpha.z ) ) < 0 )
         ind = 0;
-    ind += tex1D( tex_offsets , pid );
+    ind += alpha.w;
     
     /* pre-load the coefficients. */
     #pragma unroll
@@ -368,6 +369,7 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
 
     int ind, k;
     float x, ee, eff, r, ir, c[potential_chunk];
+    float4 alpha;
     
     TIMER_TIC
     
@@ -376,9 +378,10 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     r = r2*ir;
     
     /* compute the interval index */
-    if ( ( ind = tex2D( tex_alphas , 0 , pid ) + r * ( tex2D( tex_alphas , 1 , pid ) + r * tex2D( tex_alphas , 2 , pid ) ) ) < 0 )
+    alpha = tex1D( tex_alphas , pid );
+    if ( ( ind = alpha.x + r * ( alpha.y + r * alpha.z ) ) < 0 )
         ind = 0;
-    ind += tex1D( tex_offsets , pid );
+    ind += alpha.w;
     
     /* pre-load the coefficients. */
     #pragma unroll
@@ -425,7 +428,7 @@ __device__ inline void potential_eval4_cuda_tex ( int4 pid , float4 r2 , float4 
 
     int k;
     int4 ind;
-    float4 x, ee, eff, r, ir, c[potential_chunk], a0, a1, a2;
+    float4 x, ee, eff, r, ir, c[potential_chunk], a[4];
     
     TIMER_TIC
     
@@ -437,12 +440,15 @@ __device__ inline void potential_eval4_cuda_tex ( int4 pid , float4 r2 , float4 
     r = r2*ir;
     
     /* compute the interval index */
-    ind = make_int4( tex1D( tex_offsets , pid.x ) , tex1D( tex_offsets , pid.y ) , tex1D( tex_offsets , pid.z ) , tex1D( tex_offsets , pid.w ) );
-    a0 = make_float4( tex2D( tex_alphas , 0 , pid.x ) , tex2D( tex_alphas , 0 , pid.y ) , tex2D( tex_alphas , 0 , pid.z ) , tex2D( tex_alphas , 0 , pid.w ) );
-    a1 = make_float4( tex2D( tex_alphas , 1 , pid.x ) , tex2D( tex_alphas , 1 , pid.y ) , tex2D( tex_alphas , 1 , pid.z ) , tex2D( tex_alphas , 1 , pid.w ) );
-    a2 = make_float4( tex2D( tex_alphas , 2 , pid.x ) , tex2D( tex_alphas , 2 , pid.y ) , tex2D( tex_alphas , 2 , pid.z ) , tex2D( tex_alphas , 2 , pid.w ) );
-    ind += max( make_int4(0) , make_int4( a0 + r * ( a1 + r * a2 ) ) );
-
+    a[0] = tex1D( tex_alphas , pid.x );
+    a[1] = tex1D( tex_alphas , pid.y );
+    a[2] = tex1D( tex_alphas , pid.z );
+    a[3] = tex1D( tex_alphas , pid.w );
+    ind.x = a[0].w + max( 0 , (int)( a[0].x + r.x * ( a[0].y + r.x * a[0].z ) ) );
+    ind.y = a[1].w + max( 0 , (int)( a[1].x + r.y * ( a[1].y + r.y * a[1].z ) ) );
+    ind.z = a[2].w + max( 0 , (int)( a[2].x + r.z * ( a[2].y + r.z * a[2].z ) ) );
+    ind.w = a[3].w + max( 0 , (int)( a[3].x + r.w * ( a[3].y + r.w * a[3].z ) ) );
+    
     /* pre-load the coefficients. */
     #pragma unroll
     for ( k = 0 ; k < potential_chunk ; k++ )
@@ -726,7 +732,7 @@ __device__ void runner_dopair4_cuda ( struct part_cuda *parts_i , int count_i , 
     struct part_cuda *temp;
     int4 pot, pid, valid;
     float4 r2, ee, eff;
-    float epot = 0.0f, dx[12], pjx[3], pjf[3], shift[3], r2, w;
+    float epot = 0.0f, dx[12], pjx[3], pjf[3], shift[3], w;
     
     TIMER_TIC
     
@@ -770,17 +776,17 @@ __device__ void runner_dopair4_cuda ( struct part_cuda *parts_i , int count_i , 
             if ( ( pid.x = ind + threadID ) >= wrap_i )
                 pid.x -= wrap_i;
             if ( ( pid.y = ind + threadID + 1 ) >= wrap_i )
-                pid.x -= wrap_i;
+                pid.y -= wrap_i;
             if ( ( pid.z = ind + threadID + 2 ) >= wrap_i )
-                pid.x -= wrap_i;
+                pid.z -= wrap_i;
             if ( ( pid.w = ind + threadID + 3 ) >= wrap_i )
-                pid.x -= wrap_i;
+                pid.w -= wrap_i;
                 
             /* Get the particle pointers. */
             pi[0] = ( valid.x = ( pid.x < count_i ) ) ? &parts_i[ pid.x ] : pj;
-            pi[1] = ( valid.y = ( pid.y < count_i ) && ( ind + 1 < wrap_i ) ) ? &parts_i[ pjd.y ] : pj;
-            pi[2] = ( valid.z = ( pid.z < count_i ) && ( ind + 2 < wrap_i ) ) ? &parts_i[ pjd.z ] : pj;
-            pi[3] = ( valid.w = ( pid.w < count_i ) && ( ind + 3 < wrap_i ) ) ? &parts_i[ pjd.w ] : pj;
+            pi[1] = ( valid.y = ( pid.y < count_i ) && ( ind + 1 < wrap_i ) ) ? &parts_i[ pid.y ] : pj;
+            pi[2] = ( valid.z = ( pid.z < count_i ) && ( ind + 2 < wrap_i ) ) ? &parts_i[ pid.z ] : pj;
+            pi[3] = ( valid.w = ( pid.w < count_i ) && ( ind + 3 < wrap_i ) ) ? &parts_i[ pid.w ] : pj;
             
             /* Compute the pairwise distances. */
             r2 = make_float4( 0.0f );
