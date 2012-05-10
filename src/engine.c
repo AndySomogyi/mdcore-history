@@ -65,7 +65,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[23] = {
+char *engine_err_msg[24] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -89,6 +89,7 @@ char *engine_err_msg[23] = {
     "An error occured when calling a dihedral funtion.", 
     "An error occured when calling a CUDA funtion.", 
     "mdcore was not compiled with CUDA support.", 
+    "CUDA support is only available in single-precision.", 
 	};
 
 
@@ -1834,6 +1835,12 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     /* make sure the inputs are ok */
     if ( e == NULL || origin == NULL || dim == NULL )
         return error(engine_err_null);
+        
+    /* Check for bad flags. */
+    #ifdef FPTYPE_DOUBLE
+        if ( e->flags & engine_flag_cuda )
+            return error(engine_err_cudasp);
+    #endif
         
     /* init the space with the given parameters */
     if ( space_init( &(e->s) , origin , dim , L , cutoff , period ) < 0 )

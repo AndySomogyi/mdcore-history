@@ -42,6 +42,7 @@
 #define engine_err_dihedral              -20
 #define engine_err_cuda                  -21
 #define engine_err_nocuda                -22
+#define engine_err_cudasp                -23
 
 
 /* some constants */
