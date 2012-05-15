@@ -150,7 +150,8 @@ struct space {
 
     /** Pointers to device data for CUDA. */
     #ifdef HAVE_CUDA
-        struct part_cuda *parts_cuda, *parts_cuda_local;
+        float *forces_cuda;
+        void *cuArray_parts;
         int *counts_cuda, *counts_cuda_local, *ind_cuda, *ind_cuda_local;
         struct cellpair_cuda *pairs_cuda;
         struct celltuple_cuda *tuples_cuda;
