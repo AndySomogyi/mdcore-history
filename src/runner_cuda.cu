@@ -1784,7 +1784,7 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
         #ifdef PARTS_TEX
             pj = tex2D( tex_parts , pjd , cid );
         #else
-            pj = parts_j[ pjd ];
+            pj = parts[ pjd ];
         #endif
         pjoff = pj.w * cuda_maxtype;
         pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
@@ -1796,7 +1796,7 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
             #ifdef PARTS_TEX
                 pi = tex2D( tex_parts , pid , cid );
             #else
-                pi = parts_i[ pid ];
+                pi = parts[ pid ];
             #endif
 
             /* Compute the radius between pi and pj. */
