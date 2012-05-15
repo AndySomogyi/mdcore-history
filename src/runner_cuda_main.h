@@ -19,7 +19,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
     volatile __shared__ int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
-    #ifnef PARTS_TEX
+    #if !defined(PARTS_TEX) && defined(PARTS_LOCAL)
         __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
     #end
     float *forces_k;
@@ -72,9 +72,14 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
-                cuda_memcpy( parts_i , cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                cuda_memcpy( parts_j , cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
-                __threadfence_block();
+                #ifdef PARTS_LOCAL
+                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
+                    __threadfence_block();
+                #else
+                    parts_i = &cuda_parts[ ind[cid] ];
+                    parts_j = &cuda_parts[ ind[cjd] ];
+                #endif
             #endif
             
             /* Compute the cell pair interactions. */
@@ -130,8 +135,12 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
-                cuda_memcpy( parts_i , cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                __threadfence_block();
+                #ifdef PARTS_LOCAL
+                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    __threadfence_block();
+                #else
+                    parts_i = &cuda_parts[ ind[cid] ];
+                #endif
             #endif
             
             /* Compute the cell self interactions. */
@@ -193,7 +202,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     volatile __shared__ int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
-    #ifnef PARTS_TEX
+    #if !defined(PARTS_TEX) && defined(PARTS_LOCAL)
         __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
     #end
     float *forces_k;
@@ -249,9 +258,14 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
-                cuda_memcpy( parts_i , cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                cuda_memcpy( parts_j , cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
-                __threadfence_block();
+                #ifdef PARTS_LOCAL
+                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
+                    __threadfence_block();
+                #else
+                    parts_i = &cuda_parts[ ind[cid] ];
+                    parts_j = &cuda_parts[ ind[cjd] ];
+                #endif
             #endif
             
             /* Compute the cell pair interactions. */
@@ -331,8 +345,12 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
-                cuda_memcpy( parts_i , cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                __threadfence_block();
+                #ifdef PARTS_LOCAL
+                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    __threadfence_block();
+                #else
+                    parts_i = &cuda_parts[ ind[cid] ];
+                #endif
             #endif
             
             /* Compute the cell self interactions. */
