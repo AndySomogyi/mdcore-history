@@ -520,7 +520,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
-            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
@@ -647,7 +647,7 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
-            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
@@ -670,7 +670,7 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
         #ifdef PARTS_TEX
             pj = tex2D( tex_parts , pjd , cjd );
         #else
-            pj = parts_j[ cjd ];
+            pj = parts_j[ pjd ];
         #endif
         pjoff = pj.w * cuda_maxtype;
         pj.x += shift[0]; pj.y += shift[1]; pj.z += shift[2];
@@ -825,7 +825,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
-            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
@@ -1033,7 +1033,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
 #ifdef PARTS_TEX
 __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
 #else
-__device__ void runner_dopair4_verlet_cuda ( flaot4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
+__device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
 #endif
 
     int k, j, i, ind, jnd, pid, spid, pjdid, threadID, wrap, cj;
@@ -1055,7 +1055,7 @@ __device__ void runner_dopair4_verlet_cuda ( flaot4 *parts_i , int count_i , flo
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
-            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
@@ -1318,7 +1318,7 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
-            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
@@ -1531,7 +1531,7 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
-            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
