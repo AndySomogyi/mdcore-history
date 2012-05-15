@@ -258,7 +258,7 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -334,7 +334,7 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -392,7 +392,7 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -455,7 +455,7 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -512,7 +512,7 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -562,7 +562,7 @@ struct potential *potential_create_Coulomb ( double a , double b , double q , do
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -618,7 +618,7 @@ struct potential *potential_create_LJ126_Coulomb ( double a , double b , double 
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
@@ -669,7 +669,7 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
         }
         
     /* allocate the potential */
-    if ( ( p = (struct potential *)malloc( sizeof( struct potential ) ) ) == NULL ) {
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
         return NULL;
         }
