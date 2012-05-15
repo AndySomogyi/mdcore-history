@@ -120,7 +120,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     dim3 nr_threads( cuda_frame , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
     int maxcount;
-    int zero = 0;
+    // int zero = 0;
     // int cuda_io[32];
     // float cuda_fio[32];
     #ifdef TIMERS
