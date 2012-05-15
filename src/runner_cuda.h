@@ -18,8 +18,9 @@
  ******************************************************************************/
 
 /* Set the max number of parts for shared buffers. */
-#define cuda_maxparts                       192
-#define cuda_ndiags                         ( ( (cuda_maxparts + 1) * cuda_maxparts ) / 2 )
+#define cuda_maxparts                       512
+#define cuda_maxdiags                       352
+#define cuda_ndiags                         ( ( (cuda_maxdiags - 1) * cuda_maxdiags ) / 2 )
 #define cuda_frame                          32
 #define cuda_maxpots                        100
 #define max_fingers                         1
@@ -28,12 +29,7 @@
 #define cuda_memcpy_chunk                   8
 
 
-/* Use textured or global potential data? */
-#define USETEX
-// #define EXPLPOT
-#define PACK_PARTS
-// #define USETEX_E
-#define SHARED_BUFF
+/* Some flags that control optional behaviour */
 // #define TIMERS
 
 
@@ -69,30 +65,6 @@ enum {
 #endif
 
 
-#ifdef PACK_PARTS
-/** Reduced part struct for CUDA. */
-struct part_cuda {
-
-    /** Particle position */
-    float x[3];
-    
-    /** Particle force */
-    float f[3];
-    
-    /** particle type. */
-    int type;
-    
-    /** particle charge. */
-    #if defined(USETEX_E) || defined(EXPLPOT)
-    float q;
-    #endif
-    
-    };
-#else
-    #define part_cuda part
-#endif
-
-
 /** Struct for each cellpair (compact). */
 struct cellpair_cuda {
 
@@ -101,24 +73,6 @@ struct cellpair_cuda {
     
     /** Relative shift between cell centres. */
     float shift[3];
-    
-    };
-    
-    
-/** Struct for each cellpair (compact). */
-struct celltuple_cuda {
-
-    /** Indices of the cells involved. */
-    int i, j, k;
-    
-    /* The number of interactions in this tuple. */
-    int nr_pairs;
-    
-    /* The bit-mask for the interactions. */
-    char pairs[8];
-    
-    /** Relative shift between cell centres. */
-    float shift_ij[3], shift_ik[3];
     
     };
     
