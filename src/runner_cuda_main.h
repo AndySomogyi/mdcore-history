@@ -21,7 +21,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
     #if !defined(PARTS_TEX) && defined(PARTS_LOCAL)
         __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
-    #end
+    #endif
     float *forces_k;
     
     TIMER_TIC2
@@ -204,7 +204,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
     #if !defined(PARTS_TEX) && defined(PARTS_LOCAL)
         __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
-    #end
+    #endif
     float *forces_k;
     
     TIMER_TIC2
