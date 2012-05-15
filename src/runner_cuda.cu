@@ -73,6 +73,9 @@ __device__ int cuda_pairs_done = 0;
 __constant__ int cuda_nr_tuples = 0;
 __constant__ int cuda_nr_cells = 0;
 
+/* The parts (non-texture access). */
+__constant__ float4 *cuda_parts;
+
 /* The mutex for accessing the cell pair list. */
 __device__ int cuda_cell_mutex = 0;
 __device__ int cuda_barrier = 0;
@@ -112,7 +115,7 @@ texture< int , cudaTextureType1D > tex_pind;
 texture< unsigned int , cudaTextureType1D > tex_diags;
 
 /* Arrays to hold the textures. */
-cudaArray *cuda_coeffs, *cuda_alphas, *cuda_offsets, *cuda_pind, *cuda_diags, *cuda_parts;
+cudaArray *cuda_coeffs, *cuda_alphas, *cuda_offsets, *cuda_pind, *cuda_diags;
 
 /* The potential parameters (hard-wired size for now). */
 __constant__ float cuda_eps[ 100 ];
@@ -493,8 +496,12 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
  *
  * @sa #runner_dopair.
  */
- 
+
+#ifdef PARTS_TEX 
 __device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , float *pshift ) {
+#else
+__device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , float *pshift ) {
+#endif
 
     int k, pid, pjd, ind, wrap_i, threadID;
     int pjoff;
@@ -510,7 +517,11 @@ __device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        k = cid; cid = cjd; cjd = k;
+        #ifdef PARTS_TEX
+            k = cid; cid = cjd; cjd = k;
+        #else
+            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+        #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
@@ -529,7 +540,11 @@ __device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
     
         /* Get a direct pointer on the pjdth part in cell_j. */
-        pj = tex2D( tex_parts , pjd , cjd );
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , pjd , cjd );
+        #else
+            pj = parts_j[ pjd ];
+        #endif
         pjoff = pj.w * cuda_maxtype;
         pj.x += shift[0]; pj.y += shift[1]; pj.z += shift[2];
         pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
@@ -543,7 +558,11 @@ __device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count
             if ( pid < count_i ) {
             
                 /* Get a handle on the wrapped particle pid in cell_i. */
-                pi = tex2D( tex_parts , pid , cid );
+                #ifdef PARTS_TEX
+                    pi = tex2D( tex_parts , pid , cid );
+                #else
+                    pi = parts_i[ pid ];
+                #endif
 
                 /* Compute the radius between pi and pj. */
                 r2 = 0.0f;
@@ -604,8 +623,12 @@ __device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count
  *
  * @sa #runner_dopair.
  */
- 
+
+#ifdef PARTS_TEX 
 __device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , float *pshift ) {
+#else
+__device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , float *pshift ) {
+#endif
 
     int k, pjd, ind, wrap_i, threadID;
     int pjoff;
@@ -621,7 +644,11 @@ __device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int coun
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        k = cid; cid = cjd; cjd = k;
+        #ifdef PARTS_TEX
+            k = cid; cid = cjd; cjd = k;
+        #else
+            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+        #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
@@ -640,7 +667,11 @@ __device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int coun
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
     
         /* Get a direct pointer on the pjdth part in cell_j. */
-        pj = tex2D( tex_parts , pjd , cjd );
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , pjd , cjd );
+        #else
+            pj = parts_j[ cjd ];
+        #endif
         pjoff = pj.w * cuda_maxtype;
         pj.x += shift[0]; pj.y += shift[1]; pj.z += shift[2];
         for ( k = 0 ; k < 3 ; k++ )
@@ -660,10 +691,17 @@ __device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int coun
                 pid.w -= wrap_i;
                 
             /* Get the particle pointers. */
-            pi[0] = ( valid.x = ( pid.x < count_i ) ) ? tex2D( tex_parts , pid.x , cid ) : pj;
-            pi[1] = ( valid.y = ( pid.y < count_i ) && ( ind + 1 < wrap_i ) ) ? tex2D( tex_parts , pid.y , cid ) : pj;
-            pi[2] = ( valid.z = ( pid.z < count_i ) && ( ind + 2 < wrap_i ) ) ? tex2D( tex_parts , pid.z , cid ) : pj;
-            pi[3] = ( valid.w = ( pid.w < count_i ) && ( ind + 3 < wrap_i ) ) ? tex2D( tex_parts , pid.w , cid ) : pj;
+            #ifdef PARTS_TEX
+                pi[0] = ( valid.x = ( pid.x < count_i ) ) ? tex2D( tex_parts , pid.x , cid ) : pj;
+                pi[1] = ( valid.y = ( pid.y < count_i ) && ( ind + 1 < wrap_i ) ) ? tex2D( tex_parts , pid.y , cid ) : pj;
+                pi[2] = ( valid.z = ( pid.z < count_i ) && ( ind + 2 < wrap_i ) ) ? tex2D( tex_parts , pid.z , cid ) : pj;
+                pi[3] = ( valid.w = ( pid.w < count_i ) && ( ind + 3 < wrap_i ) ) ? tex2D( tex_parts , pid.w , cid ) : pj;
+            #else
+                pi[0] = ( valid.x = ( pid.x < count_i ) ) ? parts_i[ pid.x] : pj;
+                pi[1] = ( valid.y = ( pid.y < count_i ) && ( ind + 1 < wrap_i ) ) ? parts_i[ pid.y ] : pj;
+                pi[2] = ( valid.z = ( pid.z < count_i ) && ( ind + 2 < wrap_i ) ) ? parts_i[ pid.z ] : pj;
+                pi[3] = ( valid.w = ( pid.w < count_i ) && ( ind + 3 < wrap_i ) ) ? parts_i[ pid.w ] : pj;
+            #endif
             
             /* Compute the pairwise distances. */
             r2 = make_float4( 0.0f );
@@ -763,7 +801,11 @@ __device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int coun
  * @sa #runner_dopair.
  */
  
+#ifdef PARTS_TEX
 __device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
+#else
+__device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
+#endif
 
     int k, j, i, ind, jnd, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
     int pioff;
@@ -780,7 +822,11 @@ __device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , in
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        k = cid; cid = cjd; cjd = k;
+        #ifdef PARTS_TEX
+            k = cid; cid = cjd; cjd = k;
+        #else
+            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+        #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
@@ -803,12 +849,20 @@ __device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , in
     
         /* Pack the parts of i and j into the sort arrays. */
         for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-            pi = tex2D( tex_parts , k , cid );
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , k , cid );
+            #else
+                pi = parts_i[ k ];
+            #endif
             sort_i[k] = ( k << 16 ) |
                 (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
             }
         for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-            pj = tex2D( tex_parts , k , cjd );
+            #ifdef PARTS_TEX
+                pj = tex2D( tex_parts , k , cjd );
+            #else
+                pj = parts_j[ k ];
+            #endif
             sort_j[k] = ( k << 16 ) | 
                 (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj.x)*shiftn[0] + (shift[1]+pj.y)*shiftn[1] + (shift[2]+pj.z)*shiftn[2]) );
             }
@@ -886,7 +940,11 @@ __device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , in
             
         /* Get a direct pointer on the pjdth part in cell_j. */
         spid = sort_i[pid] >> 16;
-        pi = tex2D( tex_parts , spid , cid );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , spid , cid );
+        #else
+            pi = parts_i[ spid ];
+        #endif
         pioff = pi.w * cuda_maxtype;
         pi.x -= shift[0]; pi.y -= shift[1]; pi.z -= shift[2];
         pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
@@ -903,7 +961,11 @@ __device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , in
             
                 /* Get a handle on the wrapped particle pid in cell_i. */
                 spjd = sort_j[pjd] >> 16;
-                pj = tex2D( tex_parts , spjd , cjd );
+                #ifdef PARTS_TEX
+                    pj = tex2D( tex_parts , spjd , cjd );
+                #else
+                    pj = parts_j[ spjd ];
+                #endif
 
                 /* Compute the radius between pi and pj. */
                 r2 = 0.0f;
@@ -968,7 +1030,11 @@ __device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , in
  * @sa #runner_dopair.
  */
  
+#ifdef PARTS_TEX
 __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
+#else
+__device__ void runner_dopair4_verlet_cuda ( flaot4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist ) {
+#endif
 
     int k, j, i, ind, jnd, pid, spid, pjdid, threadID, wrap, cj;
     int pioff;
@@ -986,7 +1052,11 @@ __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , i
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        k = cid; cid = cjd; cjd = k;
+        #ifdef PARTS_TEX
+            k = cid; cid = cjd; cjd = k;
+        #else
+            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+        #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
@@ -1009,12 +1079,20 @@ __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , i
     
         /* Pack the parts of i and j into the sort arrays. */
         for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-            pi = tex2D( tex_parts , k , cid );
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , k , cid );
+            #else
+                pi = parts_i[ k ];
+            #endif
             sort_i[k] = ( k << 16 ) |
                 (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
             }
         for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-            pi = tex2D( tex_parts , k , cjd );
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , k , cjd );
+            #else
+                pi = parts_j[ k ];
+            #endif
             sort_j[k] = ( k << 16 ) | 
                 (unsigned int)( cuda_dscale * (nshift + (shift[0]+pi.x)*shiftn[0] + (shift[1]+pi.y)*shiftn[1] + (shift[2]+pi.z)*shiftn[2]) );
             }
@@ -1092,7 +1170,11 @@ __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , i
             
         /* Get a direct pointer on the pjdth part in cell_j. */
         spid = sort_i[pid] >> 16;
-        pi = tex2D( tex_parts , spid , cid );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , spid , cid );
+        #else
+            pi = parts_i[ spid ];
+        #endif
         pioff = pi.w * cuda_maxtype;
         pi.x -= shift[0]; pi.y -= shift[1]; pi.z -= shift[2];
         pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
@@ -1112,10 +1194,17 @@ __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , i
                 
             /* Get the particle pointers. */
             spjd.x = sort_j[pjd.x] >> 16; spjd.y = sort_j[pjd.y] >> 16; spjd.z = sort_j[pjd.z] >> 16; spjd.w = sort_j[pjd.w] >> 16; 
-            pj[0] = ( valid.x = ( pjd.x < cj ) ) ? tex2D( tex_parts , spjd.x , cjd ) : pi;
-            pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? tex2D( tex_parts , spjd.y , cjd ) : pi;
-            pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? tex2D( tex_parts , spjd.z , cjd ) : pi;
-            pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? tex2D( tex_parts , spjd.w , cjd ) : pi;
+            #ifdef PARTS_TEX
+                pj[0] = ( valid.x = ( pjd.x < cj ) ) ? tex2D( tex_parts , spjd.x , cjd ) : pi;
+                pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? tex2D( tex_parts , spjd.y , cjd ) : pi;
+                pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? tex2D( tex_parts , spjd.z , cjd ) : pi;
+                pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? tex2D( tex_parts , spjd.w , cjd ) : pi;
+            #else
+                pj[0] = ( valid.x = ( pjd.x < cj ) ) ? parts_j[ spjd.x ] : pi;
+                pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? parts_j[ spjd.y ] : pi;
+                pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? parts_j[ spjd.z ] : pi;
+                pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? parts_j[ spjd.w ] : pi;
+            #endif
             
             /* Compute the pairwise distances. */
             r2 = make_float4( 0.0f );
@@ -1205,7 +1294,11 @@ __device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , i
  * @sa #runner_dopair.
  */
  
+#ifdef PARTS_TEX
 __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift ) {
+#else
+__device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift ) {
+#endif
 
     int k, j, i, ind, jnd, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
     int pioff, dcutoff;
@@ -1222,7 +1315,11 @@ __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , in
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        k = cid; cid = cjd; cjd = k;
+        #ifdef PARTS_TEX
+            k = cid; cid = cjd; cjd = k;
+        #else
+            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+        #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
@@ -1241,12 +1338,20 @@ __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , in
        
     /* Pack the parts of i and j into the sort arrays. */
     for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        pi = tex2D( tex_parts , k , cid );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , k , cid );
+        #else
+            pi = parts_i[ k ];
+        #endif
         sort_i[k] = ( k << 16 ) |
             (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
         }
     for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        pj = tex2D( tex_parts , k , cjd );
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , k , cjd );
+        #else
+            pj = parts_j[ k ];
+        #endif
         sort_j[k] = ( k << 16 ) | 
             (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj.x)*shiftn[0] + (shift[1]+pj.y)*shiftn[1] + (shift[2]+pj.z)*shiftn[2]) );
         }
@@ -1311,7 +1416,11 @@ __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , in
             
         /* Get a direct pointer on the pjdth part in cell_j. */
         spid = sort_i[pid] >> 16;
-        pi = tex2D( tex_parts , spid , cid );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , spid , cid );
+        #else
+            pi = parts_i[ spid ];
+        #endif
         pioff = pi.w * cuda_maxtype;
         pi.x -= shift[0]; pi.y -= shift[1]; pi.z -= shift[2];
         pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
@@ -1328,7 +1437,11 @@ __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , in
             
                 /* Get a handle on the wrapped particle pid in cell_i. */
                 spjd = sort_j[pjd] >> 16;
-                pj = tex2D( tex_parts , spjd , cjd );
+                #ifdef PARTS_TEX
+                    pj = tex2D( tex_parts , spjd , cjd );
+                #else
+                    pj = parts_j[ spjd ];
+                #endif
 
                 /* Compute the radius between pi and pj. */
                 r2 = 0.0f;
@@ -1393,7 +1506,11 @@ __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , in
  * @sa #runner_dopair.
  */
  
+#ifdef PARTS_TEX
 __device__ void runner_dopair4_sorted_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift ) {
+#else
+__device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift ) {
+#endif
 
     int k, j, i, ind, jnd, pid, spid, pjdid, threadID, wrap, cj;
     int pioff, dcutoff;
@@ -1411,7 +1528,11 @@ __device__ void runner_dopair4_sorted_cuda ( int cid , int count_i , int cjd , i
     
     /* Swap cells? cell_j loops in steps of frame... */
     if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        k = cid; cid = cjd; cjd = k;
+        #ifdef PARTS_TEX
+            k = cid; cid = cjd; cjd = k;
+        #else
+            float4 temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
+        #endif
         k = count_i; count_i = count_j; count_j = k;
         temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
@@ -1430,12 +1551,20 @@ __device__ void runner_dopair4_sorted_cuda ( int cid , int count_i , int cjd , i
        
     /* Pack the parts of i and j into the sort arrays. */
     for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-        pi = tex2D( tex_parts , k , cid );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , k , cid );
+        #else
+            pi = parts_i[ k ];
+        #endif
         sort_i[k] = ( k << 16 ) |
             (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
         }
     for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-        pi = tex2D( tex_parts , k , cjd );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , k , cjd );
+        #else
+            pi = parts_j[ k ];
+        #endif
         sort_j[k] = ( k << 16 ) | 
             (unsigned int)( cuda_dscale * (nshift + (shift[0]+pi.x)*shiftn[0] + (shift[1]+pi.y)*shiftn[1] + (shift[2]+pi.z)*shiftn[2]) );
         }
@@ -1500,7 +1629,11 @@ __device__ void runner_dopair4_sorted_cuda ( int cid , int count_i , int cjd , i
             
         /* Get a direct pointer on the pjdth part in cell_j. */
         spid = sort_i[pid] >> 16;
-        pi = tex2D( tex_parts , spid , cid );
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , spid , cid );
+        #else
+            pi = parts_i[ spid ];
+        #endif
         pioff = pi.w * cuda_maxtype;
         pi.x -= shift[0]; pi.y -= shift[1]; pi.z -= shift[2];
         pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
@@ -1520,10 +1653,17 @@ __device__ void runner_dopair4_sorted_cuda ( int cid , int count_i , int cjd , i
                 
             /* Get the particle pointers. */
             spjd.x = sort_j[pjd.x] >> 16; spjd.y = sort_j[pjd.y] >> 16; spjd.z = sort_j[pjd.z] >> 16; spjd.w = sort_j[pjd.w] >> 16; 
-            pj[0] = ( valid.x = ( pjd.x < cj ) ) ? tex2D( tex_parts , spjd.x , cjd ) : pi;
-            pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? tex2D( tex_parts , spjd.y , cjd ) : pi;
-            pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? tex2D( tex_parts , spjd.z , cjd ) : pi;
-            pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? tex2D( tex_parts , spjd.w , cjd ) : pi;
+            #ifdef PARTS_TEX
+                pj[0] = ( valid.x = ( pjd.x < cj ) ) ? tex2D( tex_parts , spjd.x , cjd ) : pi;
+                pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? tex2D( tex_parts , spjd.y , cjd ) : pi;
+                pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? tex2D( tex_parts , spjd.z , cjd ) : pi;
+                pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? tex2D( tex_parts , spjd.w , cjd ) : pi;
+            #else
+                pj[0] = ( valid.x = ( pjd.x < cj ) ) ? parts_j[ spjd.x ] : pi;
+                pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? parts_j[ spjd.y ] : pi;
+                pj[2] = ( valid.z = ( pjd.z < cj ) && ( pjdid + 2 < wrap ) ) ? parts_j[ spjd.z ] : pi;
+                pj[3] = ( valid.w = ( pjd.w < cj ) && ( pjdid + 3 < wrap ) ) ? parts_j[ spjd.w ] : pi;
+            #endif
             
             /* Compute the pairwise distances. */
             r2 = make_float4( 0.0f );
@@ -1617,7 +1757,11 @@ __device__ void runner_dopair4_sorted_cuda ( int cid , int count_i , int cjd , i
  * @sa #runner_dopair.
  */
  
+#ifdef PARTS_TEX
 __device__ void runner_doself_cuda ( int cid , int count , float *forces ) {
+#else
+__device__ void runner_doself_cuda ( float4 *parts , int count , float *forces ) {
+#endif
 
     int k, pid, pjd, threadID;
     int pjoff;
@@ -1637,7 +1781,11 @@ __device__ void runner_doself_cuda ( int cid , int count , float *forces ) {
     for ( pjd = threadID ; pjd < count-1 ; pjd += cuda_frame ) {
     
         /* Get a direct pointer on the pjdth part in cell_j. */
-        pj = tex2D( tex_parts , pjd , cid );
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , pjd , cid );
+        #else
+            pj = parts_j[ pjd ];
+        #endif
         pjoff = pj.w * cuda_maxtype;
         pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
             
@@ -1645,7 +1793,11 @@ __device__ void runner_doself_cuda ( int cid , int count , float *forces ) {
         for ( pid = pjd+1 ; pid < count ; pid++ ) {
         
             /* Get a handle on the wrapped particle pid in cell_i. */
-            pi = tex2D( tex_parts , pid , cid );
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , pid , cid );
+            #else
+                pi = parts_i[ pid ];
+            #endif
 
             /* Compute the radius between pi and pj. */
             r2 = 0.0f;
@@ -1700,7 +1852,11 @@ __device__ void runner_doself_cuda ( int cid , int count , float *forces ) {
  * @sa #runner_dopair.
  */
  
+#ifdef PARTS_TEX
 __device__ void runner_doself_diag_cuda ( int cid , int count , float *forces ) {
+#else
+__device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *forces ) {
+#endif
 
     int diag, k, diag_max, step, pid, pjd, threadID;
     unsigned int packed;
@@ -1735,8 +1891,13 @@ __device__ void runner_doself_diag_cuda ( int cid , int count , float *forces ) 
             pid = packed >> 16; pjd = count - (packed & 0xffff);
             
             /* Get a handle on the particles. */
-            pi = tex2D( tex_parts , pid , cid );
-            pj = tex2D( tex_parts , pjd , cid );
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , pid , cid );
+                pj = tex2D( tex_parts , pjd , cid );
+            #else
+                pi = parts[ pid ];
+                pj = parts[ pjd ];
+            #endif
 
             /* Compute the radius between pi and pj. */
             r2 = 0.0f;
@@ -1830,7 +1991,6 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_alphas , cudaAr
 int runner_parts_bind ( cudaArray *cuArray_parts ) {
 
     /* Bind the coeffs. */
-    cuda_parts = cuArray_parts;
     if ( cudaBindTextureToArray( tex_parts , cuArray_parts ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     

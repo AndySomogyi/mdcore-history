@@ -31,6 +31,7 @@
 
 /* Some flags that control optional behaviour */
 // #define TIMERS
+#define PARTS_TEX
 
 
 /** Timers for the cuda parts. */

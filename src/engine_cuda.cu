@@ -137,8 +137,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_tuple_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
-    if ( cudaMemcpyToSymbol( "cuda_rcount" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
+    /* if ( cudaMemcpyToSymbol( "cuda_rcount" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda); */
     /* if ( cudaMemcpyToSymbol( "cuda_pair_curr" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
     /* if ( cudaMemcpyToSymbol( "cuda_pairs_done" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -387,8 +387,13 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
         } /* are we using verlet lists? */
     
     /* Allocate the particle buffer. */
-    if ( ( parts_cuda = (float4 *)malloc( sizeof( float4 ) * s->nr_cells * maxcount ) ) == NULL )
-        return error(engine_err_malloc);
+    #ifdef PARTS_TEX
+        if ( ( parts_cuda = (float4 *)malloc( sizeof( float4 ) * s->nr_cells * maxcount ) ) == NULL )
+            return error(engine_err_malloc);
+    #else
+        if ( ( parts_cuda = (float4 *)malloc( sizeof( float4 ) * s->nr_parts ) ) == NULL )
+            return error(engine_err_malloc);
+    #endif
     
     /* Loop over the marked cells. */
     for ( k = 0 ; k < s->nr_marked ; k++ ) {
@@ -397,7 +402,11 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
         cid = s->cid_marked[k];
         
         /* Copy the particle data to the device. */
-        buff = (float4 *)&parts_cuda[ maxcount * cid ];
+        #ifdef PARTS_TEX
+            buff = (float4 *)&parts_cuda[ maxcount * cid ];
+        #else
+            buff = (float4 *)&parts_cuda[ s->ind_cuda_local[cid] ];
+        #endif
         for ( pid = 0 ; pid < s->counts_cuda_local[cid] ; pid++ ) {
             p = &s->cells[cid].parts[pid];
             buff[ pid ].x = p->x[0];
@@ -417,12 +426,19 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
         
     /* Bind the particle positions to a texture. */
-    if ( cudaMallocArray( (cudaArray **)&s->cuArray_parts , &channelDesc_float4 , maxcount , s->nr_cells ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( (cudaArray *)s->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( runner_parts_bind( (cudaArray *)s->cuArray_parts ) < 0 )
-        return error(engine_err_runner);
+    #ifdef PARTS_TEX
+        if ( cudaMallocArray( (cudaArray **)&s->cuArray_parts , &channelDesc_float4 , maxcount , s->nr_cells ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToArray( (cudaArray *)s->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( runner_parts_bind( (cudaArray *)s->cuArray_parts ) < 0 )
+            return error(engine_err_runner);
+    #else
+        if ( cudaMalloc( &s->parts_cuda , sizeof( float4 ) * s->nr_parts ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( "cuda_parts" , &s->parts_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+    #endif
     free( parts_cuda );
         
     /* Finally, init the forces on the device. */
@@ -482,10 +498,15 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
         
     /* Unbind and free the parts data. */
-    if ( runner_parts_unbind( ) < 0 )
-        return error(engine_err_runner);
-    if ( cudaFreeArray( (cudaArray *)e->s.cuArray_parts ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
+    #ifdef PARTS_TEX
+        if ( runner_parts_unbind( ) < 0 )
+            return error(engine_err_runner);
+        if ( cudaFreeArray( (cudaArray *)e->s.cuArray_parts ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+    #else
+        if ( cudaFree( e->s.parts_cuda ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+    #endif
         
     /* Our work is done here. */
     return engine_err_ok;
