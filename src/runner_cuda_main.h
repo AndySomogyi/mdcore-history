@@ -19,8 +19,12 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
     volatile __shared__ int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
-    #if !defined(PARTS_TEX) && defined(PARTS_LOCAL)
-        __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
+    #if !defined(PARTS_TEX)
+        #ifdef defined(PARTS_LOCAL)
+            __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
+        #else
+            float4 *parts_i, *parts_j;
+        #endif
     #endif
     float *forces_k;
     
@@ -202,8 +206,12 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     volatile __shared__ int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
-    #if !defined(PARTS_TEX) && defined(PARTS_LOCAL)
-        __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
+    #if !defined(PARTS_TEX)
+        #ifdef defined(PARTS_LOCAL)
+            __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
+        #else
+            float4 *parts_i, *parts_j;
+        #endif
     #endif
     float *forces_k;
     
