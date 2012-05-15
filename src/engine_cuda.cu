@@ -436,6 +436,8 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     #else
         if ( cudaMalloc( &s->parts_cuda , sizeof( float4 ) * s->nr_parts ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( s->parts_cuda , parts_cuda , sizeof(float4) * s->nr_parts , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( "cuda_parts" , &s->parts_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
     #endif
