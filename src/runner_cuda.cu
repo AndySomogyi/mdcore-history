@@ -107,7 +107,6 @@ __device__ int *cuda_sortlists_ind;
 
 /* The potential coefficients, as a texture. */
 texture< float4 , cudaTextureType2D > tex_coeffs;
-texture< float4 , cudaTextureType1D > tex_alphas;
 texture< float4 , cudaTextureType2D > tex_parts;
 
 /* Other textures. */
@@ -115,7 +114,7 @@ texture< int , cudaTextureType1D > tex_pind;
 texture< unsigned int , cudaTextureType1D > tex_diags;
 
 /* Arrays to hold the textures. */
-cudaArray *cuda_coeffs, *cuda_alphas, *cuda_offsets, *cuda_pind, *cuda_diags;
+cudaArray *cuda_coeffs, *cuda_pind, *cuda_diags;
 
 /* The potential parameters (hard-wired size for now). */
 __constant__ float cuda_eps[ 100 ];
@@ -319,14 +318,14 @@ __device__ inline void potential_eval_cuda_tex ( int pid , float r2 , float *e ,
     r = r2*ir;
     
     /* compute the interval index */
-    alpha = tex1D( tex_alphas , pid );
+    alpha = tex2D( tex_coeffs , 0 , pid );
+    // alpha = tex1D( tex_alphas , pid );
     if ( ( ind = alpha.x + r * ( alpha.y + r * alpha.z ) ) < 0 )
         ind = 0;
-    ind += alpha.w;
     
     /* pre-load the coefficients. */
-    c1 = tex2D( tex_coeffs , 0 , ind );
-    c2 = tex2D( tex_coeffs , 1 , ind );
+    c1 = tex2D( tex_coeffs , 2*ind+2 , pid );
+    c2 = tex2D( tex_coeffs , 2*ind+3 , pid );
     
     /* adjust x to the interval */
     x = (r - c1.x) * c1.y;
@@ -383,24 +382,28 @@ __device__ inline void potential_eval4_cuda_tex ( int4 pid , float4 r2 , float4 
     r = r2*ir;
     
     /* compute the interval index */
-    a[0] = tex1D( tex_alphas , pid.x );
+    a[0] = tex2D( tex_coeffs , 0 , pid.x );
+    a[1] = tex2D( tex_coeffs , 0 , pid.y );
+    a[2] = tex2D( tex_coeffs , 0 , pid.z );
+    a[3] = tex2D( tex_coeffs , 0 , pid.w );
+    /* a[0] = tex1D( tex_alphas , pid.x );
     a[1] = tex1D( tex_alphas , pid.y );
     a[2] = tex1D( tex_alphas , pid.z );
-    a[3] = tex1D( tex_alphas , pid.w );
-    ind.x = a[0].w + max( 0 , (int)( a[0].x + r.x * ( a[0].y + r.x * a[0].z ) ) );
-    ind.y = a[1].w + max( 0 , (int)( a[1].x + r.y * ( a[1].y + r.y * a[1].z ) ) );
-    ind.z = a[2].w + max( 0 , (int)( a[2].x + r.z * ( a[2].y + r.z * a[2].z ) ) );
-    ind.w = a[3].w + max( 0 , (int)( a[3].x + r.w * ( a[3].y + r.w * a[3].z ) ) );
+    a[3] = tex1D( tex_alphas , pid.w ); */
+    ind.x = max( 0 , (int)( a[0].x + r.x * ( a[0].y + r.x * a[0].z ) ) );
+    ind.y = max( 0 , (int)( a[1].x + r.y * ( a[1].y + r.y * a[1].z ) ) );
+    ind.z = max( 0 , (int)( a[2].x + r.z * ( a[2].y + r.z * a[2].z ) ) );
+    ind.w = max( 0 , (int)( a[3].x + r.w * ( a[3].y + r.w * a[3].z ) ) );
     
     /* pre-load the coefficients. */
-    t1[0] = tex2D( tex_coeffs , 0 , ind.x );
-    t2[0] = tex2D( tex_coeffs , 1 , ind.x );
-    t1[1] = tex2D( tex_coeffs , 0 , ind.y );
-    t2[1] = tex2D( tex_coeffs , 1 , ind.y );
-    t1[2] = tex2D( tex_coeffs , 0 , ind.z );
-    t2[2] = tex2D( tex_coeffs , 1 , ind.z );
-    t1[3] = tex2D( tex_coeffs , 0 , ind.w );
-    t2[3] = tex2D( tex_coeffs , 1 , ind.w );
+    t1[0] = tex2D( tex_coeffs , 2*ind.x+2 , pid.x );
+    t2[0] = tex2D( tex_coeffs , 2*ind.x+3 , pid.x );
+    t1[1] = tex2D( tex_coeffs , 2*ind.y+2 , pid.y );
+    t2[1] = tex2D( tex_coeffs , 2*ind.y+3 , pid.y );
+    t1[2] = tex2D( tex_coeffs , 2*ind.z+2 , pid.z );
+    t2[2] = tex2D( tex_coeffs , 2*ind.z+3 , pid.z );
+    t1[3] = tex2D( tex_coeffs , 2*ind.w+2 , pid.w );
+    t2[3] = tex2D( tex_coeffs , 2*ind.w+3 , pid.w );
     c[0] = make_float4( t1[0].x , t1[1].x , t1[2].x , t1[3].x );
     c[1] = make_float4( t1[0].y , t1[1].y , t1[2].y , t1[3].y );
     c[2] = make_float4( t1[0].z , t1[1].z , t1[2].z , t1[3].z );
@@ -1952,18 +1955,13 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
  * be externalized.
  */
  
-int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_alphas , cudaArray *cuArray_pind , cudaArray *cuArray_diags ) {
+int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_pind , cudaArray *cuArray_diags ) {
 
     /* Bind the coeffs. */
     cuda_coeffs = cuArray_coeffs;
     if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
-    /* Bind the alphas. */
-    cuda_alphas = cuArray_alphas;
-    if ( cudaBindTextureToArray( tex_alphas , cuArray_alphas ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-        
     /* Bind the pinds. */
     cuda_pind = cuArray_pind;
     if ( cudaBindTextureToArray( tex_pind , cuArray_pind ) != cudaSuccess )
