@@ -1270,6 +1270,9 @@ int runner_run_pairs ( struct runner *r ) {
         /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
         if ( engine_barrier(e) < 0)
             return error(runner_err_engine);
+            
+        /* Init the reaction counter. */
+        // runner_rcount = 0;
                         
         /* while i can still get a pair... */
         /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
@@ -1334,7 +1337,7 @@ int runner_run_pairs ( struct runner *r ) {
             }
 
         /* give the reaction count */
-        /* printf("runner_run: last count was %u.\n",runner_rcount); */
+        // printf("runner_run: last count was %u.\n",runner_rcount);
         r->err = acc;
             
         /* did things go wrong? */

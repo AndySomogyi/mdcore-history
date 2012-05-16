@@ -43,6 +43,7 @@
 #define engine_err_cuda                  -21
 #define engine_err_nocuda                -22
 #define engine_err_cudasp                -23
+#define engine_err_maxparts              -24
 
 
 /* some constants */

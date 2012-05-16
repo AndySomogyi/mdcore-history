@@ -1727,7 +1727,6 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         pthread_cond_init( &s->cellpairs_avail , NULL ) != 0 ||
         pthread_mutex_init( &s->verlet_force_mutex , NULL ) != 0 )
         return error(space_err_pthread);
-    
         
     /* Init the Verlet table (NULL for now). */
     s->verlet_list = NULL;
