@@ -1957,16 +1957,32 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
  
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_pind , cudaArray *cuArray_diags ) {
 
+    /* Set the coeff properties. */
+    tex_coeffs.addressMode[0] = cudaAddressModeClamp;
+    tex_coeffs.addressMode[1] = cudaAddressModeClamp;
+    tex_coeffs.filterMode = cudaFilterModePoint;
+    tex_coeffs.normalized = false;
+
     /* Bind the coeffs. */
     cuda_coeffs = cuArray_coeffs;
     if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
+    /* Set the coeff properties. */
+    tex_pind.addressMode[0] = cudaAddressModeClamp;
+    tex_pind.filterMode = cudaFilterModePoint;
+    tex_pind.normalized = false;
+
     /* Bind the pinds. */
     cuda_pind = cuArray_pind;
     if ( cudaBindTextureToArray( tex_pind , cuArray_pind ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
+    /* Set the coeff properties. */
+    tex_diags.addressMode[0] = cudaAddressModeClamp;
+    tex_diags.filterMode = cudaFilterModePoint;
+    tex_diags.normalized = false;
+
     /* Bind the diags. */
     cuda_diags = cuArray_diags;
     if ( cudaBindTextureToArray( tex_diags , cuArray_diags ) != cudaSuccess )
@@ -1988,7 +2004,13 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_pind , cudaArra
  
 int runner_parts_bind ( cudaArray *cuArray_parts ) {
 
-    /* Bind the coeffs. */
+    /* Set the texture properties. */
+    tex_parts.addressMode[0] = cudaAddressModeClamp;
+    tex_parts.addressMode[1] = cudaAddressModeClamp;
+    tex_parts.filterMode = cudaFilterModePoint;
+    tex_parts.normalized = false;
+
+    /* Bind the parts. */
     if ( cudaBindTextureToArray( tex_parts , cuArray_parts ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
