@@ -1,6 +1,6 @@
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2010 Pedro Gonnet (pedro.gonnet@durham.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published
@@ -50,6 +50,7 @@
 #include "cycle.h"
 #include "errs.h"
 #include "fptype.h"
+#include "lock.h"
 #include "part.h"
 #include "fifo.h"
 #include "cell.h"

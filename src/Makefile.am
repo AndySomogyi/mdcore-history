@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
-AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror -funroll-loops
+AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror -funroll-loops -fno-keep-inline-functions
 AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers
@@ -37,9 +37,9 @@ SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
 if HAVECUDA
     SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
 .cu.o:
-	$(NVCC) -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -g -O0 --use_fast_math --prec-sqrt=true -arch sm_22 -DFPTYPE_SINGLE $< -o $@
+	$(NVCC) -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -g -O0 --use_fast_math --prec-sqrt=true -arch sm_20 -DFPTYPE_SINGLE $< -o $@
 .cu.lo:
-	$(top_srcdir)/cudalt.py $@ $(NVCC) -g -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -arch sm_22 -DFPTYPE_SINGLE $<
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -g -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -arch sm_20 -DFPTYPE_SINGLE $<
 else
     SOURCES_CUDA =
 endif

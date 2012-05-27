@@ -1,6 +1,6 @@
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2010 Pedro Gonnet (pedro.gonnet@durham.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published
@@ -111,7 +111,7 @@ struct space {
     pthread_mutex_t cellpairs_mutex;
     
     /** Spin-lock for accessing the cell pairs. */
-    pthread_spinlock_t cellpairs_spinlock;
+    lock_type cellpairs_spinlock;
     
     /** Condition to wait for free cells on. */
     pthread_cond_t cellpairs_avail;

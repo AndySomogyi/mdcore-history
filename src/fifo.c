@@ -1,6 +1,6 @@
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2012 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2012 Pedro Gonnet (pedro.gonnet@durham.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published

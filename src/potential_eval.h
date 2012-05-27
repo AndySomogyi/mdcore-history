@@ -1,7 +1,7 @@
 
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2010 Pedro Gonnet (pedro.gonnet@durham.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published
@@ -27,7 +27,7 @@
 */
 
 /* Function prototypes. */
-void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
+/* void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f );
 void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f );
@@ -36,6 +36,179 @@ void potential_eval_vec_2double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *
 void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f );
 void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f );
 void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f );
+*/
+
+
+/** 
+ * @brief Evaluates the given potential at the given point (interpolated).
+ *
+ * @param p The #potential to be evaluated.
+ * @param r2 The radius at which it is to be evaluated, squared.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force divided by r.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ */
+
+__attribute__ ((always_inline)) inline void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
+
+    int ind, k;
+    FPTYPE x, ee, eff, *c, r;
+    
+    /* Get r for the right type. */
+    r = FPTYPE_SQRT(r2);
+    
+    /* is r in the house? */
+    /* if ( r < p->a || r > p->b )
+        printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
+    
+    /* compute the index */
+    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
+    
+    /* if ( ind > p->n ) {
+        printf("potential_eval: r=%.18e.\n",r);
+        fflush(stdout);
+        } */
+            
+    /* get the table offset */
+    c = &(p->c[ind * potential_chunk]);
+    
+    /* adjust x to the interval */
+    x = (r - c[0]) * c[1];
+    
+    /* compute the potential and its derivative */
+    ee = c[2] * x + c[3];
+    eff = c[2];
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
+        eff = eff * x + ee;
+        ee = ee * x + c[k];
+        }
+
+    /* store the result */
+    *e = ee; *f = eff * c[1] / r;
+        
+    }
+
+
+/** 
+ * @brief Evaluates the given potential at the given point (interpolated).
+ *
+ * @param p The #potential to be evaluated.
+ * @param r The radius at which it is to be evaluated.
+ * @param e Pointer to a floating-point value in which to store the
+ *      interaction energy.
+ * @param f Pointer to a floating-point value in which to store the
+ *      magnitude of the interaction force.
+ *
+ * Note that for efficiency reasons, this function does not check if any
+ * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
+ * of the #potential @c p.
+ */
+
+__attribute__ ((always_inline)) inline void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f ) {
+
+    int ind, k;
+    FPTYPE x, ee, eff, *c;
+    
+    /* compute the index */
+    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2] ) );
+    
+    /* is r in the house? */
+    /* if ( ind > p->n )
+        printf("potential_eval_r: requested potential at r=%e (ind=%.8e), not in [%e,%e].\n",r , p->alpha[0] + r * (p->alpha[1] + r * (p->alpha[2] + r * p->alpha[3])),p->a,p->b); */
+    
+    /* get the table offset */
+    c = &(p->c[ind * potential_chunk]);
+    
+    /* adjust x to the interval */
+    x = (r - c[0]) * c[1];
+    
+    /* compute the potential and its derivative */
+    ee = c[2] * x + c[3];
+    eff = c[2];
+    for ( k = 4 ; k < potential_chunk ; k++ ) {
+        eff = eff * x + ee;
+        ee = ee * x + c[k];
+        }
+
+    /* store the result */
+    *e = ee; *f = eff * c[1];
+        
+    }
+
+
+/**
+ * @brief Evaluates the given potential at the given radius explicitly.
+ * 
+ * @param p The #potential to be evaluated.
+ * @param r2 The radius squared.
+ * @param e A pointer to a floating point value in which to store the
+ *      interaction energy.
+ * @param f A pointer to a floating point value in which to store the
+ *      magnitude of the interaction force
+ *
+ * Assumes that the parameters for the potential forms given in the value
+ * @c flags of the #potential @c p are stored in the array @c alpha of
+ * @c p.
+ *
+ * This way of evaluating a potential is not extremely efficient and is
+ * intended for comparison and debugging purposes.
+ *
+ * Note that for performance reasons, this function does not check its input
+ * arguments for @c NULL.
+ */
+
+__attribute__ ((always_inline)) inline void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
+
+    const FPTYPE isqrtpi = 0.56418958354775628695;
+    const FPTYPE kappa = 3.0;
+    FPTYPE r = sqrt(r2), ir = 1.0 / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
+    FPTYPE ee = 0.0, eff = 0.0;
+
+    /* Do we have a Lennard-Jones interaction? */
+    if ( p->flags & potential_flag_LJ126 ) {
+    
+        /* init some variables */
+        ir4 = ir2 * ir2; ir6 = ir4 * ir2; ir12 = ir6 * ir6;
+        
+        /* compute the energy and the force */
+        ee = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
+        eff = 6.0 * ir * ( -2.0 * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
+    
+        }
+        
+    /* Do we have an Ewald short-range part? */
+    if ( p->flags & potential_flag_Ewald ) {
+    
+        /* get some values we will re-use */
+        t2 = r * kappa;
+        t1 = erfc( t2 );
+    
+        /* compute the energy and the force */
+        ee += p->alpha[2] * t1 * ir;
+        eff += p->alpha[2] * ( -2.0 * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
+    
+        }
+    
+    /* Do we have a Coulomb interaction? */
+    if ( p->flags & potential_flag_Coulomb ) {
+    
+        /* compute the energy and the force */
+        ee += potential_escale * p->alpha[2] * ir;
+        eff += -potential_escale * p->alpha[2] * ir2;
+    
+        }
+        
+    /* store the potential and force. */
+    *e = ee;
+    *f = eff;
+    
+    }
+
 
 /** 
  * @brief Evaluates the given potential at a set of points (interpolated).
@@ -60,7 +233,7 @@ void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f )
  * this function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_4single ( struct potential *p[4] , float *r2 , float *e , float *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     // int j, k;
@@ -103,26 +276,12 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single ( 
     hi.v = _mm_load_ps( &p[1]->c[ ind.i[1] * potential_chunk ] );
     c[0].v = _mm_load_ps( &p[2]->c[ ind.i[2] * potential_chunk ] );
     c[1].v = _mm_load_ps( &p[3]->c[ ind.i[3] * potential_chunk ] );
+    _MM_TRANSPOSE4_PS( mi.v , hi.v , c[0].v , c[1].v );
     c[2].v = _mm_load_ps( &p[0]->c[ ind.i[0] * potential_chunk + 4 ] );
     c[3].v = _mm_load_ps( &p[1]->c[ ind.i[1] * potential_chunk + 4 ] );
     c[4].v = _mm_load_ps( &p[2]->c[ ind.i[2] * potential_chunk + 4 ] );
     c[5].v = _mm_load_ps( &p[3]->c[ ind.i[3] * potential_chunk + 4 ] );
-    t[0].m = _mm_unpacklo_epi32( mi.m , hi.m );
-    t[1].m = _mm_unpacklo_epi32( c[0].m , c[1].m );
-    t[2].m = _mm_unpackhi_epi32( mi.m , hi.m );
-    t[3].m = _mm_unpackhi_epi32( c[0].m , c[1].m );
-    t[4].m = _mm_unpacklo_epi32( c[2].m , c[3].m );
-    t[5].m = _mm_unpacklo_epi32( c[4].m , c[5].m );
-    t[6].m = _mm_unpackhi_epi32( c[2].m , c[3].m );
-    t[7].m = _mm_unpackhi_epi32( c[4].m , c[5].m );
-    mi.m = _mm_unpacklo_epi64( t[0].m , t[1].m );
-    hi.m = _mm_unpackhi_epi64( t[0].m , t[1].m );
-    c[0].m = _mm_unpacklo_epi64( t[2].m , t[3].m );
-    c[1].m = _mm_unpackhi_epi64( t[2].m , t[3].m );
-    c[2].m = _mm_unpacklo_epi64( t[4].m , t[5].m );
-    c[3].m = _mm_unpackhi_epi64( t[4].m , t[5].m );
-    c[4].m = _mm_unpacklo_epi64( t[6].m , t[7].m );
-    c[5].m = _mm_unpackhi_epi64( t[6].m , t[7].m );
+    _MM_TRANSPOSE4_PS( c[2].v , c[3].v , c[4].v , c[5].v );
     
     /* adjust x to the interval */
     x.v = _mm_mul_ps( _mm_sub_ps( r.v , mi.v ) , hi.v );
@@ -222,7 +381,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single ( 
  * this function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_old ( struct potential *p[4] , float *r2 , float *e , float *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_4single_old ( struct potential *p[4] , float *r2 , float *e , float *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j, k;
@@ -332,7 +491,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_ol
 
 
 #ifdef STILL_NOT_READY_FOR_PRIME_TIME
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_gccvec ( struct potential *p[4] , float *r2 , float *e , float *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_4single_gccvec ( struct potential *p[4] , float *r2 , float *e , float *f ) {
 
     int j, k;
     union {
@@ -420,7 +579,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_gc
  * this function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_4single_r ( struct potential *p[4] , float *r_in , float *e , float *f ) {
 
 #if defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j, k;
@@ -552,7 +711,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4single_r 
  * this function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e , float *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_8single ( struct potential *p[8] , float *r2 , float *e , float *f ) {
 
 #if defined(__AVX__) && defined(FPTYPE_SINGLE)
     int j;
@@ -746,7 +905,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_8single ( 
     }
 
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_8single_r ( struct potential *p[8] , float *r2 , float *e , float *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_8single_r ( struct potential *p[8] , float *r2 , float *e , float *f ) {
 
 #if defined(__AVX__) && defined(FPTYPE_SINGLE)
     int j;
@@ -963,7 +1122,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_8single_r 
  * function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_2double ( struct potential *p[2] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_2double ( struct potential *p[2] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__SSE2__) && defined(FPTYPE_DOUBLE)
     int ind[2], j;
@@ -1039,7 +1198,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_2double ( 
  * function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_4double ( struct potential *p[4] , FPTYPE *r2 , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__AVX__) && defined(FPTYPE_DOUBLE)
     int ind[4], j;
@@ -1188,7 +1347,7 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4double ( 
  * function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) extern inline void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f ) {
+__attribute__ ((always_inline)) inline void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__AVX__) && defined(FPTYPE_DOUBLE)
     int ind[4], j;
@@ -1311,177 +1470,6 @@ __attribute__ ((always_inline)) extern inline void potential_eval_vec_4double_r 
         potential_eval_r( p[k] , r[k] , &e[k] , &f[k] );
 #endif
         
-    }
-
-
-/** 
- * @brief Evaluates the given potential at the given point (interpolated).
- *
- * @param p The #potential to be evaluated.
- * @param r2 The radius at which it is to be evaluated, squared.
- * @param e Pointer to a floating-point value in which to store the
- *      interaction energy.
- * @param f Pointer to a floating-point value in which to store the
- *      magnitude of the interaction force divided by r.
- *
- * Note that for efficiency reasons, this function does not check if any
- * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
- * of the #potential @c p.
- */
-
-__attribute__ ((always_inline)) extern inline void potential_eval ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
-
-    int ind, k;
-    FPTYPE x, ee, eff, *c, r;
-    
-    /* Get r for the right type. */
-    r = FPTYPE_SQRT(r2);
-    
-    /* is r in the house? */
-    /* if ( r < p->a || r > p->b )
-        printf("potential_eval: requested potential at r=%e, not in [%e,%e].\n",r,p->a,p->b); */
-    
-    /* compute the index */
-    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2]) );
-    
-    /* if ( ind > p->n ) {
-        printf("potential_eval: r=%.18e.\n",r);
-        fflush(stdout);
-        } */
-            
-    /* get the table offset */
-    c = &(p->c[ind * potential_chunk]);
-    
-    /* adjust x to the interval */
-    x = (r - c[0]) * c[1];
-    
-    /* compute the potential and its derivative */
-    ee = c[2] * x + c[3];
-    eff = c[2];
-    for ( k = 4 ; k < potential_chunk ; k++ ) {
-        eff = eff * x + ee;
-        ee = ee * x + c[k];
-        }
-
-    /* store the result */
-    *e = ee; *f = eff * c[1] / r;
-        
-    }
-
-
-/** 
- * @brief Evaluates the given potential at the given point (interpolated).
- *
- * @param p The #potential to be evaluated.
- * @param r The radius at which it is to be evaluated.
- * @param e Pointer to a floating-point value in which to store the
- *      interaction energy.
- * @param f Pointer to a floating-point value in which to store the
- *      magnitude of the interaction force.
- *
- * Note that for efficiency reasons, this function does not check if any
- * of the parameters are @c NULL or if @c sqrt(r2) is within the interval
- * of the #potential @c p.
- */
-
-__attribute__ ((always_inline)) extern inline void potential_eval_r ( struct potential *p , FPTYPE r , FPTYPE *e , FPTYPE *f ) {
-
-    int ind, k;
-    FPTYPE x, ee, eff, *c;
-    
-    /* compute the index */
-    ind = FPTYPE_FMAX( FPTYPE_ZERO , p->alpha[0] + r * (p->alpha[1] + r * p->alpha[2] ) );
-    
-    /* is r in the house? */
-    /* if ( ind > p->n )
-        printf("potential_eval_r: requested potential at r=%e (ind=%.8e), not in [%e,%e].\n",r , p->alpha[0] + r * (p->alpha[1] + r * (p->alpha[2] + r * p->alpha[3])),p->a,p->b); */
-    
-    /* get the table offset */
-    c = &(p->c[ind * potential_chunk]);
-    
-    /* adjust x to the interval */
-    x = (r - c[0]) * c[1];
-    
-    /* compute the potential and its derivative */
-    ee = c[2] * x + c[3];
-    eff = c[2];
-    for ( k = 4 ; k < potential_chunk ; k++ ) {
-        eff = eff * x + ee;
-        ee = ee * x + c[k];
-        }
-
-    /* store the result */
-    *e = ee; *f = eff * c[1];
-        
-    }
-
-
-/**
- * @brief Evaluates the given potential at the given radius explicitly.
- * 
- * @param p The #potential to be evaluated.
- * @param r2 The radius squared.
- * @param e A pointer to a floating point value in which to store the
- *      interaction energy.
- * @param f A pointer to a floating point value in which to store the
- *      magnitude of the interaction force
- *
- * Assumes that the parameters for the potential forms given in the value
- * @c flags of the #potential @c p are stored in the array @c alpha of
- * @c p.
- *
- * This way of evaluating a potential is not extremely efficient and is
- * intended for comparison and debugging purposes.
- *
- * Note that for performance reasons, this function does not check its input
- * arguments for @c NULL.
- */
-
-__attribute__ ((always_inline)) extern inline void potential_eval_expl ( struct potential *p , FPTYPE r2 , FPTYPE *e , FPTYPE *f ) {
-
-    const FPTYPE isqrtpi = 0.56418958354775628695;
-    const FPTYPE kappa = 3.0;
-    FPTYPE r = sqrt(r2), ir = 1.0 / r, ir2 = ir * ir, ir4, ir6, ir12, t1, t2;
-    FPTYPE ee = 0.0, eff = 0.0;
-
-    /* Do we have a Lennard-Jones interaction? */
-    if ( p->flags & potential_flag_LJ126 ) {
-    
-        /* init some variables */
-        ir4 = ir2 * ir2; ir6 = ir4 * ir2; ir12 = ir6 * ir6;
-        
-        /* compute the energy and the force */
-        ee = ( p->alpha[0] * ir12 - p->alpha[1] * ir6 );
-        eff = 6.0 * ir * ( -2.0 * p->alpha[0] * ir12 + p->alpha[1] * ir6 );
-    
-        }
-        
-    /* Do we have an Ewald short-range part? */
-    if ( p->flags & potential_flag_Ewald ) {
-    
-        /* get some values we will re-use */
-        t2 = r * kappa;
-        t1 = erfc( t2 );
-    
-        /* compute the energy and the force */
-        ee += p->alpha[2] * t1 * ir;
-        eff += p->alpha[2] * ( -2.0 * isqrtpi * exp( -t2 * t2 ) * kappa * ir - t1 * ir2 );
-    
-        }
-    
-    /* Do we have a Coulomb interaction? */
-    if ( p->flags & potential_flag_Coulomb ) {
-    
-        /* compute the energy and the force */
-        ee += potential_escale * p->alpha[2] * ir;
-        eff += -potential_escale * p->alpha[2] * ir2;
-    
-        }
-        
-    /* store the potential and force. */
-    *e = ee;
-    *f = eff;
-    
     }
 
 

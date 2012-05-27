@@ -1,6 +1,6 @@
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2010 Pedro Gonnet (pedro.gonnet@durham.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published
@@ -39,6 +39,7 @@
 /* include local headers */
 #include "errs.h"
 #include "fptype.h"
+#include "lock.h"
 #include "part.h"
 #include "cell.h"
 #include "fifo.h"
@@ -543,7 +544,7 @@ int space_gettuple_spin ( struct space *s , struct celltuple **out , int wait ) 
     while ( s->next_tuple < s->nr_tuples ) {
     
         /* Try to get a hold of the cells spinlock */
-	    if ( pthread_spin_lock( &s->cellpairs_spinlock ) != 0 )
+	    if ( lock_lock( &s->cellpairs_spinlock ) != 0 )
 		    return error(space_err_pthread);
         
         /* Loop over all tuples. */
@@ -587,7 +588,7 @@ int space_gettuple_spin ( struct space *s , struct celltuple **out , int wait ) 
             }
             
         /* Release the cells spinlock */
-	    if ( pthread_spin_unlock( &s->cellpairs_spinlock ) != 0 )
+	    if ( lock_unlock( &s->cellpairs_spinlock ) != 0 )
 		    return error(space_err_pthread);
         
         /* Did we get a tuple? */
@@ -1384,7 +1385,7 @@ struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , 
     while ( s->next_pair < s->nr_pairs ) {
     
         /* Try to get a hold of the cells spin-lock */
-	    if ( pthread_spin_lock( &s->cellpairs_spinlock ) != 0 ) {
+	    if ( lock_lock( &s->cellpairs_spinlock ) != 0 ) {
 		    *err = space_err_pthread;
             return NULL;
             }
@@ -1443,7 +1444,7 @@ struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , 
             } /* main loop. */
         
         /* Release the cells spin-lock */
-	    if (pthread_spin_unlock( &s->cellpairs_spinlock ) != 0) {
+	    if (lock_unlock( &s->cellpairs_spinlock ) != 0) {
 		    *err = space_err_pthread;
             return NULL;
             }
@@ -1723,7 +1724,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     
     /* init the cellpair mutexes */
     if ( pthread_mutex_init( &s->cellpairs_mutex , NULL ) != 0 ||
-        pthread_spin_init( &s->cellpairs_spinlock , PTHREAD_PROCESS_PRIVATE ) != 0 ||
+        lock_init( &s->cellpairs_spinlock ) != 0 ||
         pthread_cond_init( &s->cellpairs_avail , NULL ) != 0 ||
         pthread_mutex_init( &s->verlet_force_mutex , NULL ) != 0 )
         return error(space_err_pthread);
