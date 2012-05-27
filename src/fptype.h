@@ -1,6 +1,6 @@
 /*******************************************************************************
  * This file is part of mdcore.
- * Coypright (c) 2010 Pedro Gonnet (gonnet@maths.ox.ac.uk)
+ * Coypright (c) 2010 Pedro Gonnet (pedro.gonnet@durham.ac.uk)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published
@@ -71,6 +71,9 @@
 #ifdef __SSE3__
     #include <pmmintrin.h>
 #endif
+#ifdef __SSE4_1__
+    #include <smmintrin.h>
+#endif
 
 /** Macro to easily define vector types. */
 #define vector(elcount, type)  __attribute__((vector_size((elcount)*sizeof(type)))) type
@@ -107,9 +110,28 @@
  * SSE registers and horizontal adds.
  */
  
-__attribute__ ((always_inline)) extern inline FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
+__attribute__ ((always_inline)) inline FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
 
-#if defined(FPTYPE_SINGLE) && defined(__SSE3__)
+#if defined(FPTYPE_SINGLE) && defined(__SSE4_1__)
+    union {
+        vector(4,float) v;
+        float f[4];
+        } a, b, c, d;
+        
+    /* Load x1 and x2 into a and b. */
+    a.v = _mm_load_ps( x1 );
+    b.v = _mm_load_ps( x2 );
+    
+    /* Compute the difference and store in dx. */
+    c.v = a.v - b.v;
+    _mm_store_ps( dx , c.v );
+    
+    /* Use the built-in dot-product instruction. */
+    d.v = _mm_dp_ps( c.v , c.v , 0x71 );
+    
+    /* Return the sum of squares. */
+    return d.f[0];
+#elif defined(FPTYPE_SINGLE) && defined(__SSE3__)
     union {
         vector(4,float) v;
         float f[4];
@@ -157,6 +179,30 @@ __attribute__ ((always_inline)) extern inline FPTYPE fptype_r2 ( FPTYPE *x1 , FP
     
     /* Return the sum of squares. */
     return d.f[0];
+#elif defined(FPTYPE_DOUBLE) && defined(__SSE4_1__)
+    union {
+        vector(2,double) v;
+        double f[2];
+        } a1, a2, b1, b2, c1, c2, d1, d2;
+        
+    /* Load x1 and x2 into a and b. */
+    a1.v = _mm_load_pd( x1 );
+    b1.v = _mm_load_pd( x2 );
+    a2.v = _mm_load_pd( &x1[2] );
+    b2.v = _mm_load_pd( &x2[2] );
+    
+    /* Compute the difference and store in dx. */
+    c1.v = a1.v - b1.v;
+    c2.v = a2.v - b2.v;
+    _mm_store_pd( dx , c1.v );
+    _mm_store_pd( &dx[2] , c1.v );
+    
+    /* Use the built-in dot-product instruction. */
+    d1.v = _mm_dp_pd( c1.v , c1.v , 1+4+8 );
+    d2.v = c2.v * c2.v;
+    
+    /* Return the sum of squares. */
+    return d1.f[0] + d2.f[0];
 #elif defined(FPTYPE_DOUBLE) && defined(__SSE3__)
     union {
         vector(2,double) v;
