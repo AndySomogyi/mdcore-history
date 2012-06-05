@@ -45,6 +45,7 @@
 #include "cycle.h"
 #include "errs.h"
 #include "fptype.h"
+#include "lock.h"
 #include "part.h"
 #include "cell.h"
 #include "fifo.h"
@@ -576,7 +577,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             max_coeffs = e->p[i]->n + 1;
     
         }
-        
+       
     /* Copy eps and rmin to the device. */
     for ( i = 0 ; i < e->nr_types ; i++ )
         buff[i] = sqrt( fabs( e->types[i].eps ) );
