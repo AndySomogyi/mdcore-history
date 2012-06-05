@@ -45,6 +45,16 @@
 #endif
 
 
+/* Get the inlining right. */
+#ifndef INLINE
+# if __GNUC__ && !__GNUC_STDC_INLINE__
+#  define INLINE extern inline
+# else
+#  define INLINE inline
+# endif
+#endif
+
+    
 /* Define some macros for single/double precision vector operations. */
 #if ( defined(__AVX__) && defined(FPTYPE_SINGLE) )
     #define VEC_SINGLE
@@ -82,7 +92,7 @@
 /* Some extra functions function for Alti-Vec instruction set. */
 #ifdef __ALTIVEC__
     #include <altivec.h>
-    __attribute__ ((always_inline)) inline static vector float vec_sqrt( vector float a ) {
+    __attribute__ ((always_inline)) INLINE vector float vec_sqrt( vector float a ) {
         vector float z = ( vector float ){ 0.0f };
         vector float estimate = vec_rsqrte( a );
         vector float estimateSquared = vec_madd( estimate, estimate, z );
@@ -110,7 +120,7 @@
  * SSE registers and horizontal adds.
  */
  
-__attribute__ ((always_inline)) inline FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
+__attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
 
 #if defined(FPTYPE_SINGLE) && defined(__SSE4_1__)
     union {
