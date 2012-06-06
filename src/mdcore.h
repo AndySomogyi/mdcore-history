@@ -19,6 +19,7 @@
 
 #include "errs.h"
 #include "fptype.h"
+#include "lock.h"
 #include "part.h"
 #include "potential.h"
 #include "cell.h"
