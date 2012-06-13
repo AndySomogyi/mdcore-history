@@ -22,13 +22,35 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
+AM_LDFLAGS = $(METIS_LDFLAGS) 
 
 # Set-up the library
-bin_PROGRAMS = jac
+bin_PROGRAMS = jac jac_verlet jac_pwverlet jac_pwverlet2
 
 # Sources for jac
 jac_SOURCES = jac.c
-jac_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
-jac_LDADD = ../../src/.libs/libmdcore_single.a -locelot
+jac_CFLAGS = -DENGINE_FLAGS="engine_flag_none" -DFPTYPE_SINGLE $(AM_CFLAGS)
+jac_LDADD = ../../src/.libs/libmdcore_single.a
+
+
+# Using Verlet lists
+# Sources for jac_verlet
+jac_verlet_SOURCES = jac.c
+jac_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
+jac_verlet_LDADD = ../../src/.libs/libmdcore_single.a
+
+
+# Using pairwise Verlet lists
+# Sources for jac_verlet
+jac_pwverlet_SOURCES = jac.c
+jac_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
+jac_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
+
+
+# Using pairwise Verlet lists of the second kind
+# Sources for jac_verlet2
+jac_pwverlet2_SOURCES = jac.c
+jac_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
+jac_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+
 
