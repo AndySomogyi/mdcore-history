@@ -22,15 +22,15 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS) 
+AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = jac jac_verlet jac_pwverlet jac_pwverlet2
+bin_PROGRAMS = jac_noverlet jac_verlet jac_pwverlet jac_pwverlet2 jac_cuda_noverlet jac_cuda_verlet
 
 # Sources for jac
-jac_SOURCES = jac.c
-jac_CFLAGS = -DENGINE_FLAGS="engine_flag_none" -DFPTYPE_SINGLE $(AM_CFLAGS)
-jac_LDADD = ../../src/.libs/libmdcore_single.a
+jac_noverlet_SOURCES = jac.c
+jac_noverlet_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
+jac_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using Verlet lists
@@ -52,5 +52,19 @@ jac_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 jac_pwverlet2_SOURCES = jac.c
 jac_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
 jac_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+
+
+# Using CUDA and Verlet lists
+# Sources for jac_cuda_verlet
+jac_cuda_verlet_SOURCES = jac.c
+jac_cuda_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="(engine_flag_cuda | engine_flag_verlet_pairwise2)" $(AM_CFLAGS)
+jac_cuda_verlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
+
+
+# Using CUDA 
+# Sources for jac_cuda
+jac_cuda_noverlet_SOURCES = jac.c
+jac_cuda_noverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_cuda" $(AM_CFLAGS)
+jac_cuda_noverlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
 
 
