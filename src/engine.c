@@ -1279,7 +1279,7 @@ int engine_start ( struct engine *e , int nr_runners ) {
         /* Set the number of runners. */
         e->nr_runners = nr_runners;
     
-        #ifdef HAVE_CUDA
+        #if defined(HAVE_CUDA) && defined(WITH_CUDA)
             /* Load the potentials and pairs to the CUDA device. */
             if ( engine_cuda_load( e ) < 0 )
                 return error(engine_err);
@@ -1644,7 +1644,7 @@ int engine_step ( struct engine *e ) {
             
     /* Compute the non-bonded interactions. */
     tic = getticks();
-    #ifdef HAVE_CUDA
+    #if defined(HAVE_CUDA) && defined(WITH_CUDA)
         if ( e->flags & engine_flag_cuda ) {
             if ( engine_nonbond_cuda( e ) < 0 )
                 return error(engine_err);
