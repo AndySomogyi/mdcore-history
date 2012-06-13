@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
-AM_CFLAGS = -g -Wall $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror -funroll-loops -fno-keep-inline-functions
+AM_CFLAGS = -g -Wall -std=gnu99 $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror -funroll-loops
 AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers
@@ -29,17 +29,18 @@ include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
     
 # Both precisions have the same sources.
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
-    btree.c bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
+    bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
     engine_bonded.c engine_rigid.c engine_exchange.c runner_verlet.c \
     runner_pwverlet.c runner_dopair.c fifo.c
 
 # CUDA sources
 if HAVECUDA
     SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
+.cu: runner_cuda.h
 .cu.o:
-	$(NVCC) -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -g -O0 --use_fast_math --prec-sqrt=true -arch sm_20 -DFPTYPE_SINGLE $< -o $@
+	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) -I/usr/lib/openmpi/include -O3 -g -keep -Xptxas="-v" -arch sm_20 -DFPTYPE_SINGLE $< -o $@
 .cu.lo:
-	$(top_srcdir)/cudalt.py $@ $(NVCC) -g -c $(NVCCFLAGS) $(MPI_CFLAGS) $(CUDA_CFLAGS) -arch sm_20 -DFPTYPE_SINGLE $<
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -I/usr/lib/openmpi/include -O3 -g -keep -Xptxas="-v" -c $(NVCCFLAGS) $(CUDA_CFLAGS) -arch sm_20 -DFPTYPE_SINGLE $<
 else
     SOURCES_CUDA =
 endif
@@ -48,15 +49,25 @@ endif
 # Build the libmdcore libraries
 lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
+# Build a CUDA-enabled version too?
+if HAVECUDA
+    lib_LTLIBRARIES += libmdcore_single_cuda.la
+endif
+
 
 # Set-up for general (double-precision) case
 libmdcore_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 
 
 # Set-up for single-precision case
-libmdcore_single_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
+libmdcore_single_la_SOURCES = $(SOURCES)
 libmdcore_single_la_SHORTNAME = sp
-libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS) $(CUDA_CFLAGS)
+libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
+
+# Set-up for single-precision case with CUDA
+libmdcore_single_cuda_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
+libmdcore_single_cuda_la_SHORTNAME = cu
+libmdcore_single_cuda_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS) -DWITH_CUDA $(CUDA_CFLAGS)
 
 
 # Dummy target to make the Cell/BE version
