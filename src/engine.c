@@ -1915,6 +1915,8 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         e->types[0].mass = 0.0;
         e->types[0].imass = 0.0;
         e->types[0].charge = 0.0;
+        e->types[0].eps = 0.0;
+        e->types[0].rmin = 0.0;
         strcpy( e->types[0].name , "NULL" );
         strcpy( e->types[0].name2 , "NULL" );
         e->nr_types = 1;
