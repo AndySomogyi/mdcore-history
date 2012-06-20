@@ -533,8 +533,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     int i, j, k, nr_pots, nr_coeffs, max_coeffs = 0;
     int pind_cuda[ e->max_type * e->max_type ];
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
-    struct potential *p_cuda[ e->max_type * e->max_type ];
-    struct potential *pots_cuda;
     struct cellpair_cuda *pairs_cuda;
     float *finger, *coeffs_cuda;
     float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, dscale, buff[ e->nr_types ];
@@ -552,7 +550,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     pots[0]->a = 0.0; pots[0]->b = DBL_MAX;
     pots[0]->flags = potential_flag_none;
     pots[0]->n = 0;
-    if ( ( pots[0]->c = (float *)alloca( sizeof(float) * potential_chunk ) ) == NULL )
+    if ( ( pots[0]->c = (FPTYPE *)alloca( sizeof(float) * potential_chunk ) ) == NULL )
         return error(engine_err_malloc);
     bzero( pots[0]->c , sizeof(float) * potential_chunk );
     nr_pots = 1; nr_coeffs = 1;
@@ -588,33 +586,13 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpyToSymbol( "cuda_rmin" , buff , sizeof(float) * e->nr_types , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
 
-    /* Allocate space on the device for both the potential structures
-       and the coefficient tables. */
-    if ( cudaMalloc( &(e->p_cuda) , sizeof(struct potential *) * e->max_type * e->max_type ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMalloc( &(e->pots_cuda) , sizeof(struct potential) * nr_pots ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMalloc( &(e->coeffs_cuda) , sizeof(float) * nr_coeffs * potential_chunk ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-        
-    /* Pack the potentials before shipping them off to the device. */
-    if ( ( pots_cuda = (struct potential *)alloca( sizeof(struct potential) * nr_pots ) ) == NULL )
-        return error(engine_err_malloc);
-    for ( finger = e->coeffs_cuda , i = 0 ; i < nr_pots ; i++ ) {
-        pots_cuda[i] = *pots[i];
-        pots_cuda[i].c = finger;
-        finger = &finger[ (pots_cuda[i].n + 1) * potential_chunk ];
-        }
-        
     /* Pack the potential matrix. */
     for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
         if ( e->p[i] == NULL ) {
-            p_cuda[i] = NULL;
             pind_cuda[i] = 0;
             }
         else {
             for ( j = 0 ; j < nr_pots && pots[j] != e->p[i] ; j++ );
-            p_cuda[i] = &(e->pots_cuda[j]);
             pind_cuda[i] = j;
             }
         }
@@ -634,14 +612,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         finger = &finger[ (pots[i]->n + 1) * potential_chunk ];
         } */
     printf( "engine_cuda_load: packed %i potentials with %i coefficient chunks (%i kB).\n" , nr_pots , max_coeffs , (sizeof(float4)*(2*max_coeffs+2)*nr_pots)/1024 ); fflush(stdout);
-        
-    /* Copy the data to the device. */
-    if ( cudaMemcpy( e->p_cuda , p_cuda , sizeof(struct potential *) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpy( e->pots_cuda , pots_cuda , sizeof(struct potential) * nr_pots , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpy( e->coeffs_cuda , coeffs_cuda , sizeof(float) * nr_coeffs * potential_chunk , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
         
     /* Bind the potential coefficients to a texture. */
     if ( cudaMallocArray( &cuArray_coeffs , &channelDesc_float4 , 2*max_coeffs + 2 , nr_pots ) != cudaSuccess )
@@ -675,12 +645,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         
         
     /* Set the constant pointer to the null potential and other useful values. */
-    if ( cudaMemcpyToSymbol( "potential_null_cuda" , &(e->pots_cuda) , sizeof(struct potential *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( "cuda_p" , &(e->p_cuda) , sizeof(struct potential **) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( "cuda_pots" , &(e->pots_cuda) , sizeof(struct potential *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_cutoff2" , &cutoff2 , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_cutoff" , &cutoff , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
