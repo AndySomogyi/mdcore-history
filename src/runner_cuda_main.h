@@ -26,7 +26,6 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             float4 *parts_i, *parts_j;
         #endif
     #endif
-    float *forces_k;
     
     TIMER_TIC2
     
@@ -108,9 +107,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             /* Write the particle forces back to cell_i. */
             if ( threadID == 0 )
                 cuda_mutex_lock( &cuda_taboo[cid] );
-            forces_k = &forces[ 3*ind[cid] ];
-            for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
-                forces_k[k] += forces_i[k];
+            cuda_sum( &forces[ 3*ind[cid] ] , forces_i , 3*counts[cid] );
             __threadfence();
             if ( threadID == 0 ) {
                 cuda_mutex_unlock( &cuda_taboo[cid] );
@@ -120,9 +117,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             /* Write the particle forces back to cell_j. */
             if ( threadID == 0 )
                 cuda_mutex_lock( &cuda_taboo[cjd] );
-            forces_k = &forces[ 3*ind[cjd] ];
-            for ( k = threadID ; k < 3*counts[cjd] ; k += cuda_frame )
-                forces_k[k] += forces_j[k];
+            cuda_sum( &forces[ 3*ind[cjd] ] , forces_j , 3*counts[cjd] );
             __threadfence();
             if ( threadID == 0 ) {
                 cuda_mutex_unlock( &cuda_taboo[cjd] );
@@ -152,26 +147,24 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                     runner_doself_cuda( ind[cid] , counts[cid] , forces_i );
                 else
-                    runner_doself_diag_cuda( ind[cid] , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( ind[cid] , counts[cid] , forces_i );
             #else
                 if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                     runner_doself_cuda( parts_i , counts[cid] , forces_i );
                 else
-                    runner_doself_diag_cuda( parts_i , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */
             if ( threadID == 0 )
                 cuda_mutex_lock( &cuda_taboo[cid] );
-            forces_k = &forces[ 3*ind[cid] ];
-            for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
-                forces_k[k] += forces_i[k];
+            cuda_sum( &forces[ 3*ind[cid] ] , forces_i , 3*counts[cid] );
             __threadfence();
             if ( threadID == 0 ) {
                 cuda_mutex_unlock( &cuda_taboo[cid] );
                 __threadfence();
                 }
-            
+           
             }
         
         } /* main loop. */
@@ -213,7 +206,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             float4 *parts_i, *parts_j;
         #endif
     #endif
-    float *forces_k;
+    // float *forces_k;
     
     TIMER_TIC2
     
@@ -258,11 +251,13 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         if ( cid != cjd ) {
         
             /* Clear the forces buffer. */
+            TIMER_TIC
             for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
                 forces_i[k] = 0.0f;
             for ( k = threadID ; k < 3*counts[cjd] ; k += cuda_frame )
                 forces_j[k] = 0.0f;
             __threadfence_block();
+            TIMER_TOC(tid_update)
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
@@ -307,49 +302,35 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         cuda_pairs[pid].shift );
             #endif
                 
-            /* if ( threadID == 0 )
-                printf( "runner_run_cuda: block %03i waiting for cell %i...\n" , blockID , cid ); */
-                
             /* Write the particle forces back to cell_i. */
             if ( threadID == 0 )
                 cuda_mutex_lock( &cuda_taboo[cid] );
-            forces_k = &forces[ 3*ind[cid] ];
-            for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
-                forces_k[k] += forces_i[k];
+            cuda_sum( &forces[ 3*ind[cid] ] , forces_i , 3*counts[cid] );
             __threadfence();
             if ( threadID == 0 ) {
                 cuda_mutex_unlock( &cuda_taboo[cid] );
                 __threadfence();
                 }
                 
-            /* if ( threadID == 0 )
-                printf( "runner_run_cuda: block %03i released cell %i.\n" , blockID , cid ); */
-                
-            /* if ( threadID == 0 )
-                printf( "runner_run_cuda: block %03i waiting for cell %i...\n" , blockID , cjd ); */
-                
             /* Write the particle forces back to cell_j. */
             if ( threadID == 0 )
                 cuda_mutex_lock( &cuda_taboo[cjd] );
-            forces_k = &forces[ 3*ind[cjd] ];
-            for ( k = threadID ; k < 3*counts[cjd] ; k += cuda_frame )
-                forces_k[k] += forces_j[k];
+            cuda_sum( &forces[ 3*ind[cjd] ] , forces_j , 3*counts[cjd] );
             __threadfence();
             if ( threadID == 0 ) {
                 cuda_mutex_unlock( &cuda_taboo[cjd] );
                 __threadfence();
                 }
                 
-            /* if ( threadID == 0 )
-                printf( "runner_run_cuda: block %03i released cell %i.\n" , blockID , cjd ); */
-                
             }
         else {
         
             /* Clear the forces buffer. */
+            TIMER_TIC
             for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
                 forces_i[k] = 0.0f;
             __threadfence_block();
+            TIMER_TOC(tid_update)
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
@@ -366,32 +347,24 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                     runner_doself_cuda( cid , counts[cid] , forces_i );
                 else
-                    runner_doself_diag_cuda( cid , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
                 if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                     runner_doself_cuda( parts_i , counts[cid] , forces_i );
                 else
-                    runner_doself_diag_cuda( parts_i , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
             #endif
-                
-            /* if ( threadID == 0 )
-                printf( "runner_run_cuda: block %03i waiting for cell %i...\n" , blockID , cid ); */
                 
             /* Write the particle forces back to cell_i. */
             if ( threadID == 0 )
                 cuda_mutex_lock( &cuda_taboo[cid] );
-            forces_k = &forces[ 3*ind[cid] ];
-            for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
-                forces_k[k] += forces_i[k];
+            cuda_sum( &forces[ 3*ind[cid] ] , forces_i , 3*counts[cid] );
             __threadfence();
             if ( threadID == 0 ) {
                 cuda_mutex_unlock( &cuda_taboo[cid] );
                 __threadfence();
                 }
             
-            /* if ( threadID == 0 )
-                printf( "runner_run_cuda: block %03i released cell %i.\n" , blockID , cid ); */
-                
             }
         
         } /* main loop. */

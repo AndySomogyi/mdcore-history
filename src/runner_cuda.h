@@ -26,24 +26,27 @@
 #define max_fingers                         1
 #define cuda_fifo_size                      4
 #define cuda_maxblocks                      64
-#define cuda_memcpy_chunk                   8
+#define cuda_memcpy_chunk                   6
+#define cuda_sum_chunk                      3
 
 
 /* Some flags that control optional behaviour */
 // #define TIMERS
-#define PARTS_TEX
-#define PARTS_LOCAL
+// #define PARTS_TEX
+// #define PARTS_LOCAL
 
 
 /** Timers for the cuda parts. */
 enum {
     tid_mutex = 0,
     tid_memcpy,
-    tid_queue,
+    tid_update,
+    tid_pack,
     tid_sort,
     tid_pair,
     tid_self,
     tid_potential,
+    tid_potential4,
     tid_total,
     tid_count
     };
@@ -55,6 +58,8 @@ enum {
     #define TIMER_TOC_ND(tid) toc = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc > tic ) ? (toc - tic) : ( toc + (0xffffffff - tic) ) );
     #define TIMER_TIC clock_t tic; if ( threadIdx.x == 0 ) tic = clock();
     #define TIMER_TOC(tid) clock_t toc = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc > tic ) ? (toc - tic) : ( toc + (0xffffffff - tic) ) );
+    #define TIMER_TIC2_ND if ( threadIdx.x == 0 ) tic2 = clock();
+    #define TIMER_TOC2_ND(tid) toc2 = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc2 > tic2 ) ? (toc2 - tic2) : ( toc2 + (0xffffffff - tic2) ) );
     #define TIMER_TIC2 clock_t tic2; if ( threadIdx.x == 0 ) tic2 = clock();
     #define TIMER_TOC2(tid) clock_t toc2 = clock(); if ( threadIdx.x == 0 ) atomicAdd( &cuda_timers[tid] , ( toc2 > tic2 ) ? (toc2 - tic2) : ( toc2 + (0xffffffff - tic2) ) );
 #else
