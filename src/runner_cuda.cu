@@ -1250,7 +1250,6 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
     else {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
-
         
     /* Pre-compute the inverse norm of the shift. */
     nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
@@ -1476,9 +1475,8 @@ __device__ void runner_dopair_sorted_cuda ( int cid , int count_i , int cjd , in
 __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift ) {
 #endif
 
-    int k, j, i, ind, jnd, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
+    int k, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
     int pioff, dcutoff;
-    unsigned int swap_i;
     float4 pi, pj;
     int pot;
     float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f, nshift, inshift;
@@ -1536,42 +1534,9 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
     __threadfence_block();
     
     /* Sort using normalized bitonic sort. */
-    for ( k = 1 ; k < count_i ; k *= 2 ) {
-        for ( i = threadID ; ( ind = ( i & ~(k - 1) ) * 2 + ( i & (k - 1) ) ) < count_i ; i += cuda_frame ) {
-            jnd = ( i & ~(k - 1) ) * 2 + 2*k - ( i & (k - 1) ) - 1;
-            if ( jnd < count_i && ( sort_i[ind] & 0xffff ) < ( sort_i[jnd] & 0xffff ) ) {
-                swap_i = sort_i[ind]; sort_i[ind] = sort_i[jnd]; sort_i[jnd] = swap_i;
-                }
-            }
-        __threadfence_block();
-        for ( j = k/2 ; j > 0 ; j = j / 2 ) {
-            for ( i = threadID ; ( ind = ( i & ~(j - 1) ) * 2 + ( i & (j - 1) ) ) + j < count_i ; i += cuda_frame ) {
-                jnd = ind + j;
-                if ( ( sort_i[ind] & 0xffff ) < ( sort_i[jnd] & 0xffff ) ) {
-                    swap_i = sort_i[ind]; sort_i[ind] = sort_i[jnd]; sort_i[jnd] = swap_i;
-                    }
-                }
-            __threadfence_block();
-            }
-        }
-    for ( k = 1 ; k < count_j ; k *= 2 ) {
-        for ( i = threadID ; ( ind = ( i & ~(k - 1) ) * 2 + ( i & (k - 1) ) ) < count_j ; i += cuda_frame ) {
-            jnd = ( i & ~(k - 1) ) * 2 + 2*k - ( i & (k - 1) ) - 1;
-            if ( jnd < count_j && ( sort_j[ind] & 0xffff ) > ( sort_j[jnd] & 0xffff ) ) {
-                swap_i = sort_j[ind]; sort_j[ind] = sort_j[jnd]; sort_j[jnd] = swap_i;
-                }
-            }
-        __threadfence_block();
-        for ( j = k/2 ; j > 0 ; j = j / 2 ) {
-            for ( i = threadID ; ( ind = ( i & ~(j - 1) ) * 2 + ( i & (j - 1) ) ) + j < count_j ; i += cuda_frame ) {
-                jnd = ind + j;
-                if ( ( sort_j[ind] & 0xffff ) > ( sort_j[jnd] & 0xffff ) ) {
-                    swap_i = sort_j[ind]; sort_j[ind] = sort_j[jnd]; sort_j[jnd] = swap_i;
-                    }
-                }
-            __threadfence_block();
-            }
-        }
+    cuda_sort_descending( sort_i , count_i );
+    cuda_sort_ascending( sort_j , count_j );
+
         
     TIMER_TOC2(tid_sort)
         
@@ -1724,6 +1689,26 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
        
     TIMER_TIC2
        
+    /* Pack the parts of i and j into the sort arrays. */
+    /* for ( k = threadID ; k < count_i ; k += cuda_frame ) {
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , k , cid );
+        #else
+            pi = parts_i[ k ];
+        #endif
+        sort_i[k] = ( k << 16 ) |
+            (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
+        }
+    for ( k = threadID ; k < count_j ; k += cuda_frame ) {
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , k , cjd );
+        #else
+            pi = parts_j[ k ];
+        #endif
+        sort_j[k] = ( k << 16 ) | 
+            (unsigned int)( cuda_dscale * (nshift + (shift[0]+pi.x)*shiftn[0] + (shift[1]+pi.y)*shiftn[1] + (shift[2]+pi.z)*shiftn[2]) );
+        } */
+        
     /* Pack the parts of i and j into the sort arrays. */
     for ( k = threadID ; k < count_i ; k += 4*cuda_frame ) {
         #ifdef PARTS_TEX
@@ -2190,14 +2175,10 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
         
         /* Get a handle on the particles. */
         #ifdef PARTS_TEX
-            pi[0] = tex2D( tex_parts , pid.x , cid );
-            pj[0] = tex2D( tex_parts , pjd.x , cid );
-            pi[1] = tex2D( tex_parts , pid.y , cid );
-            pj[1] = tex2D( tex_parts , pjd.y , cid );
-            pi[2] = tex2D( tex_parts , pid.z , cid );
-            pj[2] = tex2D( tex_parts , pjd.z , cid );
-            pi[3] = tex2D( tex_parts , pid.w , cid );
-            pj[3] = tex2D( tex_parts , pjd.w , cid );
+            pi[0] = tex2D( tex_parts , pid.x , cid ); pj[0] = tex2D( tex_parts , pjd.x , cid );
+            pi[1] = tex2D( tex_parts , pid.y , cid ); pj[1] = tex2D( tex_parts , pjd.y , cid );
+            pi[2] = tex2D( tex_parts , pid.z , cid ); pj[2] = tex2D( tex_parts , pjd.z , cid );
+            pi[3] = tex2D( tex_parts , pid.w , cid ); pj[3] = tex2D( tex_parts , pjd.w , cid );
         #else
             pi[0] = parts[ pid.x ]; pj[0] = parts[ pjd.x ];
             pi[1] = parts[ pid.y ]; pj[1] = parts[ pjd.y ];

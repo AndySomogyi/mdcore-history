@@ -36,7 +36,7 @@ SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
 # CUDA sources
 if HAVECUDA
     SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
-    CUDA_MYFLAGS = -O3 -g -keep -Xptxas="-v" -arch sm_20 -fmad=true -DFPTYPE_SINGLE 
+    CUDA_MYFLAGS = -O3 -g -lineinfo -keep -Xptxas="-v" -arch sm_20 -fmad=true -DFPTYPE_SINGLE 
 .cu: runner_cuda.h runner_cuda_main.h
 .cu.o:
 	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) $(CUDA_MYFLAGS) $< -o $@

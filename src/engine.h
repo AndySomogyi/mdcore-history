@@ -93,6 +93,9 @@ enum {
     engine_timer_rigid,
     engine_timer_exchange2,
     engine_timer_shuffle,
+    engine_timer_cuda_load,
+    engine_timer_cuda_unload,
+    engine_timer_cuda_dopairs,
     engine_timer_last
     };
 

@@ -121,6 +121,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     dim3 nr_threads( cuda_frame , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
     int maxcount;
+    ticks tic;
     // int zero = 0;
     // int cuda_io[32];
     // float cuda_fio[32];
@@ -130,8 +131,10 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #endif
 
     /* Load the particle data onto the device. */
+    tic = getticks();
     if ( ( maxcount = engine_cuda_load_parts( e ) ) < 0 )
         return error(engine_err);
+    e->timers[ engine_timer_cuda_load ] += getticks() - tic;
 
     /* Init the pointer to the next entry. */    
     /* if ( cudaMemcpyToSymbol( "cuda_pair_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -156,6 +159,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #endif
     
     /* Start the appropriate kernel. */
+    tic = getticks();
     if ( e->flags & engine_flag_verlet )
         switch ( maxcount ) {
             case 32:
@@ -262,6 +266,9 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             default:
                 return error(engine_err_maxparts);
             }
+    if ( cudaDeviceSynchronize() != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    e->timers[ engine_timer_cuda_dopairs ] += getticks() - tic;
     
     /* Check for CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
@@ -294,8 +301,10 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     printf( "engine_nonbond_cuda: computed %i pairs.\n" , zero ); */
 
     /* Unload the particle data from the device. */
+    tic = getticks();
     if ( engine_cuda_unload_parts( e ) < 0 )
         return error(engine_err);
+    e->timers[ engine_timer_cuda_unload ] += getticks() - tic;
 
     /* Go away. */
     return engine_err_ok;

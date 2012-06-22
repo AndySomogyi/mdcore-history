@@ -128,9 +128,11 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         else {
         
             /* Clear the forces buffer. */
+            TIMER_TIC
             for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
                 forces_i[k] = 0.0f;
             __threadfence_block();
+            TIMER_TOC(tid_update)
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
@@ -145,9 +147,9 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             /* Compute the cell self interactions. */
             #ifdef PARTS_TEX
                 if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself_cuda( ind[cid] , counts[cid] , forces_i );
+                    runner_doself_cuda( cid , counts[cid] , forces_i );
                 else
-                    runner_doself4_diag_cuda( ind[cid] , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
                 if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                     runner_doself_cuda( parts_i , counts[cid] , forces_i );
@@ -164,7 +166,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 cuda_mutex_unlock( &cuda_taboo[cid] );
                 __threadfence();
                 }
-           
+                
             }
         
         } /* main loop. */
