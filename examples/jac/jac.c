@@ -225,6 +225,8 @@ int main ( int argc , char *argv[] ) {
         printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
         printf( "main[%i]: read %i angles.\n" , myrank , e.nr_angles );
         printf( "main[%i]: read %i dihedrals.\n" , myrank , e.nr_dihedrals );
+        /* for ( k = 0 ; k < e.nr_types ; k++ )
+            printf( "         %2i: %s (%s), q=%f, m=%f, eps=%f, rmin=%f\n" , k , e.types[k].name , e.types[k].name2 , e.types[k].charge , e.types[k].mass , e.types[k].eps , e.types[k].rmin ); */
         printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
         fflush(stdout);
         }
@@ -400,10 +402,9 @@ int main ( int argc , char *argv[] ) {
         
     /* Just do a single cell pair. */
     /* for ( k = 0 ; k < e.s.nr_pairs ; k++ )
-        if ( e.s.pairs[k].i != e.s.pairs[k].j )
+        if ( e.s.pairs[k].i == e.s.pairs[k].j )
             e.s.pairs[k--] = e.s.pairs[ --e.s.nr_pairs ]; */
     // e.s.nr_pairs = 1;
-    // e.s.pairs[0] = e.s.pairs[13];
     // e.s.cells[ e.s.pairs[0].i ].count = 32; e.s.cells[ e.s.pairs[0].j ].count = 32;
     /* for ( k = 0 ; k < e.s.nr_cells ; k++ )
         if ( k != e.s.pairs[0].i && k != e.s.pairs[0].j )
@@ -580,11 +581,12 @@ int main ( int argc , char *argv[] ) {
         if ( myrank == 0 ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
-            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
                 e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
                 e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
                 (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
+                e.timers[engine_timer_cuda_load]*itpms, e.timers[engine_timer_cuda_dopairs]*itpms, e.timers[engine_timer_cuda_unload]*itpms, 
                 timers[tid_temp]*itpms ); fflush(stdout);
             /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
