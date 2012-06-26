@@ -32,7 +32,7 @@
 
 /* Some flags that control optional behaviour */
 // #define TIMERS
-#define PARTS_TEX
+// #define PARTS_TEX
 // #define PARTS_LOCAL
 
 

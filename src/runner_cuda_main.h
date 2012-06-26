@@ -52,7 +52,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         /* Let the first thread grab a pair. */
         if ( threadID == 0 ) {
             pid = atomicAdd( &cuda_pair_next , 1 );
-            __threadfence_block();
+            // __threadfence_block();
             }
             
         /* Are we at the end of the list? */
@@ -71,14 +71,14 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 forces_i[k] = 0.0f;
             for ( k = threadID ; k < 3*counts[cjd] ; k += cuda_frame )
                 forces_j[k] = 0.0f;
-            __threadfence_block();
+            // __threadfence_block();
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
                     cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
                     cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
-                    __threadfence_block();
+                    // __threadfence_block();
                 #else
                     parts_i = &cuda_parts[ ind[cid] ];
                     parts_j = &cuda_parts[ ind[cjd] ];
@@ -131,14 +131,14 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             TIMER_TIC
             for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
                 forces_i[k] = 0.0f;
-            __threadfence_block();
+            // __threadfence_block();
             TIMER_TOC(tid_update)
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
                     cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                    __threadfence_block();
+                    // __threadfence_block();
                 #else
                     parts_i = &cuda_parts[ ind[cid] ];
                 #endif
@@ -146,15 +146,15 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             
             /* Compute the cell self interactions. */
             #ifdef PARTS_TEX
-                if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself_cuda( cid , counts[cid] , forces_i );
-                else
-                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
+                // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
+                    runner_doself4_cuda( cid , counts[cid] , forces_i );
+                // else
+                //     runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
-                if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself_cuda( parts_i , counts[cid] , forces_i );
-                else
-                    runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
+                // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
+                    runner_doself4_cuda( parts_i , counts[cid] , forces_i );
+                // else
+                //     runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -233,10 +233,9 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     while ( 1 ) {
     
         /* Let the first thread grab a pair. */
-        if ( threadID == 0 ) {
+        if ( threadID == 0 )
             pid = atomicAdd( &cuda_pair_next , 1 );
-            __threadfence_block();
-            }
+        // __threadfence_block();
             
         /* Are we at the end of the list? */
         if ( pid >= cuda_nr_pairs )
@@ -258,7 +257,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 forces_i[k] = 0.0f;
             for ( k = threadID ; k < 3*counts[cjd] ; k += cuda_frame )
                 forces_j[k] = 0.0f;
-            __threadfence_block();
+            // __threadfence_block();
             TIMER_TOC(tid_update)
             
             /* Copy the particle data into the local buffers. */
@@ -266,7 +265,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 #ifdef PARTS_LOCAL
                     cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
                     cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
-                    __threadfence_block();
+                    // __threadfence_block();
                 #else
                     parts_i = &cuda_parts[ ind[cid] ];
                     parts_j = &cuda_parts[ ind[cjd] ];
@@ -331,14 +330,14 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             TIMER_TIC
             for ( k = threadID ; k < 3*counts[cid] ; k += cuda_frame )
                 forces_i[k] = 0.0f;
-            __threadfence_block();
+            // __threadfence_block();
             TIMER_TOC(tid_update)
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
                     cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                    __threadfence_block();
+                    // __threadfence_block();
                 #else
                     parts_i = &cuda_parts[ ind[cid] ];
                 #endif
@@ -346,15 +345,15 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             /* Compute the cell self interactions. */
             #ifdef PARTS_TEX
-                if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself_cuda( cid , counts[cid] , forces_i );
-                else
-                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
+                // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
+                    runner_doself4_cuda( cid , counts[cid] , forces_i );
+                // else
+                //     runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
-                if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself_cuda( parts_i , counts[cid] , forces_i );
-                else
-                    runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
+                // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
+                    runner_doself4_cuda( parts_i , counts[cid] , forces_i );
+                // else
+                //     runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */

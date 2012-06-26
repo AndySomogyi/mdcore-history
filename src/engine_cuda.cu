@@ -101,8 +101,8 @@ __global__ void runner_run_verlet_cuda_448 ( float *forces , int *counts , int *
 __global__ void runner_run_cuda_448 ( float *forces , int *counts , int *ind );
 __global__ void runner_run_verlet_cuda_480 ( float *forces , int *counts , int *ind , int verlet_rebuild );
 __global__ void runner_run_cuda_480 ( float *forces , int *counts , int *ind );
-__global__ void runner_run_verlet_cuda_512 ( float *forces , int *counts , int *ind , int verlet_rebuild );
-__global__ void runner_run_cuda_512 ( float *forces , int *counts , int *ind );
+// __global__ void runner_run_verlet_cuda_512 ( float *forces , int *counts , int *ind , int verlet_rebuild );
+// __global__ void runner_run_cuda_512 ( float *forces , int *counts , int *ind );
 int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_pind , cudaArray *cuArray_diags );
 int runner_parts_bind ( cudaArray *cuArray_parts );
 int runner_parts_unbind ( );
@@ -161,108 +161,108 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     /* Start the appropriate kernel. */
     tic = getticks();
     if ( e->flags & engine_flag_verlet )
-        switch ( maxcount ) {
-            case 32:
+        switch ( (maxcount + 31) / 32 ) {
+            case 1:
                 runner_run_verlet_cuda_32 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 64:
+            case 2:
                 runner_run_verlet_cuda_64 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 96:
+            case 3:
                 runner_run_verlet_cuda_96 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 128:
+            case 4:
                 runner_run_verlet_cuda_128 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 160:
+            case 5:
                 runner_run_verlet_cuda_160 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 192:
+            case 6:
                 runner_run_verlet_cuda_192 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 224:
+            case 7:
                 runner_run_verlet_cuda_224 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 256:
+            case 8:
                 runner_run_verlet_cuda_256 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 288:
+            case 9:
                 runner_run_verlet_cuda_288 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 320:
+            case 10:
                 runner_run_verlet_cuda_320 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 352:
+            case 11:
                 runner_run_verlet_cuda_352 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 384:
+            case 12:
                 runner_run_verlet_cuda_384 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 416:
+            case 13:
                 runner_run_verlet_cuda_416 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 448:
+            case 14:
                 runner_run_verlet_cuda_448 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 480:
+            case 15:
                 runner_run_verlet_cuda_480 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
                 break;
-            case 512:
-                runner_run_verlet_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
+            // case 16:
+            //     runner_run_verlet_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            //     break;
             default:
                 return error(engine_err_maxparts);
             }
     else
-        switch ( maxcount ) {
-            case 32:
+        switch ( (maxcount + 31) / 32 ) {
+            case 1:
                 runner_run_cuda_32 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 64:
+            case 2:
                 runner_run_cuda_64 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 96:
+            case 3:
                 runner_run_cuda_96 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 128:
+            case 4:
                 runner_run_cuda_128 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 160:
+            case 5:
                 runner_run_cuda_160 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 192:
+            case 6:
                 runner_run_cuda_192 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 224:
+            case 7:
                 runner_run_cuda_224 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 256:
+            case 8:
                 runner_run_cuda_256 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 288:
+            case 9:
                 runner_run_cuda_288 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 320:
+            case 10:
                 runner_run_cuda_320 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 352:
+            case 11:
                 runner_run_cuda_352 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 384:
+            case 12:
                 runner_run_cuda_384 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 416:
+            case 13:
                 runner_run_cuda_416 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 448:
+            case 14:
                 runner_run_cuda_448 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 480:
+            case 15:
                 runner_run_cuda_480 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
                 break;
-            case 512:
-                runner_run_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
+            // case 16:
+            //     runner_run_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
+            //     break;
             default:
                 return error(engine_err_maxparts);
             }
@@ -540,7 +540,7 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
 extern "C" int engine_cuda_load ( struct engine *e ) {
 
     int i, j, k, nr_pots, nr_coeffs, max_coeffs = 0;
-    int pind_cuda[ e->max_type * e->max_type ];
+    int pind[ e->max_type * e->max_type ], *pind_cuda;
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
     struct cellpair_cuda *pairs_cuda;
     float *finger, *coeffs_cuda;
@@ -550,7 +550,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     void *devptr;
-    unsigned int *taboo_cuda, *pairIDs_cuda, pairIDs[ e->s.nr_pairs ], *diags;
+    unsigned int *taboo_cuda, *pairIDs_cuda, pairIDs[ e->s.nr_pairs ], *diags, *diags_cuda;
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -598,11 +598,11 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     /* Pack the potential matrix. */
     for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
         if ( e->p[i] == NULL ) {
-            pind_cuda[i] = 0;
+            pind[i] = 0;
             }
         else {
             for ( j = 0 ; j < nr_pots && pots[j] != e->p[i] ; j++ );
-            pind_cuda[i] = j;
+            pind[i] = j;
             }
         }
         
@@ -642,12 +642,28 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpyToArray( cuArray_diags , 0 , 0 , diags , sizeof(int) * cuda_ndiags , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
+    /* Store diags as a constant too. */
+    if ( cudaMalloc( &diags_cuda , sizeof(unsigned int) * cuda_ndiags ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpy( diags_cuda , diags , sizeof(unsigned int) * cuda_ndiags , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_diags" , &diags_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+            
     /* Copy the potential indices to the device. */
     if ( cudaMallocArray( &cuArray_pind , &channelDesc_int , e->max_type * e->max_type , 1 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToArray( cuArray_pind , 0 , 0 , pind_cuda , sizeof(int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToArray( cuArray_pind , 0 , 0 , pind , sizeof(int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
+    /* Store pind as a constant too. */
+    if ( cudaMalloc( &pind_cuda , sizeof(unsigned int) * e->max_type * e->max_type ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpy( pind_cuda , pind , sizeof(unsigned int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( "cuda_pind" , &pind_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+            
     /* Bind the textures on the device. */
     if ( runner_bind( cuArray_coeffs , cuArray_pind , cuArray_diags ) < 0 )
         return error(engine_err_runner);

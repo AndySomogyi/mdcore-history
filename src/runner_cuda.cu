@@ -77,6 +77,10 @@ __constant__ int cuda_nr_cells = 0;
 /* The parts (non-texture access). */
 __constant__ float4 *cuda_parts;
 
+/* Diagonal entries and potential index lookup table. */
+__constant__ unsigned int *cuda_diags;
+__constant__ unsigned int *cuda_pind;
+
 /* The mutex for accessing the cell pair list. */
 __device__ int cuda_cell_mutex = 0;
 __device__ int cuda_barrier = 0;
@@ -115,7 +119,7 @@ texture< int , cudaTextureType1D > tex_pind;
 texture< unsigned int , cudaTextureType1D > tex_diags;
 
 /* Arrays to hold the textures. */
-cudaArray *cuda_coeffs, *cuda_pind, *cuda_diags;
+cudaArray *cuda_coeffs;
 
 /* The potential parameters (hard-wired size for now). */
 __constant__ float cuda_eps[ 100 ];
@@ -368,7 +372,7 @@ __device__ void cuda_sort_descending ( unsigned int *a , int count ) {
             }
             
         /* Let that last step sink in. */
-        __threadfence_block();
+        // __threadfence_block();
     
         /* Second step(s). */
         for ( j = k/2 ; j > 0 ; j /= 2 ) {
@@ -390,7 +394,7 @@ __device__ void cuda_sort_descending ( unsigned int *a , int count ) {
                     a[jnd[1]] = swap_i[1];
                     }
                 }
-            __threadfence_block();
+            // __threadfence_block();
             }
             
         }
@@ -440,7 +444,7 @@ __device__ void cuda_sort_ascending ( unsigned int *a , int count ) {
             }
             
         /* Let that last step sink in. */
-        __threadfence_block();
+        // __threadfence_block();
     
         /* Second step(s). */
         for ( j = k/2 ; j > 0 ; j /= 2 ) {
@@ -462,7 +466,7 @@ __device__ void cuda_sort_ascending ( unsigned int *a , int count ) {
                     a[jnd[1]] = swap_i[1];
                     }
                 }
-            __threadfence_block();
+            // __threadfence_block();
             }
             
         }
@@ -754,7 +758,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
     wrap_i = (count_i < cuda_frame) ? cuda_frame : count_i;
     
     /* Make sure everybody is in the same place. */
-    __threadfence_block();
+    // __threadfence_block();
 
     /* Loop over the particles in cell_j, frame-wise. */
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
@@ -791,7 +795,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
                 dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
 
                 /* Set the null potential if anything is bad. */
-                if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pjoff + pi.w ) ) != 0 ) {
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + (int)pi.w ] ) != 0 ) {
 
                     // atomicAdd( &cuda_rcount , 1 );
                 
@@ -807,7 +811,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
                         }
 
                     /* Sync the shared memory values. */
-                    __threadfence_block();
+                    // __threadfence_block();
                 
                     } /* in range and potential. */
 
@@ -820,7 +824,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
             forces_j[ 3*pjd + k ] += pjf[k];
 
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
             
         } /* loop over the particles in cell_j. */
         
@@ -853,7 +857,8 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
     int k, pjd, ind, wrap_i, threadID;
     int pjoff;
     float4 pi[4], pj;
-    int4 pot, pid, valid;
+    int4 pot, pid;
+    char4 valid;
     float4 r2, ee, eff;
     float epot = 0.0f, dx[12], pjf[3], shift[3], w, *temp;
     
@@ -881,7 +886,7 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
     wrap_i = (count_i < cuda_frame) ? cuda_frame : count_i;
     
     /* Make sure everybody is in the same place. */
-    __threadfence_block();
+    // __threadfence_block();
 
     /* Loop over the particles in cell_j, frame-wise. */
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
@@ -944,10 +949,10 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
             valid.y = ( valid.y && r2.y < cuda_cutoff2 );
             valid.z = ( valid.z && r2.z < cuda_cutoff2 );
             valid.w = ( valid.w && r2.w < cuda_cutoff2 );
-            pot.x = valid.x ? tex1D( tex_pind , pjoff + pi[0].w ) : 0;
-            pot.y = valid.y ? tex1D( tex_pind , pjoff + pi[1].w ) : 0;
-            pot.z = valid.z ? tex1D( tex_pind , pjoff + pi[2].w ) : 0;
-            pot.w = valid.w ? tex1D( tex_pind , pjoff + pi[3].w ) : 0;
+            pot.x = valid.x ? cuda_pind[ pjoff + (int)pi[0].w ] : 0;
+            pot.y = valid.y ? cuda_pind[ pjoff + (int)pi[1].w ] : 0;
+            pot.z = valid.z ? cuda_pind[ pjoff + (int)pi[2].w ] : 0;
+            pot.w = valid.w ? cuda_pind[ pjoff + (int)pi[3].w ] : 0;
             
             /* if ( pot.x != 0 )
                 atomicAdd( &cuda_rcount , 1 );
@@ -970,25 +975,25 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
                 pjf[1] -= ( w = eff.x * dx[1] ); forces_i[ 3*pid.x + 1 ] += w;
                 pjf[2] -= ( w = eff.x * dx[2] ); forces_i[ 3*pid.x + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.y ) {
                 pjf[0] -= ( w = eff.y * dx[3] ); forces_i[ 3*pid.y + 0 ] += w;
                 pjf[1] -= ( w = eff.y * dx[4] ); forces_i[ 3*pid.y + 1 ] += w;
                 pjf[2] -= ( w = eff.y * dx[5] ); forces_i[ 3*pid.y + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.z ) {
                 pjf[0] -= ( w = eff.z * dx[6] ); forces_i[ 3*pid.z + 0 ] += w;
                 pjf[1] -= ( w = eff.z * dx[7] ); forces_i[ 3*pid.z + 1 ] += w;
                 pjf[2] -= ( w = eff.z * dx[8] ); forces_i[ 3*pid.z + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.w ) {
                 pjf[0] -= ( w = eff.w * dx[9] ); forces_i[ 3*pid.w + 0 ] += w;
                 pjf[1] -= ( w = eff.w * dx[10] ); forces_i[ 3*pid.w + 1 ] += w;
                 pjf[2] -= ( w = eff.w * dx[11] ); forces_i[ 3*pid.w + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
         
             } /* loop over parts in cell_i. */
             
@@ -997,7 +1002,7 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
             forces_j[ 3*pjd + k ] += pjf[k];
 
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
             
         } /* loop over the particles in cell_j. */
         
@@ -1088,7 +1093,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
             }
             
         /* Make sure all the memory is in the right place. */
-        __threadfence_block();
+        // __threadfence_block();
         
         /* Sort using normalized bitonic sort. */
         cuda_sort_descending( sort_i , count_i );
@@ -1104,7 +1109,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
     else {
         cuda_memcpy( sort_i , sortlist , sizeof(int) * count_i );
         cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(int) * count_j );
-        __threadfence_block();
+        // __threadfence_block();
         }
         
     TIMER_TOC2(tid_sort)
@@ -1160,7 +1165,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
                 dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
                     
                 /* Set the null potential if anything is bad. */
-                if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pioff + pj.w ) ) != 0 ) {
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pioff + (int)pj.w ] ) != 0 ) {
 
                     /* printf( "runner_dopair_cuda[%i]: doing pair [%i,%i] with r=%i (d=%i).\n" ,
                         threadID , sort_i[pid].ind , sort_j[pjd].ind , (int)(sqrtf(r2)*1000.0) , (int)((sort_j[pjd].d - sort_i[pid].d)*1000) ); */
@@ -1179,7 +1184,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
                         }
 
                     /* Sync the shared memory values. */
-                    __threadfence_block();
+                    // __threadfence_block();
                 
                     } /* in range and potential. */
 
@@ -1192,7 +1197,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
             forces_i[ 3*spid + k ] += pif[k];
     
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
         
         } /* loop over the particles in cell_j. */
         
@@ -1226,7 +1231,8 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
     int pioff;
     unsigned int dmaxdist;
     float4 pi, pj[4];
-    int4 pot, pjd, spjd, valid;
+    int4 pot, pjd, spjd;
+    char4 valid;
     float4 ee, eff, r2;
     float epot = 0.0f, w, nshift, inshift;
     float dx[12], pif[3], shift[3], shiftn[3], *temp;
@@ -1271,9 +1277,9 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
                 pj[3] = tex2D( tex_parts , k + 3*cuda_frame , cid );
             #else
                 pj[0] = parts_i[ k + 0*cuda_frame ];
-                pj[1] = parts_i[ k + 1*cuda_frame ];
-                pj[2] = parts_i[ k + 2*cuda_frame ];
-                pj[3] = parts_i[ k + 3*cuda_frame ];
+                if ( k + 1*cuda_frame < count_i ) pj[1] = parts_i[ k + 1*cuda_frame ];
+                if ( k + 2*cuda_frame < count_i ) pj[2] = parts_i[ k + 2*cuda_frame ];
+                if ( k + 3*cuda_frame < count_i ) pj[3] = parts_i[ k + 3*cuda_frame ];
             #endif
             spjd.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[0].x*shiftn[0] + pj[0].y*shiftn[1] + pj[0].z*shiftn[2]) );
             spjd.y = ( (k + 1*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[1].x*shiftn[0] + pj[1].y*shiftn[1] + pj[1].z*shiftn[2]) );
@@ -1292,9 +1298,9 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
                 pj[3] = tex2D( tex_parts , k + 3*cuda_frame , cjd );
             #else
                 pj[0] = parts_j[ k + 0*cuda_frame ];
-                pj[1] = parts_j[ k + 1*cuda_frame ];
-                pj[2] = parts_j[ k + 2*cuda_frame ];
-                pj[3] = parts_j[ k + 3*cuda_frame ];
+                if ( k + 1*cuda_frame < count_j ) pj[1] = parts_j[ k + 1*cuda_frame ];
+                if ( k + 2*cuda_frame < count_j ) pj[2] = parts_j[ k + 2*cuda_frame ];
+                if ( k + 3*cuda_frame < count_j ) pj[3] = parts_j[ k + 3*cuda_frame ];
             #endif
             spjd.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[0].x)*shiftn[0] + (shift[1]+pj[0].y)*shiftn[1] + (shift[2]+pj[0].z)*shiftn[2]) );
             spjd.y = ( k + 1*cuda_frame << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[1].x)*shiftn[0] + (shift[1]+pj[1].y)*shiftn[1] + (shift[2]+pj[1].z)*shiftn[2]) );
@@ -1309,7 +1315,7 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
         TIMER_TOC2(tid_pack)
             
         /* Make sure all the memory is in the right place. */
-        __threadfence_block();
+        // __threadfence_block();
         
         /* Sort using normalized bitonic sort. */
         cuda_sort_descending( sort_i , count_i );
@@ -1325,7 +1331,7 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
     else {
         cuda_memcpy( sort_i , sortlist , sizeof(int) * count_i );
         cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(int) * count_j );
-        __threadfence_block();
+        // __threadfence_block();
         }
         
         
@@ -1401,10 +1407,10 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
             valid.y = ( valid.y && r2.y < cuda_cutoff2 );
             valid.z = ( valid.z && r2.z < cuda_cutoff2 );
             valid.w = ( valid.w && r2.w < cuda_cutoff2 );
-            pot.x = valid.x ? tex1D( tex_pind , pioff + pj[0].w ) : 0;
-            pot.y = valid.y ? tex1D( tex_pind , pioff + pj[1].w ) : 0;
-            pot.z = valid.z ? tex1D( tex_pind , pioff + pj[2].w ) : 0;
-            pot.w = valid.w ? tex1D( tex_pind , pioff + pj[3].w ) : 0;
+            pot.x = valid.x ? cuda_pind[ pioff + (int)pj[0].w ] : 0;
+            pot.y = valid.y ? cuda_pind[ pioff + (int)pj[1].w ] : 0;
+            pot.z = valid.z ? cuda_pind[ pioff + (int)pj[2].w ] : 0;
+            pot.w = valid.w ? cuda_pind[ pioff + (int)pj[3].w ] : 0;
             
             /* Compute the interaction. */
             potential_eval4_cuda_tex( pot , r2 , &ee , &eff );
@@ -1418,25 +1424,25 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
                 pif[1] -= ( w = eff.x * dx[1] ); forces_j[ 3*spjd.x + 1 ] += w;
                 pif[2] -= ( w = eff.x * dx[2] ); forces_j[ 3*spjd.x + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.y ) {
                 pif[0] -= ( w = eff.y * dx[3] ); forces_j[ 3*spjd.y + 0 ] += w;
                 pif[1] -= ( w = eff.y * dx[4] ); forces_j[ 3*spjd.y + 1 ] += w;
                 pif[2] -= ( w = eff.y * dx[5] ); forces_j[ 3*spjd.y + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.z ) {
                 pif[0] -= ( w = eff.z * dx[6] ); forces_j[ 3*spjd.z + 0 ] += w;
                 pif[1] -= ( w = eff.z * dx[7] ); forces_j[ 3*spjd.z + 1 ] += w;
                 pif[2] -= ( w = eff.z * dx[8] ); forces_j[ 3*spjd.z + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.w ) {
                 pif[0] -= ( w = eff.w * dx[9] ); forces_j[ 3*spjd.w + 0 ] += w;
                 pif[1] -= ( w = eff.w * dx[10] ); forces_j[ 3*spjd.w + 1 ] += w;
                 pif[2] -= ( w = eff.w * dx[11] ); forces_j[ 3*spjd.w + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             
             } /* loop over parts in cell_i. */
             
@@ -1445,7 +1451,7 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
             forces_i[ 3*spid + k ] += pif[k];
     
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
         
         } /* loop over the particles in cell_j. */
         
@@ -1531,7 +1537,7 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
         }
         
     /* Make sure all the memory is in the right place. */
-    __threadfence_block();
+    // __threadfence_block();
     
     /* Sort using normalized bitonic sort. */
     cuda_sort_descending( sort_i , count_i );
@@ -1591,7 +1597,7 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
                 dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
                     
                 /* Set the null potential if anything is bad. */
-                if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pioff + pj.w ) ) != 0 ) {
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pioff + (int)pj.w ] ) != 0 ) {
 
                     /* printf( "runner_dopair_cuda[%i]: doing pair [%i,%i] with r=%i (d=%i).\n" ,
                         threadID , sort_i[pid].ind , sort_j[pjd].ind , (int)(sqrtf(r2)*1000.0) , (int)((sort_j[pjd].d - sort_i[pid].d)*1000) ); */
@@ -1610,7 +1616,7 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
                         }
 
                     /* Sync the shared memory values. */
-                    __threadfence_block();
+                    // __threadfence_block();
                 
                     } /* in range and potential. */
 
@@ -1623,7 +1629,7 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
             forces_i[ 3*spid + k ] += pif[k];
     
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
         
         } /* loop over the particles in cell_j. */
     
@@ -1656,7 +1662,8 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
     int k, pid, spid, pjdid, threadID, wrap, cj;
     int pioff, dcutoff;
     float4 pi, pj[4];
-    int4 pot, pjd, spjd, valid;
+    int4 pot, pjd, spjd;
+    char4 valid;
     float4 ee, eff, r2;
     float epot = 0.0f, w, nshift, inshift;
     float dx[12], pif[3], shift[3], shiftn[3], *temp;
@@ -1718,9 +1725,9 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
             pj[3] = tex2D( tex_parts , k + 3*cuda_frame , cid );
         #else
             pj[0] = parts_i[ k + 0*cuda_frame ];
-            pj[1] = parts_i[ k + 1*cuda_frame ];
-            pj[2] = parts_i[ k + 2*cuda_frame ];
-            pj[3] = parts_i[ k + 3*cuda_frame ];
+            if ( k + 1*cuda_frame < count_i ) pj[1] = parts_i[ k + 1*cuda_frame ];
+            if ( k + 2*cuda_frame < count_i ) pj[2] = parts_i[ k + 2*cuda_frame ];
+            if ( k + 3*cuda_frame < count_i ) pj[3] = parts_i[ k + 3*cuda_frame ];
         #endif
         spjd.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[0].x*shiftn[0] + pj[0].y*shiftn[1] + pj[0].z*shiftn[2]) );
         spjd.y = ( (k + 1*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[1].x*shiftn[0] + pj[1].y*shiftn[1] + pj[1].z*shiftn[2]) );
@@ -1739,9 +1746,9 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
             pj[3] = tex2D( tex_parts , k + 3*cuda_frame , cjd );
         #else
             pj[0] = parts_j[ k + 0*cuda_frame ];
-            pj[1] = parts_j[ k + 1*cuda_frame ];
-            pj[2] = parts_j[ k + 2*cuda_frame ];
-            pj[3] = parts_j[ k + 3*cuda_frame ];
+            if ( k + 1*cuda_frame < count_j ) pj[1] = parts_j[ k + 1*cuda_frame ];
+            if ( k + 2*cuda_frame < count_j ) pj[2] = parts_j[ k + 2*cuda_frame ];
+            if ( k + 3*cuda_frame < count_j ) pj[3] = parts_j[ k + 3*cuda_frame ];
         #endif
         spjd.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[0].x)*shiftn[0] + (shift[1]+pj[0].y)*shiftn[1] + (shift[2]+pj[0].z)*shiftn[2]) );
         spjd.y = ( k + 1*cuda_frame << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[1].x)*shiftn[0] + (shift[1]+pj[1].y)*shiftn[1] + (shift[2]+pj[1].z)*shiftn[2]) );
@@ -1754,7 +1761,7 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
         }
         
     /* Make sure all the memory is in the right place. */
-    __threadfence_block();
+    // __threadfence_block();
     
     TIMER_TOC2(tid_pack)
     
@@ -1835,10 +1842,10 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
             valid.y = ( valid.y && r2.y < cuda_cutoff2 );
             valid.z = ( valid.z && r2.z < cuda_cutoff2 );
             valid.w = ( valid.w && r2.w < cuda_cutoff2 );
-            pot.x = valid.x ? tex1D( tex_pind , pioff + pj[0].w ) : 0;
-            pot.y = valid.y ? tex1D( tex_pind , pioff + pj[1].w ) : 0;
-            pot.z = valid.z ? tex1D( tex_pind , pioff + pj[2].w ) : 0;
-            pot.w = valid.w ? tex1D( tex_pind , pioff + pj[3].w ) : 0;
+            pot.x = valid.x ? cuda_pind[ pioff + (int)pj[0].w ] : 0;
+            pot.y = valid.y ? cuda_pind[ pioff + (int)pj[1].w ] : 0;
+            pot.z = valid.z ? cuda_pind[ pioff + (int)pj[2].w ] : 0;
+            pot.w = valid.w ? cuda_pind[ pioff + (int)pj[3].w ] : 0;
             
             /* if ( pot.x != 0 )
                 atomicAdd( &cuda_rcount , 1 );
@@ -1861,25 +1868,25 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
                 pif[1] -= ( w = eff.x * dx[1] ); forces_j[ 3*spjd.x + 1 ] += w;
                 pif[2] -= ( w = eff.x * dx[2] ); forces_j[ 3*spjd.x + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.y ) {
                 pif[0] -= ( w = eff.y * dx[3] ); forces_j[ 3*spjd.y + 0 ] += w;
                 pif[1] -= ( w = eff.y * dx[4] ); forces_j[ 3*spjd.y + 1 ] += w;
                 pif[2] -= ( w = eff.y * dx[5] ); forces_j[ 3*spjd.y + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.z ) {
                 pif[0] -= ( w = eff.z * dx[6] ); forces_j[ 3*spjd.z + 0 ] += w;
                 pif[1] -= ( w = eff.z * dx[7] ); forces_j[ 3*spjd.z + 1 ] += w;
                 pif[2] -= ( w = eff.z * dx[8] ); forces_j[ 3*spjd.z + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             if ( valid.w ) {
                 pif[0] -= ( w = eff.w * dx[9] ); forces_j[ 3*spjd.w + 0 ] += w;
                 pif[1] -= ( w = eff.w * dx[10] ); forces_j[ 3*spjd.w + 1 ] += w;
                 pif[2] -= ( w = eff.w * dx[11] ); forces_j[ 3*spjd.w + 2 ] += w;
                 }
-            __threadfence_block();
+            // __threadfence_block();
             
             } /* loop over parts in cell_i. */
             
@@ -1888,7 +1895,7 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
             forces_i[ 3*spid + k ] += pif[k];
     
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
         
         } /* loop over the particles in cell_j. */
     
@@ -1925,7 +1932,7 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
     threadID = threadIdx.x % cuda_frame;
     
     /* Make sure everybody is in the same place. */
-    __threadfence_block();
+    // __threadfence_block();
 
     /* Loop over the particles in the cell, frame-wise. */
     for ( pjd = threadID ; pjd < count-1 ; pjd += cuda_frame ) {
@@ -1956,10 +1963,8 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
             dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
 
             /* Set the null potential if anything is bad. */
-            if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pjoff + pi.w ) ) != 0 ) {
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + (int)pi.w ] ) != 0 ) {
 
-                // atomicAdd( &cuda_pairs_done , 1 );
-            
                 /* Interact particles pi and pj. */
                 potential_eval_cuda_tex( pot , r2 , &ee , &eff );
 
@@ -1972,7 +1977,7 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
                     }
 
                 /* Sync the shared memory values. */
-                __threadfence_block();
+                // __threadfence_block();
             
                 } /* in range and potential. */
 
@@ -1983,7 +1988,7 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
             forces[ 3*pjd + k ] += pjf[k];
 
         /* Sync the shared memory values. */
-        __threadfence_block();
+        // __threadfence_block();
 
         } /* loop over the particles in cell_j. */
         
@@ -1992,6 +1997,156 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces )
     }
     
     
+/**
+ * @brief Compute the self interactions for the given cell on a CUDA device.
+ *
+ * @param iparts Array of parts in this cell.
+ * @param count Number of parts in the cell.
+ * @param parts Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+#ifdef PARTS_TEX
+__device__ void runner_doself4_cuda ( int cid , int count , float *forces ) {
+#else
+__device__ void runner_doself4_cuda ( float4 *parts , int count , float *forces ) {
+#endif
+
+    int k, pjd, ind, threadID;
+    int pjoff;
+    float4 pi[4], pj;
+    int4 pot, pid;
+    char4 valid;
+    float4 r2, ee, eff;
+    float epot = 0.0f, dx[12], pjf[3], w;
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Make sure everybody is in the same place. */
+    // __threadfence_block();
+
+    /* Loop over the particles in cell_j, frame-wise. */
+    for ( pjd = threadID ; pjd < count-1 ; pjd += cuda_frame ) {
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , pjd , cid );
+        #else
+            pj = parts[ pjd ];
+        #endif
+        pjoff = pj.w * cuda_maxtype;
+        for ( k = 0 ; k < 3 ; k++ )
+            pjf[k] = 0.0f;
+        
+        /* Loop over the particles in cell_i. */
+        for ( ind = pjd+1 ; ind < count ; ind += 4 ) {
+        
+            /* Get the particle indices. */
+            pid.x = ind + 0;
+            pid.y = ind + 1;
+            pid.z = ind + 2;
+            pid.w = ind + 3;
+                
+            /* Get the particle pointers. */
+            #ifdef PARTS_TEX
+                pi[0] = ( valid.x = ( pid.x < count ) ) ? tex2D( tex_parts , pid.x , cid ) : pj;
+                pi[1] = ( valid.y = ( pid.y < count ) ) ? tex2D( tex_parts , pid.y , cid ) : pj;
+                pi[2] = ( valid.z = ( pid.z < count ) ) ? tex2D( tex_parts , pid.z , cid ) : pj;
+                pi[3] = ( valid.w = ( pid.w < count ) ) ? tex2D( tex_parts , pid.w , cid ) : pj;
+            #else
+                pi[0] = ( valid.x = ( pid.x < count ) ) ? parts[ pid.x ] : pj;
+                pi[1] = ( valid.y = ( pid.y < count ) ) ? parts[ pid.y ] : pj;
+                pi[2] = ( valid.z = ( pid.z < count ) ) ? parts[ pid.z ] : pj;
+                pi[3] = ( valid.w = ( pid.w < count ) ) ? parts[ pid.w ] : pj;
+            #endif
+            
+            /* Compute the pairwise distances. */
+            r2 = make_float4( 0.0f );
+            dx[0] = pj.x - pi[0].x; r2.x += dx[0] * dx[0];
+            dx[1] = pj.y - pi[0].y; r2.x += dx[1] * dx[1];
+            dx[2] = pj.z - pi[0].z; r2.x += dx[2] * dx[2];
+            dx[3] = pj.x - pi[1].x; r2.y += dx[3] * dx[3];
+            dx[4] = pj.y - pi[1].y; r2.y += dx[4] * dx[4];
+            dx[5] = pj.z - pi[1].z; r2.y += dx[5] * dx[5];
+            dx[6] = pj.x - pi[2].x; r2.z += dx[6] * dx[6];
+            dx[7] = pj.y - pi[2].y; r2.z += dx[7] * dx[7];
+            dx[8] = pj.z - pi[2].z; r2.z += dx[8] * dx[8];
+            dx[9] = pj.x - pi[3].x; r2.w += dx[9] * dx[9];
+            dx[10] = pj.y - pi[3].y; r2.w += dx[10] * dx[10];
+            dx[11] = pj.z - pi[3].z; r2.w += dx[11] * dx[11];
+
+                
+            /* Get the potentials. */
+            valid.x = ( valid.x && r2.x < cuda_cutoff2 );
+            valid.y = ( valid.y && r2.y < cuda_cutoff2 );
+            valid.z = ( valid.z && r2.z < cuda_cutoff2 );
+            valid.w = ( valid.w && r2.w < cuda_cutoff2 );
+            pot.x = valid.x ? cuda_pind[ pjoff + (int)pi[0].w ] : 0;
+            pot.y = valid.y ? cuda_pind[ pjoff + (int)pi[1].w ] : 0;
+            pot.z = valid.z ? cuda_pind[ pjoff + (int)pi[2].w ] : 0;
+            pot.w = valid.w ? cuda_pind[ pjoff + (int)pi[3].w ] : 0;
+            
+            /* if ( pot.x != 0 )
+                atomicAdd( &cuda_rcount , 1 );
+            if ( pot.y != 0 )
+                atomicAdd( &cuda_rcount , 1 );
+            if ( pot.z != 0 )
+                atomicAdd( &cuda_rcount , 1 );
+            if ( pot.w != 0 )
+                atomicAdd( &cuda_rcount , 1 ); */
+            
+            /* Compute the interaction. */
+            potential_eval4_cuda_tex( pot , r2 , &ee , &eff );
+            
+            /* Store the interaction energy. */
+            epot += ee.x + ee.y + ee.z + ee.w;
+            
+            /* Update the forces. */
+            if ( valid.x ) {
+                pjf[0] -= ( w = eff.x * dx[0] ); forces[ 3*pid.x + 0 ] += w;
+                pjf[1] -= ( w = eff.x * dx[1] ); forces[ 3*pid.x + 1 ] += w;
+                pjf[2] -= ( w = eff.x * dx[2] ); forces[ 3*pid.x + 2 ] += w;
+                }
+            // __threadfence_block();
+            if ( valid.y ) {
+                pjf[0] -= ( w = eff.y * dx[3] ); forces[ 3*pid.y + 0 ] += w;
+                pjf[1] -= ( w = eff.y * dx[4] ); forces[ 3*pid.y + 1 ] += w;
+                pjf[2] -= ( w = eff.y * dx[5] ); forces[ 3*pid.y + 2 ] += w;
+                }
+            // __threadfence_block();
+            if ( valid.z ) {
+                pjf[0] -= ( w = eff.z * dx[6] ); forces[ 3*pid.z + 0 ] += w;
+                pjf[1] -= ( w = eff.z * dx[7] ); forces[ 3*pid.z + 1 ] += w;
+                pjf[2] -= ( w = eff.z * dx[8] ); forces[ 3*pid.z + 2 ] += w;
+                }
+            // __threadfence_block();
+            if ( valid.w ) {
+                pjf[0] -= ( w = eff.w * dx[9] ); forces[ 3*pid.w + 0 ] += w;
+                pjf[1] -= ( w = eff.w * dx[10] ); forces[ 3*pid.w + 1 ] += w;
+                pjf[2] -= ( w = eff.w * dx[11] ); forces[ 3*pid.w + 2 ] += w;
+                }
+            // __threadfence_block();
+        
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            forces[ 3*pjd + k ] += pjf[k];
+
+        /* Sync the shared memory values. */
+        // __threadfence_block();
+            
+        } /* loop over the particles in cell_j. */
+        
+    TIMER_TOC(tid_pair)
+        
+    }
+
+
 /**
  * @brief Compute the self interactions for the given cell on a CUDA device.
  *
@@ -2037,7 +2192,7 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
                 step += 1;
     
             /* Get the location of the kth entry on the diagonal. */
-            packed = tex1D( tex_diags , diag );
+            packed = cuda_diags[ diag ];
             pid = packed >> 16; pjd = count - (packed & 0xffff);
             
             /* Get a handle on the particles. */
@@ -2056,7 +2211,7 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
             dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
 
             /* Set the null potential if anything is bad. */
-            if ( r2 < cuda_cutoff2 && ( pot = tex1D( tex_pind , pj.w*cuda_maxtype + pi.w ) ) != 0 ) {
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ ((int)pj.w)*cuda_maxtype + (int)pi.w ] ) != 0 ) {
 
                 // atomicAdd( &cuda_rcount , 1 );
                     
@@ -2070,7 +2225,7 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
                     }
 
                 /* Sync the shared memory values. */
-                __threadfence_block();
+                // __threadfence_block();
 
                 /* Store the interaction force on pj. */
                 epot += ee;
@@ -2078,7 +2233,7 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
                     forces[ 3*pjd + k ] += w[k];
 
                 /* Sync the shared memory values. */
-                __threadfence_block();
+                // __threadfence_block();
 
                 } /* range and potential? */
 
@@ -2113,7 +2268,8 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
     int diag, k, diag_max, step, threadID;
     uint4 packed;
     float4 pi[4], pj[4], r2, ee, eff, w[3];
-    int4 pot, ldiag, valid, pid, pjd;
+    int4 pot, ldiag, pid, pjd;
+    char4 valid;
     float epot = 0.0f, dx[12];
     
     TIMER_TIC
@@ -2122,7 +2278,6 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
     threadID = threadIdx.x % cuda_frame;
     
     /* Step along the number of diagonal entries. */
-    valid = make_int4(0);
     diag_max = count * (count - 1) / 2; step = 1; diag = 0;
     while ( diag < diag_max ) {
     
@@ -2164,10 +2319,10 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
         diag = ldiag.w + step;
     
         /* Get the location of the kth entry on the diagonal. */
-        packed.x = ( valid.x ) ? tex1D( tex_diags , ldiag.x ) : 0;
-        packed.y = ( valid.y ) ? tex1D( tex_diags , ldiag.y ) : 0;
-        packed.z = ( valid.z ) ? tex1D( tex_diags , ldiag.z ) : 0;
-        packed.w = ( valid.w ) ? tex1D( tex_diags , ldiag.w ) : 0;
+        packed.x = ( valid.x ) ? cuda_diags[ ldiag.x ] : 0;
+        packed.y = ( valid.y ) ? cuda_diags[ ldiag.y ] : 0;
+        packed.z = ( valid.z ) ? cuda_diags[ ldiag.z ] : 0;
+        packed.w = ( valid.w ) ? cuda_diags[ ldiag.w ] : 0;
         pid.x = packed.x >> 16; pjd.x = count - (packed.x & 0xffff);
         pid.y = packed.y >> 16; pjd.y = count - (packed.y & 0xffff);
         pid.z = packed.z >> 16; pjd.z = count - (packed.z & 0xffff);
@@ -2202,10 +2357,10 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
         dx[11] = pi[3].z - pj[3].z; r2.w += dx[11]*dx[11];
         
         /* Get the potential for each pair. */
-        pot.x = ( valid.x = ( valid.x && r2.x < cuda_cutoff2) ) ? tex1D( tex_pind , pj[0].w*cuda_maxtype + pi[0].w ) : 0;
-        pot.y = ( valid.y = ( valid.y && r2.y < cuda_cutoff2) ) ? tex1D( tex_pind , pj[1].w*cuda_maxtype + pi[1].w ) : 0;
-        pot.z = ( valid.z = ( valid.z && r2.z < cuda_cutoff2) ) ? tex1D( tex_pind , pj[2].w*cuda_maxtype + pi[2].w ) : 0;
-        pot.w = ( valid.w = ( valid.w && r2.w < cuda_cutoff2) ) ? tex1D( tex_pind , pj[3].w*cuda_maxtype + pi[3].w ) : 0;
+        pot.x = ( valid.x = ( valid.x && r2.x < cuda_cutoff2) ) ? cuda_pind[ ((int)pj[0].w)*cuda_maxtype + (int)pi[0].w ] : 0;
+        pot.y = ( valid.y = ( valid.y && r2.y < cuda_cutoff2) ) ? cuda_pind[ ((int)pj[1].w)*cuda_maxtype + (int)pi[1].w ] : 0;
+        pot.z = ( valid.z = ( valid.z && r2.z < cuda_cutoff2) ) ? cuda_pind[ ((int)pj[2].w)*cuda_maxtype + (int)pi[2].w ] : 0;
+        pot.w = ( valid.w = ( valid.w && r2.w < cuda_cutoff2) ) ? cuda_pind[ ((int)pj[3].w)*cuda_maxtype + (int)pi[3].w ] : 0;
 
         /* Interact particles pi and pj. */
         potential_eval4_cuda_tex( pot , r2 , &ee , &eff );
@@ -2214,40 +2369,38 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
         epot += ee.x + ee.y + ee.z + ee.w;
 
         /* Store the interaction force on pi and energy. */
-        if ( valid.x )
+        if ( valid.x ) {
             for ( k = 0 ; k < 3 ; k++ )
                 forces[ 3*pid.x + k ] -= ( w[k].x = eff.x * dx[k] );
-        __threadfence_block();
-        if ( valid.y )
-            for ( k = 0 ; k < 3 ; k++ )
-                forces[ 3*pid.y + k ] -= ( w[k].y = eff.y * dx[3+k] );
-        __threadfence_block();
-        if ( valid.z )
-            for ( k = 0 ; k < 3 ; k++ )
-                forces[ 3*pid.z + k ] -= ( w[k].z = eff.z * dx[6+k] );
-        __threadfence_block();
-        if ( valid.w )
-            for ( k = 0 ; k < 3 ; k++ )
-                forces[ 3*pid.w + k ] -= ( w[k].w = eff.w * dx[9+k] );
-        __threadfence_block();
-
-        /* Store the interaction force on pj. */
-        if ( valid.x )
+            // __threadfence_block();
             for ( k = 0 ; k < 3 ; k++ )
                 forces[ 3*pjd.x + k ] += w[k].x;
-        __threadfence_block();
-        if ( valid.y )
+            }
+        // __threadfence_block();
+        if ( valid.y ) {
+            for ( k = 0 ; k < 3 ; k++ )
+                forces[ 3*pid.y + k ] -= ( w[k].y = eff.y * dx[3+k] );
+            // __threadfence_block();
             for ( k = 0 ; k < 3 ; k++ )
                 forces[ 3*pjd.y + k ] += w[k].y;
-        __threadfence_block();
-        if ( valid.z )
+            }
+        // __threadfence_block();
+         if ( valid.z ) {
+            for ( k = 0 ; k < 3 ; k++ )
+                forces[ 3*pid.z + k ] -= ( w[k].z = eff.z * dx[6+k] );
+            // __threadfence_block();
             for ( k = 0 ; k < 3 ; k++ )
                 forces[ 3*pjd.z + k ] += w[k].z;
-        __threadfence_block();
-        if ( valid.w )
+            }
+        // __threadfence_block();
+        if ( valid.w ) {
+            for ( k = 0 ; k < 3 ; k++ )
+                forces[ 3*pid.w + k ] -= ( w[k].w = eff.w * dx[9+k] );
+            // __threadfence_block();
             for ( k = 0 ; k < 3 ; k++ )
                 forces[ 3*pjd.w + k ] += w[k].w;
-        __threadfence_block();
+            }
+        // __threadfence_block();
 
         } /* Loop over diagonal indices. */
         
@@ -2255,7 +2408,7 @@ __device__ void runner_doself4_diag_cuda ( float4 *parts , int count , float *fo
     
     }
     
-    
+
 /**
  * @brief Bind textures to the given cuda Arrays.
  *
@@ -2283,7 +2436,6 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_pind , cudaArra
     tex_pind.normalized = false;
 
     /* Bind the pinds. */
-    cuda_pind = cuArray_pind;
     if ( cudaBindTextureToArray( tex_pind , cuArray_pind ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
@@ -2293,7 +2445,6 @@ int runner_bind ( cudaArray *cuArray_coeffs , cudaArray *cuArray_pind , cudaArra
     tex_diags.normalized = false;
 
     /* Bind the diags. */
-    cuda_diags = cuArray_diags;
     if ( cudaBindTextureToArray( tex_diags , cuArray_diags ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
@@ -2413,8 +2564,8 @@ int runner_parts_unbind ( ) {
     #include "runner_cuda_main.h"
 #undef cuda_nrparts
 
-#define cuda_nrparts 512
-    #include "runner_cuda_main.h"
+// #define cuda_nrparts 512
+//     #include "runner_cuda_main.h"
 
 
 
