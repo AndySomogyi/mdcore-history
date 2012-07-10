@@ -316,16 +316,18 @@ int engine_verlet_update ( struct engine *e );
     int engine_exchange_rigid_wait ( struct engine *e );
     int engine_exchange_wait ( struct engine *e );
 #endif
-#ifdef HAVE_CUDA
+#if defined(HAVE_CUDA) && defined(WITH_CUDA)
     #ifdef __cplusplus
         extern "C" int engine_nonbond_cuda ( struct engine *e );
         extern "C" int engine_cuda_load ( struct engine *e );
         extern "C" int engine_cuda_load_parts ( struct engine *e );
         extern "C" int engine_cuda_unload_parts ( struct engine *e );
+        extern "C" int engine_cuda_setdevice ( int id );
     #else
         int engine_nonbond_cuda ( struct engine *e );
         int engine_cuda_load ( struct engine *e );
         int engine_cuda_load_parts ( struct engine *e );
         int engine_cuda_unload_parts ( struct engine *e );
+        int engine_cuda_setdevice ( int id );
     #endif
 #endif

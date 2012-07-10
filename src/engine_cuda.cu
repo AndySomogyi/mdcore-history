@@ -526,7 +526,24 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
     return engine_err_ok;
 
     }
-    
+
+
+/**
+ * @brief Set the ID of the CUDA device to use
+ *
+ * @param id The CUDA device ID.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+extern "C" int engine_cuda_setdevice ( int id ) {
+
+    if ( cudaSetDevice( id ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    else
+        return engine_err_ok;
+        
+    }
     
 
 /**
