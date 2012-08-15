@@ -731,7 +731,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
     int pjoff;
     int pot;
     float epot = 0.0f, dx[3], pjf[3], shift[3], r2, w;
-    float ee = 0.0f, eff = 0.0f, *temp;
+    float ee = 0.0f, eff = 0.0f;
     float4 pi, pj;
     
     TIMER_TIC
@@ -740,17 +740,17 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
     threadID = threadIdx.x % cuda_frame;
     
     /* Swap cells? cell_j loops in steps of frame... */
-    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
             float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
-        temp = forces_i; forces_i = forces_j; forces_j = temp;
+        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
-    else {
+    else */ {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
 
@@ -860,7 +860,7 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
     int4 pot, pid;
     char4 valid;
     float4 r2, ee, eff;
-    float epot = 0.0f, dx[12], pjf[3], shift[3], w, *temp;
+    float epot = 0.0f, dx[12], pjf[3], shift[3], w;
     
     TIMER_TIC
     
@@ -868,17 +868,17 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
     threadID = threadIdx.x % cuda_frame;
     
     /* Swap cells? cell_j loops in steps of frame... */
-    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
             float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
-        temp = forces_i; forces_i = forces_j; forces_j = temp;
+        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
-    else {
+    else */ {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
 
@@ -1038,7 +1038,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
     float4 pi, pj;
     int pot;
     float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f, nshift, inshift;
-    float dx[3], pif[3], shift[3], shiftn[3], *temp;
+    float dx[3], pif[3], shift[3], shiftn[3];
     
     TIMER_TIC
     
@@ -1046,17 +1046,17 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
     threadID = threadIdx.x % cuda_frame;
     
     /* Swap cells? cell_j loops in steps of frame... */
-    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
             float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
-        temp = forces_i; forces_i = forces_j; forces_j = temp;
+        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
-    else {
+    else */ {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
 
@@ -1235,7 +1235,7 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
     char4 valid;
     float4 ee, eff, r2;
     float epot = 0.0f, w, nshift, inshift;
-    float dx[12], pif[3], shift[3], shiftn[3], *temp;
+    float dx[12], pif[3], shift[3], shiftn[3];
     
     TIMER_TIC
     
@@ -1243,17 +1243,17 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
     threadID = threadIdx.x % cuda_frame;
     
     /* Swap cells? cell_j loops in steps of frame... */
-    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
             float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
-        temp = forces_i; forces_i = forces_j; forces_j = temp;
+        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
-    else {
+    else */ {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
         
@@ -1486,7 +1486,7 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
     float4 pi, pj;
     int pot;
     float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f, nshift, inshift;
-    float dx[3], pif[3], shift[3], shiftn[3], *temp;
+    float dx[3], pif[3], shift[3], shiftn[3];
     
     TIMER_TIC
     
@@ -1494,17 +1494,17 @@ __device__ void runner_dopair_sorted_cuda ( float4 *parts_i , int count_i , floa
     threadID = threadIdx.x % cuda_frame;
     
     /* Swap cells? cell_j loops in steps of frame... */
-    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
             float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
-        temp = forces_i; forces_i = forces_j; forces_j = temp;
+        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
-    else {
+    else */ {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
         
@@ -1666,7 +1666,7 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
     char4 valid;
     float4 ee, eff, r2;
     float epot = 0.0f, w, nshift, inshift;
-    float dx[12], pif[3], shift[3], shiftn[3], *temp;
+    float dx[12], pif[3], shift[3], shiftn[3];
     
     TIMER_TIC
     
@@ -1674,17 +1674,17 @@ __device__ void runner_dopair4_sorted_cuda ( float4 *parts_i , int count_i , flo
     threadID = threadIdx.x % cuda_frame;
     
     /* Swap cells? cell_j loops in steps of frame... */
-    if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
+    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
         #ifdef PARTS_TEX
             k = cid; cid = cjd; cjd = k;
         #else
             float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
         #endif
         k = count_i; count_i = count_j; count_j = k;
-        temp = forces_i; forces_i = forces_j; forces_j = temp;
+        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
         shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
         }
-    else {
+    else */ {
         shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         }
         
@@ -2158,9 +2158,9 @@ __device__ void runner_doself4_cuda ( float4 *parts , int count , float *forces 
  */
  
 #ifdef PARTS_TEX
-__device__ void runner_doself_diag_cuda ( int cid , int count , float *forces ) {
+__device__ void runner_doself_diag_cuda_old ( int cid , int count , float *forces ) {
 #else
-__device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *forces ) {
+__device__ void runner_doself_diag_cuda_old ( float4 *parts , int count , float *forces ) {
 #endif
 
     int diag, k, diag_max, step, pid, pjd, threadID;
@@ -2194,6 +2194,102 @@ __device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *for
             /* Get the location of the kth entry on the diagonal. */
             packed = cuda_diags[ diag ];
             pid = packed >> 16; pjd = count - (packed & 0xffff);
+            
+            /* Get a handle on the particles. */
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , pid , cid );
+                pj = tex2D( tex_parts , pjd , cid );
+            #else
+                pi = parts[ pid ];
+                pj = parts[ pjd ];
+            #endif
+
+            /* Compute the radius between pi and pj. */
+            r2 = 0.0f;
+            dx[0] = pi.x - pj.x; r2 += dx[0]*dx[0];
+            dx[1] = pi.y - pj.y; r2 += dx[1]*dx[1];
+            dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
+
+            /* Set the null potential if anything is bad. */
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ ((int)pj.w)*cuda_maxtype + (int)pi.w ] ) != 0 ) {
+
+                // atomicAdd( &cuda_rcount , 1 );
+                    
+                /* Interact particles pi and pj. */
+                potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+
+                /* Store the interaction force on pi and energy. */
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w[k] = eff * dx[k];
+                    forces[ 3*pid + k ] -= w[k];
+                    }
+
+                /* Sync the shared memory values. */
+                // __threadfence_block();
+
+                /* Store the interaction force on pj. */
+                epot += ee;
+                for ( k = 0 ; k < 3 ; k++ )
+                    forces[ 3*pjd + k ] += w[k];
+
+                /* Sync the shared memory values. */
+                // __threadfence_block();
+
+                } /* range and potential? */
+
+            /* printf( "runner_doself_diag_cuda[%i]: diag=%i, step=%i, i=%i, j=%i.\n" ,
+                threadID , diag , step , pid , pjd ); */
+
+            } /* is it this thread's turn? */
+    
+        } /* Loop over diagonal indices. */
+        
+    TIMER_TOC(tid_self)
+    
+    }
+    
+    
+#ifdef PARTS_TEX
+__device__ void runner_doself_diag_cuda ( int cid , int count , float *forces ) {
+#else
+__device__ void runner_doself_diag_cuda ( float4 *parts , int count , float *forces ) {
+#endif
+
+    int diag, k, dind, dind2, diag_max, step, pid, pjd, threadID;
+    float4 pi, pj;
+    int pot;
+    float epot = 0.0f, dx[3], r2, w[3], ee, eff;
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x % cuda_frame;
+    
+    /* Step along the number of diagonal entries. */
+    diag_max = count * (count - 1) / 2; step = 1;
+    for ( diag = 0 ; diag < diag_max ; diag += step ) {
+    
+        /* is it time for this thread to step in? */
+        if ( diag == threadID ) {
+            step = diag;
+            dind = diag; dind2 = dind*(dind + 1)/2;
+            diag = (diag + 2) * (diag + 1) / 2 - 1;
+            }
+            
+        /* If running, continue with the interactions. */
+        if ( diag >= threadID && diag < diag_max ) {
+        
+            /* Increase the step if necessary. */
+            if ( step < cuda_frame )
+                step += 1;
+    
+            /* Get the location of the kth entry on the diagonal. */
+            if ( diag >= dind2 + dind + 1 ) {
+                dind += 1;
+                dind2 += dind;
+                }
+            pjd = diag - dind2;
+            pid = count - (dind - pjd) - 1;
             
             /* Get a handle on the particles. */
             #ifdef PARTS_TEX

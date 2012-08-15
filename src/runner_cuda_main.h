@@ -21,7 +21,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
-            __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
+            float4 *parts_i;
+            __shared__ float4 parts_j[ cuda_nrparts ];
         #else
             float4 *parts_i, *parts_j;
         #endif
@@ -76,7 +77,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
-                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    parts_i = &cuda_parts[ ind[cid] ];
                     cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
                     // __threadfence_block();
                 #else
@@ -137,10 +138,10 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
-                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
                     // __threadfence_block();
                 #else
-                    parts_i = &cuda_parts[ ind[cid] ];
+                    parts_j = &cuda_parts[ ind[cid] ];
                 #endif
             #endif
             
@@ -152,9 +153,9 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 //     runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself4_cuda( parts_i , counts[cid] , forces_i );
+                    runner_doself4_cuda( parts_j , counts[cid] , forces_i );
                 // else
-                //     runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
+                //     runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -203,7 +204,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
-            __shared__ float4 parts_i[ cuda_nrparts ], parts_j[ cuda_nrparts ];
+            float4 *parts_i;
+            __shared__ float4 parts_j[ cuda_nrparts ];
         #else
             float4 *parts_i, *parts_j;
         #endif
@@ -263,7 +265,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
-                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    // cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    parts_i = &cuda_parts[ ind[cid] ];
                     cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
                     // __threadfence_block();
                 #else
@@ -336,10 +339,10 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
-                    cuda_memcpy( parts_i , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
                     // __threadfence_block();
                 #else
-                    parts_i = &cuda_parts[ ind[cid] ];
+                    parts_j = &cuda_parts[ ind[cid] ];
                 #endif
             #endif
             
@@ -351,9 +354,9 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 //     runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself4_cuda( parts_i , counts[cid] , forces_i );
+                //     runner_doself4_cuda( parts_j , counts[cid] , forces_i );
                 // else
-                //     runner_doself4_diag_cuda( parts_i , counts[cid] , forces_i );
+                    runner_doself_diag_cuda( parts_j , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */
