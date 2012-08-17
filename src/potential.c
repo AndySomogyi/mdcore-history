@@ -239,24 +239,27 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
  *      @f$ K(r-r_0)^2 @f$ in @f$[a,b]@f$
  *      or @c NULL on error (see #potential_err).
  */
+ 
+double potential_create_harmonic_K;
+double potential_create_harmonic_r0;
 
+/* the potential functions */
+double potential_create_harmonic_f ( double r ) {
+    return potential_create_harmonic_K * ( r - potential_create_harmonic_r0 ) * ( r - potential_create_harmonic_r0 );
+    }
+
+double potential_create_harmonic_dfdr ( double r ) {
+    return 2.0 * potential_create_harmonic_K * ( r - potential_create_harmonic_r0 );
+    }
+
+double potential_create_harmonic_d6fdr6 ( double r ) {
+    return 0;
+    }
+        
 struct potential *potential_create_harmonic ( double a , double b , double K , double r0 , double tol ) {
 
     struct potential *p;
     
-    /* the potential functions */
-    double f ( double r ) {
-        return K * ( r - r0 ) * ( r - r0 );
-        }
-        
-    double dfdr ( double r ) {
-        return 2.0 * K * ( r - r0 );
-        }
-        
-    double d6fdr6 ( double r ) {
-        return 0;
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -264,7 +267,9 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    potential_create_harmonic_K = K;
+    potential_create_harmonic_r0 = r0;
+    if ( potential_init( p , &potential_create_harmonic_f , &potential_create_harmonic_dfdr , &potential_create_harmonic_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -288,51 +293,56 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
  *      @f$ K(1 + \cos(n\arccos(r)-delta) @f$ in @f$[-1,1]@f$
  *      or @c NULL on error (see #potential_err).
  */
+ 
+double potential_create_harmonic_dihedral_K;
+int potential_create_harmonic_dihedral_n;
+double potential_create_harmonic_dihedral_delta;
 
+/* the potential functions */
+double potential_create_harmonic_dihedral_f ( double r ) {
+    double T[potential_create_harmonic_dihedral_n+1], U[potential_create_harmonic_dihedral_n+1];
+    double cosd = cos(potential_create_harmonic_dihedral_delta), sind = sin(potential_create_harmonic_dihedral_delta);
+    int k;
+    T[0] = 1.0; T[1] = r;
+    U[0] = 1.0; U[1] = 2*r;
+    for ( k = 2 ; k <= potential_create_harmonic_dihedral_n ; k++ ) {
+        T[k] = 2 * r * T[k-1] - T[k-2];
+        U[k] = 2 * r * U[k-1] - U[k-2];
+        }
+    if ( potential_create_harmonic_dihedral_delta == 0.0 )
+        return potential_create_harmonic_dihedral_K * ( 1.0 + T[potential_create_harmonic_dihedral_n] );
+    else if ( potential_create_harmonic_dihedral_delta == M_PI )
+        return potential_create_harmonic_dihedral_K * ( 1.0 - T[potential_create_harmonic_dihedral_n] );
+    else
+        return potential_create_harmonic_dihedral_K * ( 1.0 + T[potential_create_harmonic_dihedral_n]*cosd + U[potential_create_harmonic_dihedral_n-1]*sqrt(1.0-r*r)*sind );
+    }
+
+double potential_create_harmonic_dihedral_dfdr ( double r ) {
+    double T[potential_create_harmonic_dihedral_n+1], U[potential_create_harmonic_dihedral_n+1];
+    double cosd = cos(potential_create_harmonic_dihedral_delta), sind = sin(potential_create_harmonic_dihedral_delta);
+    int k;
+    T[0] = 1.0; T[1] = r;
+    U[0] = 1.0; U[1] = 2*r;
+    for ( k = 2 ; k <= potential_create_harmonic_dihedral_n ; k++ ) {
+        T[k] = 2 * r * T[k-1] - T[k-2];
+        U[k] = 2 * r * U[k-1] - U[k-2];
+        }
+    if ( potential_create_harmonic_dihedral_delta == 0.0 )
+        return potential_create_harmonic_dihedral_K * potential_create_harmonic_dihedral_n*U[potential_create_harmonic_dihedral_n-1];
+    else if ( potential_create_harmonic_dihedral_delta == M_PI )
+        return -potential_create_harmonic_dihedral_K * potential_create_harmonic_dihedral_n*U[potential_create_harmonic_dihedral_n-1];
+    else
+        return potential_create_harmonic_dihedral_K * ( potential_create_harmonic_dihedral_n*U[potential_create_harmonic_dihedral_n-1]*cosd + ( 2*r*U[potential_create_harmonic_dihedral_n-1] - potential_create_harmonic_dihedral_n*T[potential_create_harmonic_dihedral_n] ) * sind / sqrt(1.0 - r*r) );
+    }
+
+double potential_create_harmonic_dihedral_d6fdr6 ( double r ) {
+    return 0.0;
+    }
+        
 struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol ) {
 
     struct potential *p;
-    double cosd = cos(delta), sind = sin(delta);
     
-    /* the potential functions */
-    double f ( double r ) {
-        double T[n+1], U[n+1];
-        int k;
-        T[0] = 1.0; T[1] = r;
-        U[0] = 1.0; U[1] = 2*r;
-        for ( k = 2 ; k <= n ; k++ ) {
-            T[k] = 2 * r * T[k-1] - T[k-2];
-            U[k] = 2 * r * U[k-1] - U[k-2];
-            }
-        if ( delta == 0.0 )
-            return K * ( 1.0 + T[n] );
-        else if ( delta == M_PI )
-            return K * ( 1.0 - T[n] );
-        else
-            return K * ( 1.0 + T[n]*cosd + U[n-1]*sqrt(1.0-r*r)*sind );
-        }
-        
-    double dfdr ( double r ) {
-        double T[n+1], U[n+1];
-        int k;
-        T[0] = 1.0; T[1] = r;
-        U[0] = 1.0; U[1] = 2*r;
-        for ( k = 2 ; k <= n ; k++ ) {
-            T[k] = 2 * r * T[k-1] - T[k-2];
-            U[k] = 2 * r * U[k-1] - U[k-2];
-            }
-        if ( delta == 0.0 )
-            return K * n*U[n-1];
-        else if ( delta == M_PI )
-            return -K * n*U[n-1];
-        else
-            return K * ( n*U[n-1]*cosd + ( 2*r*U[n-1] - n*T[n] ) * sind / sqrt(1.0 - r*r) );
-        }
-        
-    double d6fdr6 ( double r ) {
-        return 0.0;
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -340,7 +350,10 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , -1.0 , 1.0 , tol ) < 0 ) {
+    potential_create_harmonic_dihedral_K = K;
+    potential_create_harmonic_dihedral_n = n;
+    potential_create_harmonic_dihedral_delta = delta;
+    if ( potential_init( p , &potential_create_harmonic_dihedral_f , &potential_create_harmonic_dihedral_dfdr , &potential_create_harmonic_dihedral_d6fdr6 , -1.0 , 1.0 , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -365,32 +378,35 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
  *      @f$ K(\arccos(r)-r_0)^2 @f$ in @f$[a,b]@f$
  *      or @c NULL on error (see #potential_err).
  */
+ 
+double potential_create_harmonic_angle_K;
+double potential_create_harmonic_angle_theta0;
 
+/* the potential functions */
+double potential_create_harmonic_angle_f ( double r ) {
+    double theta;
+    r = fmin( 1.0 , fmax( -1.0 , r ) );
+    theta = acos( r );
+    return potential_create_harmonic_angle_K * ( theta - potential_create_harmonic_angle_theta0 ) * ( theta - potential_create_harmonic_angle_theta0 );
+    }
+
+double potential_create_harmonic_angle_dfdr ( double r ) {
+    double r2 = r*r;
+    if ( r2 == 1.0 )
+        return -2.0 * potential_create_harmonic_angle_K;
+    else
+        return -2.0 * potential_create_harmonic_angle_K * ( acos(r) - potential_create_harmonic_angle_theta0 ) / sqrt( 1.0 - r2 );
+    }
+
+double potential_create_harmonic_angle_d6fdr6 ( double r ) {
+    return 0.0;
+    }
+        
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol ) {
 
     struct potential *p;
     double left, right;
     
-    /* the potential functions */
-    double f ( double r ) {
-        double theta;
-        r = fmin( 1.0 , fmax( -1.0 , r ) );
-        theta = acos( r );
-        return K * ( theta - theta0 ) * ( theta - theta0 );
-        }
-        
-    double dfdr ( double r ) {
-        double r2 = r*r;
-        if ( r2 == 1.0 )
-            return -2.0 * K;
-        else
-            return -2.0 * K * ( acos(r) - theta0 ) / sqrt( 1.0 - r2 );
-        }
-        
-    double d6fdr6 ( double r ) {
-        return 0.0;
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -410,7 +426,9 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
         right = 1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , left , right , tol ) < 0 ) {
+    potential_create_harmonic_angle_K = K;
+    potential_create_harmonic_angle_theta0 = theta0;
+    if ( potential_init( p , &potential_create_harmonic_angle_f , &potential_create_harmonic_angle_dfdr , &potential_create_harmonic_angle_d6fdr6 , left , right , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -437,23 +455,26 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
  *      or @c NULL on error (see #potential_err).
  */
 
+double potential_create_Ewald_q;
+double potential_create_Ewald_kappa;
+
+/* the potential functions */
+double potential_create_Ewald_f ( double r ) {
+    return potential_create_Ewald_q * potential_Ewald( r , potential_create_Ewald_kappa );
+    }
+
+double potential_create_Ewald_dfdr ( double r ) {
+    return potential_create_Ewald_q * potential_Ewald_p( r , potential_create_Ewald_kappa );
+    }
+
+double potential_create_Ewald_d6fdr6 ( double r ) {
+    return potential_create_Ewald_q * potential_Ewald_6p( r , potential_create_Ewald_kappa );
+    }
+        
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol ) {
 
     struct potential *p;
     
-    /* the potential functions */
-    double f ( double r ) {
-        return q * potential_Ewald( r , kappa );
-        }
-        
-    double dfdr ( double r ) {
-        return q * potential_Ewald_p( r , kappa );
-        }
-        
-    double d6fdr6 ( double r ) {
-        return q * potential_Ewald_6p( r , kappa );
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -461,7 +482,9 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    potential_create_Ewald_q = q;
+    potential_create_Ewald_kappa = kappa;
+    if ( potential_init( p , &potential_create_Ewald_f , &potential_create_Ewald_dfdr , &potential_create_Ewald_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -491,26 +514,31 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
  *      or @c NULL on error (see #potential_err).
  */
 
+double potential_create_LJ126_Ewald_A;
+double potential_create_LJ126_Ewald_B;
+double potential_create_LJ126_Ewald_kappa;
+double potential_create_LJ126_Ewald_q;
+
+/* the potential functions */
+double potential_create_LJ126_Ewald_f ( double r ) {
+    return potential_LJ126 ( r , potential_create_LJ126_Ewald_A , potential_create_LJ126_Ewald_B ) +
+        potential_create_LJ126_Ewald_q * potential_Ewald( r , potential_create_LJ126_Ewald_kappa );
+    }
+
+double potential_create_LJ126_Ewald_dfdr ( double r ) {
+    return potential_LJ126_p ( r , potential_create_LJ126_Ewald_A , potential_create_LJ126_Ewald_B ) +
+        potential_create_LJ126_Ewald_q * potential_Ewald_p( r , potential_create_LJ126_Ewald_kappa );
+    }
+
+double potential_create_LJ126_Ewald_d6fdr6 ( double r ) {
+    return potential_LJ126_6p ( r , potential_create_LJ126_Ewald_A , potential_create_LJ126_Ewald_B ) +
+        potential_create_LJ126_Ewald_q * potential_Ewald_6p( r , potential_create_LJ126_Ewald_kappa );
+    }
+        
 struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol ) {
 
     struct potential *p;
     
-    /* the potential functions */
-    double f ( double r ) {
-        return potential_LJ126 ( r , A , B ) +
-            q * potential_Ewald( r , kappa );
-        }
-        
-    double dfdr ( double r ) {
-        return potential_LJ126_p ( r , A , B ) +
-            q * potential_Ewald_p( r , kappa );
-        }
-        
-    double d6fdr6 ( double r ) {
-        return potential_LJ126_6p ( r , A , B ) +
-            q * potential_Ewald_6p( r , kappa );
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -518,7 +546,11 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    potential_create_LJ126_Ewald_A = A;
+    potential_create_LJ126_Ewald_B = B;
+    potential_create_LJ126_Ewald_kappa = kappa;
+    potential_create_LJ126_Ewald_q = q;
+    if ( potential_init( p , &potential_create_LJ126_Ewald_f , &potential_create_LJ126_Ewald_dfdr , &potential_create_LJ126_Ewald_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -543,24 +575,27 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
  *      or @c NULL on error (see #potential_err).
  */
 
+double potential_create_Coulomb_q;
+double potential_create_Coulomb_b;
+
+/* the potential functions */
+double potential_create_Coulomb_f ( double r ) {
+    return potential_escale * potential_create_Coulomb_q * ( 1.0/r - 1.0/potential_create_Coulomb_b );
+    }
+
+double potential_create_Coulomb_dfdr ( double r ) {
+    return -potential_escale * potential_create_Coulomb_q / ( r * r );
+    }
+
+double potential_create_Coulomb_d6fdr6 ( double r ) {
+    double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
+    return 720.0 * potential_escale * potential_create_Coulomb_q / r7;
+    }
+        
 struct potential *potential_create_Coulomb ( double a , double b , double q , double tol ) {
 
     struct potential *p;
     
-    /* the potential functions */
-    double f ( double r ) {
-        return potential_escale * q * ( 1.0/r - 1.0/b );
-        }
-        
-    double dfdr ( double r ) {
-        return -potential_escale * q / ( r * r );
-        }
-        
-    double d6fdr6 ( double r ) {
-        double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
-        return 720.0 * potential_escale * q / r7;
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -568,7 +603,9 @@ struct potential *potential_create_Coulomb ( double a , double b , double q , do
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    potential_create_Coulomb_q = q;
+    potential_create_Coulomb_b = b;
+    if ( potential_init( p , &potential_create_Coulomb_f , &potential_create_Coulomb_dfdr , &potential_create_Coulomb_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -596,27 +633,32 @@ struct potential *potential_create_Coulomb ( double a , double b , double q , do
  *      or @c NULL on error (see #potential_err).
  */
 
+double potential_create_LJ126_Coulomb_q;
+double potential_create_LJ126_Coulomb_b;
+double potential_create_LJ126_Coulomb_A;
+double potential_create_LJ126_Coulomb_B;
+
+/* the potential functions */
+double potential_create_LJ126_Coulomb_f ( double r ) {
+    return potential_LJ126 ( r , potential_create_LJ126_Coulomb_A , potential_create_LJ126_Coulomb_B ) +
+        potential_escale * potential_create_LJ126_Coulomb_q * ( 1.0/r - 1.0/potential_create_LJ126_Coulomb_b );
+    }
+
+double potential_create_LJ126_Coulomb_dfdr ( double r ) {
+    return potential_LJ126_p ( r , potential_create_LJ126_Coulomb_A , potential_create_LJ126_Coulomb_B ) -
+        potential_escale * potential_create_LJ126_Coulomb_q / ( r * r );
+    }
+
+double potential_create_LJ126_Coulomb_d6fdr6 ( double r ) {
+    double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
+    return potential_LJ126_6p ( r , potential_create_LJ126_Coulomb_A , potential_create_LJ126_Coulomb_B ) +
+        720.0 * potential_escale * potential_create_LJ126_Coulomb_q / r7;
+    }
+        
 struct potential *potential_create_LJ126_Coulomb ( double a , double b , double A , double B , double q , double tol ) {
 
     struct potential *p;
     
-    /* the potential functions */
-    double f ( double r ) {
-        return potential_LJ126 ( r , A , B ) +
-            potential_escale * q * ( 1.0/r - 1.0/b );
-        }
-        
-    double dfdr ( double r ) {
-        return potential_LJ126_p ( r , A , B ) -
-            potential_escale * q / ( r * r );
-        }
-        
-    double d6fdr6 ( double r ) {
-        double r2 = r*r, r4 = r2*r2, r7 = r*r2*r4;
-        return potential_LJ126_6p ( r , A , B ) +
-            720.0 * potential_escale * q / r7;
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -624,7 +666,11 @@ struct potential *potential_create_LJ126_Coulomb ( double a , double b , double 
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    potential_create_LJ126_Coulomb_q = q;
+    potential_create_LJ126_Coulomb_b = b;
+    potential_create_LJ126_Coulomb_A = A;
+    potential_create_LJ126_Coulomb_B = B;
+    if ( potential_init( p , &potential_create_LJ126_Coulomb_f , &potential_create_LJ126_Coulomb_dfdr , &potential_create_LJ126_Coulomb_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -651,23 +697,26 @@ struct potential *potential_create_LJ126_Coulomb ( double a , double b , double 
  *
  */
 
+double potential_create_LJ126_A;
+double potential_create_LJ126_B;
+
+/* the potential functions */
+double potential_create_LJ126_f ( double r ) {
+    return potential_LJ126 ( r , potential_create_LJ126_A , potential_create_LJ126_B );
+    }
+
+double potential_create_LJ126_dfdr ( double r ) {
+    return potential_LJ126_p ( r , potential_create_LJ126_A , potential_create_LJ126_B );
+    }
+
+double potential_create_LJ126_d6fdr6 ( double r ) {
+    return potential_LJ126_6p ( r , potential_create_LJ126_A , potential_create_LJ126_B );
+    }
+
 struct potential *potential_create_LJ126 ( double a , double b , double A , double B , double tol ) {
 
     struct potential *p;
     
-    /* the potential functions */
-    double f ( double r ) {
-        return potential_LJ126 ( r , A , B );
-        }
-        
-    double dfdr ( double r ) {
-        return potential_LJ126_p ( r , A , B );
-        }
-        
-    double d6fdr6 ( double r ) {
-        return potential_LJ126_6p ( r , A , B );
-        }
-        
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
         error(potential_err_malloc);
@@ -675,7 +724,9 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
         }
         
     /* fill this potential */
-    if ( potential_init( p , &f , &dfdr , &d6fdr6 , a , b , tol ) < 0 ) {
+    potential_create_LJ126_A = A;
+    potential_create_LJ126_B = B;
+    if ( potential_init( p , &potential_create_LJ126_f , &potential_create_LJ126_dfdr , &potential_create_LJ126_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
