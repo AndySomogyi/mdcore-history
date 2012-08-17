@@ -57,14 +57,14 @@ jac_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
 # Using CUDA and Verlet lists
 # Sources for jac_cuda_verlet
 jac_cuda_verlet_SOURCES = jac.c
-jac_cuda_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="(engine_flag_cuda | engine_flag_verlet_pairwise2)" $(AM_CFLAGS)
+jac_cuda_verlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_CUDA -DENGINE_FLAGS="(engine_flag_cuda | engine_flag_verlet_pairwise2)" $(AM_CFLAGS)
 jac_cuda_verlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
 
 
 # Using CUDA 
 # Sources for jac_cuda
 jac_cuda_noverlet_SOURCES = jac.c
-jac_cuda_noverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_cuda" $(AM_CFLAGS)
+jac_cuda_noverlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_CUDA -DENGINE_FLAGS="engine_flag_cuda" $(AM_CFLAGS)
 jac_cuda_noverlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
 
 
