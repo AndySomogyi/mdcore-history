@@ -163,6 +163,14 @@ int main ( int argc , char *argv[] ) {
         printf( "main[%i]: space is [ %i , %i , %i ] cells.\n" , myrank , e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     fflush(stdout);
     
+    #ifdef WITH_CUDA
+        if ( engine_cuda_setdevice( 0 ) != 0 ) {
+            printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
+            errs_dump(stdout);
+            abort();
+            }
+    #endif
+    
     
     /* Load the PSF/PDB files. */
     printf( "main[%i]: reading psf/pdb files....\n" , myrank ); fflush(stdout);
@@ -402,7 +410,7 @@ int main ( int argc , char *argv[] ) {
         
     /* Just do a single cell pair. */
     /* for ( k = 0 ; k < e.s.nr_pairs ; k++ )
-        if ( e.s.pairs[k].i == e.s.pairs[k].j )
+        if ( e.s.pairs[k].i != e.s.pairs[k].j )
             e.s.pairs[k--] = e.s.pairs[ --e.s.nr_pairs ]; */
     // e.s.nr_pairs = 1;
     // e.s.cells[ e.s.pairs[0].i ].count = 32; e.s.cells[ e.s.pairs[0].j ].count = 32;
