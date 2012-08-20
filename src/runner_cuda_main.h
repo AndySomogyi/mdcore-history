@@ -47,19 +47,14 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         } */
         
 
+    /* Let the first thread grab a pair. */
+    if ( threadID == 0 ) {
+        pid = atomicAdd( &cuda_pair_next , 1 );
+        }
+            
     /* Main loop... */
-    while ( 1 ) {
+    while ( pid < cuda_nr_pairs ) {
     
-        /* Let the first thread grab a pair. */
-        if ( threadID == 0 ) {
-            pid = atomicAdd( &cuda_pair_next , 1 );
-            // __threadfence_block();
-            }
-            
-        /* Are we at the end of the list? */
-        if ( pid >= cuda_nr_pairs )
-            break;
-            
         /* Get a hold of the pair cells. */
         cid = cuda_pairs[pid].i;
         cjd = cuda_pairs[pid].j;
@@ -148,14 +143,14 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             /* Compute the cell self interactions. */
             #ifdef PARTS_TEX
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself4_cuda( cid , counts[cid] , forces_i );
+                //     runner_doself4_cuda( cid , counts[cid] , forces_i );
                 // else
-                //     runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself4_cuda( parts_j , counts[cid] , forces_i );
+                //     runner_doself4_cuda( parts_j , counts[cid] , forces_i );
                 // else
-                //     runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -170,6 +165,11 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 
             }
         
+        /* Let the first thread grab the next pair. */
+        if ( threadID == 0 ) {
+            pid = atomicAdd( &cuda_pair_next , 1 );
+            }
+            
         } /* main loop. */
 
     /* Check out at the barrier. */
@@ -199,7 +199,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
 
     int threadID, blockID;
     int k, cid, cjd;
-    volatile __shared__ int pid;
+    __shared__ volatile int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
     __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
     #if !defined(PARTS_TEX)
@@ -231,18 +231,13 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         } */
         
 
-    /* Main loop... */
-    while ( 1 ) {
-    
-        /* Let the first thread grab a pair. */
-        if ( threadID == 0 )
-            pid = atomicAdd( &cuda_pair_next , 1 );
-        // __threadfence_block();
+    /* Let the first thread grab a pair. */
+    if ( threadID == 0 )
+        pid = atomicAdd( &cuda_pair_next , 1 );
             
-        /* Are we at the end of the list? */
-        if ( pid >= cuda_nr_pairs )
-            break;
-        
+    /* Main loop... */
+    while ( pid < cuda_nr_pairs ) {
+    
         /* Get a hold of the pair cells. */
         cid = cuda_pairs[pid].i;
         cjd = cuda_pairs[pid].j;
@@ -277,13 +272,13 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             /* Compute the cell pair interactions. */
             #ifdef PARTS_TEX
-                if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
-                    runner_dopair4_cuda(
-                        cid , counts[cid] ,
-                        cjd , counts[cjd] ,
-                        forces_i , forces_j , 
-                        cuda_pairs[pid].shift );
-                else
+                // if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
+                //     runner_dopair4_cuda(
+                //         cid , counts[cid] ,
+                //         cjd , counts[cjd] ,
+                //         forces_i , forces_j , 
+                //         cuda_pairs[pid].shift );
+                // else
                     runner_dopair4_sorted_cuda(
                         cid , counts[cid] ,
                         cjd , counts[cjd] ,
@@ -291,13 +286,13 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         sort_i , sort_j ,
                         cuda_pairs[pid].shift );
             #else
-                if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
-                    runner_dopair4_cuda(
-                        parts_i , counts[cid] ,
-                        parts_j , counts[cjd] ,
-                        forces_i , forces_j , 
-                        cuda_pairs[pid].shift );
-                else
+                // if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
+                //     runner_dopair4_cuda(
+                //         parts_i , counts[cid] ,
+                //         parts_j , counts[cjd] ,
+                //         forces_i , forces_j , 
+                //         cuda_pairs[pid].shift );
+                // else
                     runner_dopair4_sorted_cuda(
                         parts_i , counts[cid] ,
                         parts_j , counts[cjd] ,
@@ -349,14 +344,14 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             /* Compute the cell self interactions. */
             #ifdef PARTS_TEX
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
-                    runner_doself4_cuda( cid , counts[cid] , forces_i );
+                //     runner_doself4_cuda( cid , counts[cid] , forces_i );
                 // else
-                //     runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
             #else
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                 //     runner_doself4_cuda( parts_j , counts[cid] , forces_i );
                 // else
-                    runner_doself_diag_cuda( parts_j , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -371,6 +366,10 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             }
         
+        /* Let the first thread grab the next pair. */
+        if ( threadID == 0 )
+            pid = atomicAdd( &cuda_pair_next , 1 );
+            
         } /* main loop. */
 
     /* Check out at the barrier. */
