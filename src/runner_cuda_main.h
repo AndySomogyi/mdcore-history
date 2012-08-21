@@ -14,7 +14,7 @@
  
 __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *counts , int *ind , int verlet_rebuild ) {
 
-    int threadID, blockID;
+    int threadID;
     int k, cid, cjd;
     volatile __shared__ int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
@@ -31,12 +31,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
     TIMER_TIC2
     
     /* Get the block and thread ids. */
-    blockID = blockIdx.x;
     threadID = threadIdx.x;
-    
-    /* Make a notch on the barrier. */
-    if ( threadID == 0 )
-        atomicAdd( &cuda_barrier , 1 );
     
     /* Check that we've got the correct warp size! */
     /* if ( warpSize != cuda_frame ) {
@@ -172,17 +167,12 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             
         } /* main loop. */
 
-    /* Check out at the barrier. */
-    if ( threadID == 0 )
-        atomicSub( &cuda_barrier , 1 );
-    
-    /* The last one out cleans up the mess... */
-    if ( threadID == 0 && blockID == 0 ) {
-        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+    /* Make a notch on the barrier, last one out cleans up the mess... */
+    if ( threadID == 0 && atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 ) {
         cuda_pair_next = 0;
-        __threadfence();
+        cuda_barrier = 0;
         }
-        
+    
     TIMER_TOC2(tid_total)
 
     }
@@ -197,7 +187,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
  
 __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , int *ind ) {
 
-    int threadID, blockID;
+    int threadID;
     int k, cid, cjd;
     __shared__ volatile int pid;
     __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
@@ -215,12 +205,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     TIMER_TIC2
     
     /* Get the block and thread ids. */
-    blockID = blockIdx.x;
     threadID = threadIdx.x;
-    
-    /* Make a notch on the barrier. */
-    if ( threadID == 0 )
-        atomicAdd( &cuda_barrier , 1 );
     
     /* Check that we've got the correct warp size! */
     /* if ( warpSize != cuda_frame ) {
@@ -372,17 +357,12 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
         } /* main loop. */
 
-    /* Check out at the barrier. */
-    if ( threadID == 0 )
-        atomicSub( &cuda_barrier , 1 );
-    
-    /* The last one out cleans up the mess... */
-    if ( threadID == 0 && blockID == 0 ) {
-        while ( atomicCAS( &cuda_barrier , 0 , 0 ) != 0 );
+    /* Make a notch on the barrier, last one out cleans up the mess... */
+    if ( threadID == 0 && atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 ) {
         cuda_pair_next = 0;
-        __threadfence();
+        cuda_barrier = 0;
         }
-        
+    
     /* if ( threadID == 0 )
         printf( "runner_run_cuda: block %03i is done.\n" , blockID ); */
         
