@@ -17,8 +17,11 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
     int threadID;
     int k, cid, cjd;
     volatile __shared__ int pid;
-    __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
-    __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
+    __shared__ __align__(16) int buff[ 8*cuda_nrparts ];
+    float *forces_i = (float *)&buff[ 0 ];
+    float *forces_j = (float *)&buff[ 3*cuda_nrparts ];
+    unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nrparts ];
+    unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nrparts ];
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
             float4 *parts_i;
@@ -127,12 +130,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
-                #ifdef PARTS_LOCAL
-                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                    // __threadfence_block();
-                #else
-                    parts_j = &cuda_parts[ ind[cid] ];
-                #endif
+                parts_j = (float4 *)forces_j;
+                cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
             #endif
             
             /* Compute the cell self interactions. */
@@ -190,8 +189,11 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     int threadID;
     int k, cid, cjd;
     __shared__ volatile int pid;
-    __shared__ float forces_i[ 3*cuda_nrparts ], forces_j[ 3*cuda_nrparts ];
-    __shared__ unsigned int sort_i[ cuda_nrparts ], sort_j[ cuda_nrparts ];
+    __shared__ __align__(16) int buff[ 8*cuda_nrparts ];
+    float *forces_i = (float *)&buff[ 0 ];
+    float *forces_j = (float *)&buff[ 3*cuda_nrparts ];
+    unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nrparts ];
+    unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nrparts ];
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
             float4 *parts_i;
@@ -318,12 +320,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             /* Copy the particle data into the local buffers. */
             #ifndef PARTS_TEX
-                #ifdef PARTS_LOCAL
-                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                    // __threadfence_block();
-                #else
-                    parts_j = &cuda_parts[ ind[cid] ];
-                #endif
+                parts_j = (float4 *)forces_j;
+                cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
             #endif
             
             /* Compute the cell self interactions. */
