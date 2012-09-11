@@ -160,6 +160,23 @@ __device__ void cuda_mutex_lock ( int *m ) {
 
 
 /**
+ * @brief Attempt to lock a device mutex.
+ *
+ * @param m The mutex.
+ *
+ * Try to grab the mutex. Note that only one thread
+ * can do this at a time, so to synchronize blocks, only a single thread of
+ * each block should call it.
+ */
+
+__device__ int cuda_mutex_trylock ( int *m ) {
+    TIMER_TIC
+    return atomicCAS( m , 0 , 1 ) == 0;
+    TIMER_TOC( tid_mutex )
+    }
+
+
+/**
  * @brief Lock a device mutex with an additional condition.
  *
  * @param m The mutex.
