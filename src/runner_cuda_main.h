@@ -16,6 +16,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
 
     int threadID;
     int k, cid, cjd;
+    float epot = 0.0f;
     volatile __shared__ int pid;
     __shared__ __align__(16) int buff[ 8*cuda_nrparts ];
     float *forces_i = (float *)&buff[ 0 ];
@@ -87,7 +88,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                     forces_i , forces_j , 
                     sort_i , sort_j ,
                     cuda_pairs[pid].shift ,
-                    verlet_rebuild , &cuda_sortlists[ cuda_sortlists_ind[ pid ] ] );
+                    verlet_rebuild , &cuda_sortlists[ cuda_sortlists_ind[ pid ] ] ,
+                    &epot );
             #else
                 runner_dopair4_verlet_cuda(
                     parts_i , counts[cid] ,
@@ -95,7 +97,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                     forces_i , forces_j , 
                     sort_i , sort_j ,
                     cuda_pairs[pid].shift ,
-                    verlet_rebuild , &cuda_sortlists[ cuda_sortlists_ind[ pid ] ] );
+                    verlet_rebuild , &cuda_sortlists[ cuda_sortlists_ind[ pid ] ] ,
+                    &epot );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -139,12 +142,12 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                 //     runner_doself4_cuda( cid , counts[cid] , forces_i );
                 // else
-                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i , &epot );
             #else
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                 //     runner_doself4_cuda( parts_j , counts[cid] , forces_i );
                 // else
-                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i );
+                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i , &epot );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -165,11 +168,16 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             }
             
         } /* main loop. */
+        
+    /* Accumulate the potential energy. */
+    atomicAdd( &cuda_epot , epot );
 
     /* Make a notch on the barrier, last one out cleans up the mess... */
     if ( threadID == 0 && atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 ) {
         cuda_pair_next = 0;
         cuda_barrier = 0;
+        cuda_epot_out = cuda_epot;
+        cuda_epot = 0.0f;
         }
     
     TIMER_TOC2(tid_total)
@@ -188,6 +196,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
 
     int threadID;
     int k, cid, cjd;
+    float epot = 0.0f;
     __shared__ volatile int pid;
     __shared__ __align__(16) int buff[ 8*cuda_nrparts ];
     float *forces_i = (float *)&buff[ 0 ];
@@ -264,28 +273,32 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 //         cid , counts[cid] ,
                 //         cjd , counts[cjd] ,
                 //         forces_i , forces_j , 
-                //         cuda_pairs[pid].shift );
+                //         cuda_pairs[pid].shift ,
+                //         &epot );
                 // else
                     runner_dopair4_sorted_cuda(
                         cid , counts[cid] ,
                         cjd , counts[cjd] ,
                         forces_i , forces_j , 
                         sort_i , sort_j ,
-                        cuda_pairs[pid].shift );
+                        cuda_pairs[pid].shift ,
+                        &epot );
             #else
                 // if ( counts[cid] <= 2*cuda_frame || counts[cjd] <= 2*cuda_frame )
                 //     runner_dopair4_cuda(
                 //         parts_i , counts[cid] ,
                 //         parts_j , counts[cjd] ,
                 //         forces_i , forces_j , 
-                //         cuda_pairs[pid].shift );
+                //         cuda_pairs[pid].shift ,
+                //         &epot );
                 // else
                     runner_dopair4_sorted_cuda(
                         parts_i , counts[cid] ,
                         parts_j , counts[cjd] ,
                         forces_i , forces_j , 
                         sort_i , sort_j ,
-                        cuda_pairs[pid].shift );
+                        cuda_pairs[pid].shift ,
+                        &epot );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -329,12 +342,12 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                 //     runner_doself4_cuda( cid , counts[cid] , forces_i );
                 // else
-                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i );
+                    runner_doself4_cuda( cid , counts[cid] , forces_i , &epot );
             #else
                 // if ( counts[cid] <= cuda_frame || counts[cid] > cuda_maxdiags )
                 //     runner_doself4_cuda( parts_j , counts[cid] , forces_i );
                 // else
-                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i );
+                    runner_doself4_cuda( parts_j , counts[cid] , forces_i , &epot );
             #endif
                 
             /* Write the particle forces back to cell_i. */
@@ -355,10 +368,15 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
         } /* main loop. */
 
+    /* Accumulate the potential energy. */
+    atomicAdd( &cuda_epot , epot );
+
     /* Make a notch on the barrier, last one out cleans up the mess... */
     if ( threadID == 0 && atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 ) {
         cuda_pair_next = 0;
         cuda_barrier = 0;
+        cuda_epot_out = cuda_epot;
+        cuda_epot = 0.0f;
         }
     
     /* if ( threadID == 0 )
