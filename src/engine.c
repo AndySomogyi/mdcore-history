@@ -256,7 +256,7 @@ int engine_verlet_update ( struct engine *e ) {
         printf("engine_verlet_update: maxdx=%e, skin=%e.\n",maxdx,skin); */
         
         /* Re-set the sortlists in the cells if necessary. */
-        if ( e->flags & engine_flag_verlet_pairwise2 ) {
+        if ( e->flags & engine_flag_verlet_pseudo ) {
             for ( cid = 0 ; cid < s->nr_marked ; cid++ )
                 bzero( s->cells[ s->cid_real[cid] ].sorted , sizeof(char) * 13 );
             }
@@ -1849,7 +1849,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         return error(engine_err_space);
         
     /* Set some flag implications. */
-    if ( flags & engine_flag_verlet_pairwise2 )
+    if ( flags & engine_flag_verlet_pseudo )
         flags |= engine_flag_verlet_pairwise;
     if ( flags & engine_flag_verlet_pairwise )
         flags |= engine_flag_verlet;
@@ -1945,7 +1945,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     e->nr_dihedralpots = 0;
     
     /* Make sortlists? */
-    if ( flags & engine_flag_verlet_pairwise2 ) {
+    if ( flags & engine_flag_verlet_pseudo ) {
         for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
             if ( e->s.cells[cid].flags & cell_flag_marked )
                 if ( ( e->s.cells[cid].sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * e->s.cells[cid].size ) ) == NULL )

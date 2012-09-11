@@ -630,7 +630,7 @@ int runner_run_dispatch ( struct runner *r ) {
         else if ( e->flags & engine_flag_verlet_pairwise ) {
 
             /* Compute the interactions of this pair. */
-            if ( e->flags & engine_flag_verlet_pairwise2 ) {
+            if ( e->flags & engine_flag_verlet_pseudo ) {
                 if ( runner_dopair_verlet2( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift , finger ) < 0 )
                     return error(runner_err);
                 }
@@ -1306,7 +1306,7 @@ int runner_run_pairs ( struct runner *r ) {
                     }
 
                 /* Sorted interactions? */
-                if ( e->flags & engine_flag_verlet_pairwise2 ) {
+                if ( e->flags & engine_flag_verlet_pseudo ) {
                     if ( runner_dopair_verlet2( r , ci , cj , finger->shift , finger ) < 0 )
                         return error(runner_err);
                     }
@@ -1447,7 +1447,7 @@ int runner_run_tuples ( struct runner *r ) {
                         }
                     
                     /* Sorted interactions? */
-                    if ( e->flags & engine_flag_verlet_pairwise2 ) {
+                    if ( e->flags & engine_flag_verlet_pseudo ) {
                         if ( runner_dopair_verlet2( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
                             return error(runner_err);
                         }

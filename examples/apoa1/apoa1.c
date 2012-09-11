@@ -135,7 +135,7 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , 1.25 , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet_pairwise , MPI_COMM_WORLD , myrank ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , 1.25 , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet , MPI_COMM_WORLD , myrank ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         return -1;

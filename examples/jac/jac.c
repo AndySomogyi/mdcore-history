@@ -18,6 +18,7 @@
  ******************************************************************************/
 
 /* Include some standard headers */
+#include "../config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -27,7 +28,6 @@
 #include <pthread.h>
 #include <time.h>
 #include "cycle.h"
-#include "../config.h"
 
 /* MPI headers. */
 #ifdef HAVE_MPI
@@ -145,7 +145,7 @@ int main ( int argc , char *argv[] ) {
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
     // if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS , MPI_COMM_WORLD , myrank ) != 0 ) {
-    if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         abort();
@@ -468,7 +468,7 @@ int main ( int argc , char *argv[] ) {
         if ( e.flags & engine_flag_verlet_pairwise ) printf( " engine_flag_verlet_pairwise" );
         if ( e.flags & engine_flag_affinity ) printf( " engine_flag_affinity" );
         if ( e.flags & engine_flag_prefetch ) printf( " engine_flag_prefetch" );
-        if ( e.flags & engine_flag_verlet_pairwise2 ) printf( " engine_flag_verlet_pairwise2" );
+        if ( e.flags & engine_flag_verlet_pseudo ) printf( " engine_flag_verlet_pseudo" );
         if ( e.flags & engine_flag_partlist ) printf( " engine_flag_partlist" );
         if ( e.flags & engine_flag_unsorted ) printf( " engine_flag_unsorted" );
         if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );

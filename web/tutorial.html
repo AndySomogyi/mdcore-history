@@ -123,6 +123,27 @@
             with mdcore and implementing your own simulation.</p>
             
             <ul>
+                <li/><b>jac</b>: The Goint Amber-Charmm (JAC) benchmark
+                    consisting of a DHFR protein solvated in TIP3P rigid
+                    water molecules.
+                    The simulation is executed with the following parameters
+                    <blockquote style="background-color:lightgrey;padding:4px">
+                        ./jac 5dhfr_cube.psf 5dhfr_cube.pdb <i>n</i> <i>steps</i>
+                    </blockquote>
+                    where <i>n</i> is the number of processors to use and <i>steps</i>
+                    are the number of time steps to simulate.
+                    The files 5dhfr_cube.psf and 5dhfr_cube.pdb contain the
+                    simulation structure.
+                    The interaction parameters are read from the file
+                    par_all22_prot.inp, which is in the same directory.
+            
+                    <p>The source file jac.c is set up to deal with all
+                    simulation options, e.g. verlet lists, pairwise verlet
+                    lists, MPI parallelisation, GPU parallelisation.
+                    The different options can be set by changing the
+                    engine flags in the call to "engine_init" at the
+                    start of the program.
+                    
                 <li/><b>argon</b>: A simple simulation consisting
                     of 10x10x10 cells of bulk argon at 100 K (the number of
                     particles is adjusted depending on the cell edge length).

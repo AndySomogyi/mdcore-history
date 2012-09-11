@@ -22,7 +22,7 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS)
+AM_LDFLAGS = $(METIS_LDFLAGS) $(CUDA_LIBS)
 
 # Set-up the library
 bin_PROGRAMS = bulk bulk_single bulk_verlet bulk_single_verlet bulk_pwverlet bulk_single_pwverlet bulk_pwverlet2 bulk_single_pwverlet2

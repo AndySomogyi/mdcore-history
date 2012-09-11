@@ -61,8 +61,8 @@ int main ( int argc , char *argv[] ) {
     // int nr_parts = 20712;
     int nr_parts = 32680;
     // int nr_parts = 15200;
-    // double Temp = 100.0;
-    double Temp = 94.4;
+    double Temp = 100.0;
+    // double Temp = 94.4;
     
     double x[3], vtot[3] = { 0.0 , 0.0 , 0.0 };
     double epot, ekin, v2, temp, cutoff = 1.0, cellwidth;
