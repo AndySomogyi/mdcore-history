@@ -2246,7 +2246,7 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
     char4 valid;
     float4 ee, eff, r2;
     float epot = 0.0f;
-    float dx[12], pjf[3], shift[3];
+    float dx[12], pjf[3];
     
     TIMER_TIC
     
