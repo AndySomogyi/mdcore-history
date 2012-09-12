@@ -2253,8 +2253,6 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x;
     
-    shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
-        
     /* Pre-compute the inverse norm of the shift. */
     dcutoff = 2 + cuda_dscale * cuda_cutoff;
        
@@ -2265,7 +2263,7 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
     for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
     
         /* Get the wrap. */
-        while ( ci > 0 && ( sort_j[count_j - (pjd & ~(cuda_frame - 1)) - 1] & 0xffff ) - ( sort_i[count_i-ci] & 0xffff )  > dcutoff )
+        while ( ci > 0 && ( sort_j[ pjd & ~(cuda_frame - 1) ] & 0xffff ) - ( sort_i[ci-1] & 0xffff ) > dcutoff )
             ci -= 1;
         if ( ci == 0 )
             break;
@@ -2275,14 +2273,14 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
             wrap = ci;
             
         /* Get a direct pointer on the pjdth part in cell_j. */
-        spjd = sort_j[count_j - pjd - 1] >> 16;
+        spjd = sort_j[ pjd ] >> 16;
         #ifdef PARTS_TEX
             pj = tex2D( tex_parts , spjd , cjd );
         #else
             pj = parts_i[ spjd ];
         #endif
         pjoff = pj.w * cuda_maxtype;
-        pj.x -= shift[0]; pj.y -= shift[1]; pj.z -= shift[2];
+        pj.x += pshift[0]; pj.y += pshift[1]; pj.z += pshift[2];
         pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
         
         /* Loop over the particles in cell_i. */
@@ -2299,10 +2297,10 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
                 pid.w -= wrap;
                 
             /* Get the particle pointers. */
-            spid.x = sort_i[count_i-pid.x-1] >> 16;
-            spid.y = sort_i[count_i-pid.y-1] >> 16;
-            spid.z = sort_i[count_i-pid.z-1] >> 16;
-            spid.w = sort_i[count_i-pid.w-1] >> 16; 
+            spid.x = sort_i[pid.x] >> 16;
+            spid.y = sort_i[pid.y] >> 16;
+            spid.z = sort_i[pid.z] >> 16;
+            spid.w = sort_i[pid.w] >> 16; 
             #ifdef PARTS_TEX
                 pi[0] = ( valid.x = ( pid.x < ci ) ) ? tex2D( tex_parts , spid.x , cid ) : pj;
                 pi[1] = ( valid.y = ( pid.y < ci ) && ( pidid + 1 < wrap ) ) ? tex2D( tex_parts , spid.y , cid ) : pj;
