@@ -1982,20 +1982,7 @@ __device__ void runner_dopair4_sorted_left_cuda ( float4 *parts_i , int count_i 
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x;
     
-    /* Swap cells? cell_j loops in steps of frame... */
-    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        #ifdef PARTS_TEX
-            k = cid; cid = cjd; cjd = k;
-        #else
-            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
-        #endif
-        k = count_i; count_i = count_j; count_j = k;
-        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
-        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
-        }
-    else */ {
-        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
-        }
+    shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
         
     /* Pre-compute the inverse norm of the shift. */
     nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
@@ -2245,7 +2232,6 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
     int4 pot, pid, spid;
     char4 valid;
     float4 ee, eff, r2;
-    float epot = 0.0f;
     float dx[12], pjf[3];
     
     TIMER_TIC
@@ -2277,7 +2263,7 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
         #ifdef PARTS_TEX
             pj = tex2D( tex_parts , spjd , cjd );
         #else
-            pj = parts_i[ spjd ];
+            pj = parts_j[ spjd ];
         #endif
         pjoff = pj.w * cuda_maxtype;
         pj.x += pshift[0]; pj.y += pshift[1]; pj.z += pshift[2];
@@ -2355,28 +2341,24 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
                 pjf[0] -= eff.x * dx[0];
                 pjf[1] -= eff.x * dx[1];
                 pjf[2] -= eff.x * dx[2];
-                epot += ee.x;
                 }
             // __threadfence_block();
             if ( valid.y ) {
                 pjf[0] -= eff.y * dx[3];
                 pjf[1] -= eff.y * dx[4];
                 pjf[2] -= eff.y * dx[5];
-                epot += ee.y;
                 }
             // __threadfence_block();
             if ( valid.z ) {
                 pjf[0] -= eff.z * dx[6];
                 pjf[1] -= eff.z * dx[7];
                 pjf[2] -= eff.z * dx[8];
-                epot += ee.z;
                 }
             // __threadfence_block();
             if ( valid.w ) {
                 pjf[0] -= eff.w * dx[9]; 
                 pjf[1] -= eff.w * dx[10];
                 pjf[2] -= eff.w * dx[11];
-                epot += ee.w;
                 }
             // __threadfence_block();
             
@@ -2391,9 +2373,6 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
         
         } /* loop over the particles in cell_j. */
     
-    /* Store the potential energy. */
-    *epot_global += epot;
-        
     TIMER_TOC(tid_pair)
     
     }
@@ -3295,7 +3274,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( "cuda_tuple_next" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
-    /* if ( cudaMemcpyToSymbol( "cuda_rcount" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    /* if ( cudaMemcpyToSymbol( cuda_rcount , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
     /* if ( cudaMemcpyToSymbol( "cuda_pair_curr" , &zero , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
@@ -3450,7 +3429,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         printf( ", %f " , cuda_fio[k] );
     printf( "]\n" ); */
     
-    /* if ( cudaMemcpyFromSymbol( &zero , "cuda_rcount" , sizeof(int) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+    /* if ( cudaMemcpyFromSymbol( &zero , cuda_rcount , sizeof(int) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     printf( "engine_nonbond_cuda: computed %i pairs.\n" , zero ); */
 
