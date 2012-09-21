@@ -290,7 +290,8 @@ __device__ int runner_cuda_gettask ( ) {
         }
         
     /* Put this task into the second queue. */
-    cuda_queue2_data[ atomicAdd( &cuda_queue2_last , 1 ) ] = tid;
+    if ( tid >= 0 )
+        cuda_queue2_data[ atomicAdd( &cuda_queue2_last , 1 ) ] = tid;
         
     /* Return whatever we got. */
     return tid;
