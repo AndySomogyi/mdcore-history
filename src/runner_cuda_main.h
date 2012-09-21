@@ -523,10 +523,6 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                     #endif
                 #endif
 
-                /* Get the cell mutex. */
-                if ( threadID == 0 )
-                    cuda_mutex_lock( &cuda_taboo[ cid ] );
-                        
                 /* Compute the cell self interactions. */
                 #ifdef PARTS_TEX
                     runner_doself4_cuda( cid , counts[cid] , forces_i , &epot );
@@ -534,10 +530,10 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                     runner_doself4_cuda( parts_j , counts[cid] , forces_i , &epot );
                 #endif
                 
-                /* Release the cell mutex. */
+                /* Unlock this cell's mutex. */
                 if ( threadID == 0 )
-                    cuda_mutex_unlock( &cuda_taboo[ cid ] );
-                        
+                    cuda_mutex_unlock( &cuda_taboo[cid] );
+                       
             #endif
             
             }
