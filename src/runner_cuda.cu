@@ -234,7 +234,7 @@ __device__ int cuda_queue_gettask ( ) {
     ind %= cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
-    while ( ( tid = cuda_queue_data[ind] ) < 0 );
+    while ( cuda_queue_first < cuda_queue_last && ( tid = cuda_queue_data[ind] ) < 0 );
     
     /* Scratch that task from the queue. */
     cuda_queue_data[ind] = -1;
