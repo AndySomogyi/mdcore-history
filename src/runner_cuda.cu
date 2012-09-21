@@ -224,16 +224,17 @@ __device__ int cuda_queue_gettask ( ) {
 
     int ind, tid;
 
-    /* Is the queue empty? */
-    if ( cuda_queue_first == cuda_queue_last )
-        return -1;
-        
     /* Get the index of the next task. */
-    ind = atomicAdd( &cuda_queue_first , 1 ) % cuda_queue_size; 
+    if ( ( ind = atomicAdd( &cuda_queue_first , 1 ) ) >= cuda_queue_last ) {
+        atomicAdd( &cuda_queue_first , -1 );
+        return -1;
+        }
+        
+    /* Wrap the index. */
+    ind %= cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
-    while ( cuda_queue_first < cuda_queue_last &&
-            ( tid = cuda_queue_data[ind] ) < 0 );
+    while ( ( tid = cuda_queue_data[ind] ) < 0 );
     
     /* Scratch that task from the queue. */
     cuda_queue_data[ind] = -1;
