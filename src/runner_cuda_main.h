@@ -284,7 +284,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             cuda_pair_next = 0;
         #else
             int *temp = cuda_queue_data; cuda_queue_data = cuda_queue2_data; cuda_queue2_data = temp;
-            cuda_queue_first = cuda_queue_last = cuda_queue2_last = 0;
+            cuda_queue_first = cuda_queue2_last = 0;
+            cuda_queue_last = cuada_nr_pairs;
         #endif
         }
     
@@ -561,7 +562,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             cuda_pair_next = 0;
         #else
             int *temp = cuda_queue_data; cuda_queue_data = cuda_queue2_data; cuda_queue2_data = temp;
-            cuda_queue_first = cuda_queue_last = cuda_queue2_last = 0;
+            cuda_queue_first = cuda_queue2_last = 0;
+            cuda_queue_last = cuada_nr_pairs;
         #endif
         }
     
