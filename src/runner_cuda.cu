@@ -94,9 +94,12 @@ __device__ int *cuda_taboo;
 __device__ int cuda_pair_next = 0;
 
 /* Indices for the "new" queue. */
-__device__ int cuda_pair_count = 0;
-__device__ int cuda_pair_curr = 0;
-__device__ int *cuda_pairIDs;
+__device__ int cuda_queue_first = 0;
+__device__ int cuda_queue_last = 0;
+__constant__ int cuda_queue_size;
+__device__ int cuda_queue2_last = 0;
+__device__ int *cuda_queue_data;
+__device__ int *cuda_queue2_data;
 
 /* Some constants. */
 __constant__ float cuda_cutoff2 = 0.0f;
@@ -125,10 +128,6 @@ cudaArray *cuda_coeffs;
 /* The potential parameters (hard-wired size for now). */
 __constant__ float cuda_eps[ 100 ];
 __constant__ float cuda_rmin[ 100 ];
-
-/* The list of fifos to work with. */
-__device__ struct fifo_cuda cuda_fifos_in[ cuda_maxblocks ];
-__device__ struct fifo_cuda cuda_fifos_out[ cuda_maxblocks ];
 
 /* Use a set of variables to communicate with the outside world. */
 __device__ float cuda_fio[32];
@@ -217,56 +216,88 @@ __device__ void cuda_mutex_unlock ( int *m ) {
     
     
 /**
- * @brief Push an element onto a #fifo_cuda, blocking.
+ * @brief Get a task ID from the queue.
  *
- * @return The number of elements in the #fifo_cuda.
  */
  
-__device__ inline int cuda_fifo_push ( struct fifo_cuda *f , unsigned int e ) {
+__device__ int cuda_queue_gettask ( ) {
 
-    /* Wait for there to be space in the list. */
-    while ( f->count == cuda_fifo_size );
+    int ind, tid;
 
-    /* Put the element in the list. */
-    atomicExch( &(f->data[ f->last ]) , e );
-    
-    /* Increase the "last" counter. */
-    atomicExch( &f->last , (f->last + 1) % cuda_fifo_size );
-    
-    /* Increase the count. */
-    atomicAdd( &f->count , 1 );
-    
-    /* Return the fifo size. */
-    return f->count;
+    /* Is the queue empty? */
+    if ( cuda_queue2_last == cuda_queue_size )
+        return -1;
+        
+    /* Get the index of the next task. */
+    ind = atomicAdd( &cuda_queue_first , 1 ) % cuda_queue_size; 
 
+    /* Loop until there is a valid task at that index. */
+    while ( ( tid = cuda_queue_data[ind] ) < 0 );
+    
+    /* Scratch that task from the queue. */
+    cuda_queue_data[ind] = -1;
+    
+    /* Return the acquired task ID. */
+    return tid;
+    
+    }
+
+
+/**
+ * @brief Put a task onto the queue.
+ *
+ * @param tid The task ID to add to the end of the queue.
+ */
+ 
+__device__ void cuda_queue_puttask ( int tid ) {
+
+    int ind;
+
+    /* Get the index of the next task. */
+    ind = atomicAdd( &cuda_queue_last , 1 ) % cuda_queue_size; 
+
+    /* Loop until there is a valid task at that index. */
+    cuda_queue_data[ind] = tid;
+    
     }
     
     
 /**
- * @brief Pop an element from a #fifo_cuda, blocking.
- *
- * @return The popped element.
+ * @brief Get a task from the task queue.
  */
  
-__device__ inline unsigned int cuda_fifo_pop ( struct fifo_cuda *f ) {
+__device__ int runner_cuda_gettask ( ) {
 
-    /* Wait for there to be something in the fifo. */
-    while ( f->count == 0 );
-
-    unsigned int res = f->data[ f->first ];
-
-    /* Increase the "fist" counter. */
-    atomicExch( &f->first , (f->first + 1) % cuda_fifo_size );
+    int tid, cid, cjd;
     
-    /* Decrease the count. */
-    atomicSub( &f->count , 1 );
+    /* Main loop. */
+    while ( ( tid = cuda_queue_gettask() ) >= 0 ) {
     
-    /* Return the first element. */
-    return res;
+        /* Decode this task. */
+        cid = cuda_pairs[tid].i;
+        cjd = cuda_pairs[tid].j;
+    
+        /* Lock down this task? */
+        if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+            if ( cid == cjd || cuda_mutex_trylock( &cuda_taboo[ cjd ] ) )
+                break;
+            else
+                cuda_mutex_unlock( &cuda_taboo[ cid ] );
+                
+        /* Put this task back into the queue. */
+        cuda_queue_puttask( tid );
+    
+        }
+        
+    /* Put this task into the second queue. */
+    cuda_queue2_data[ atomicAdd( &cuda_queue2_last , 1 ) ] = tid;
+        
+    /* Return whatever we got. */
+    return tid;
 
     }
-    
-    
+
+
 /**
  * @brief Copy bulk memory in a strided way.
  *
@@ -4081,7 +4112,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     void *devptr;
-    unsigned int *taboo_cuda, *pairIDs_cuda, pairIDs[ e->s.nr_pairs ], *diags, *diags_cuda;
+    unsigned int *taboo_cuda, pairIDs[ e->s.nr_pairs ], *diags, *diags_cuda;
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -4231,14 +4262,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( cuda_pairs , &(e->s.pairs_cuda) , sizeof(struct cellpair_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaGetSymbolAddress( &devptr , cuda_fifos_in ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemset( devptr , 0  , sizeof(struct fifo_cuda) * cuda_maxblocks ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaGetSymbolAddress( &devptr , cuda_fifos_out ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemset( devptr , 0  , sizeof(struct fifo_cuda) * cuda_maxblocks ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
 
         
     /* Allocate the sortlists locally and on the device if needed. */
@@ -4273,14 +4296,21 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpyToSymbol( cuda_taboo , &taboo_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
-    /* Pack and send the pairIDs. */
+    /* Init the pair queue on the device. */
     for ( k = 0 ; k < e->s.nr_pairs ; k++ )
         pairIDs[k] = k;
-    if ( cudaMalloc( &pairIDs_cuda , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
+    if ( cudaMalloc( &devptr , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpy( pairIDs_cuda , pairIDs , sizeof(int) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpy( devptr , pairIDs , sizeof(int) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_pairIDs , &pairIDs_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToSymbol( cuda_queue_data , &devptr , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMalloc( &devptr , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( cuda_queue2_data , &devptr , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    i = e->s.nr_pairs;
+    if ( cudaMemcpyToSymbol( cuda_queue_size , &i , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* He's done it! */

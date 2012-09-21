@@ -24,7 +24,6 @@
 #define cuda_frame                          32
 #define cuda_maxpots                        100
 #define max_fingers                         1
-#define cuda_fifo_size                      4
 #define cuda_maxblocks                      64
 #define cuda_memcpy_chunk                   6
 #define cuda_sum_chunk                      3
@@ -34,7 +33,7 @@
 // #define TIMERS
 // #define PARTS_TEX
 // #define PARTS_LOCAL
-#define FORCES_LOCAL
+// #define FORCES_LOCAL
 
 
 /** Timers for the cuda parts. */
@@ -85,15 +84,3 @@ struct cellpair_cuda {
     };
     
     
-/** Struct for the round-robin fifo queues. */
-struct fifo_cuda {
-    
-    unsigned int data[ cuda_fifo_size ];
-    
-    int first, last, count;
-    
-    };
-    
-    
-
-
