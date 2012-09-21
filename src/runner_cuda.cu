@@ -225,14 +225,15 @@ __device__ int cuda_queue_gettask ( ) {
     int ind, tid;
 
     /* Is the queue empty? */
-    if ( cuda_queue2_last == cuda_queue_size )
+    if ( cuda_queue_first == cuda_queue_last )
         return -1;
         
     /* Get the index of the next task. */
     ind = atomicAdd( &cuda_queue_first , 1 ) % cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
-    while ( ( tid = cuda_queue_data[ind] ) < 0 );
+    while ( cuda_queue_first < cuda_queue_last &&
+            ( tid = cuda_queue_data[ind] ) < 0 );
     
     /* Scratch that task from the queue. */
     cuda_queue_data[ind] = -1;
@@ -4310,8 +4311,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( cuda_queue2_data , &devptr , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    i = e->s.nr_pairs;
-    if ( cudaMemcpyToSymbol( cuda_queue_size , &i , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToSymbol( cuda_queue_size , &e->s.nr_pairs , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( cuda_queue_last , &e->s.nr_pairs , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* He's done it! */
