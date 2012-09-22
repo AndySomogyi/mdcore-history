@@ -39,6 +39,7 @@
 /** Timers for the cuda parts. */
 enum {
     tid_mutex = 0,
+    tid_queue,
     tid_memcpy,
     tid_update,
     tid_pack,

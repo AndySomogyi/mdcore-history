@@ -170,8 +170,9 @@ __device__ void cuda_mutex_lock ( int *m ) {
 
 __device__ int cuda_mutex_trylock ( int *m ) {
     TIMER_TIC
-    return atomicCAS( m , 0 , 1 ) == 0;
+    int res = atomicCAS( m , 0 , 1 ) == 0;
     TIMER_TOC( tid_mutex )
+    return res;
     }
 
 
@@ -211,7 +212,9 @@ __device__ int cuda_mutex_lock_cond ( int *m , int *c ) {
  */
 
 __device__ void cuda_mutex_unlock ( int *m ) {
+    TIMER_TIC
     atomicExch( m , 0 );
+    TIMER_TOC( tid_mutex )
     }
     
     
@@ -222,19 +225,20 @@ __device__ void cuda_mutex_unlock ( int *m ) {
  
 __device__ int cuda_queue_gettask ( ) {
 
-    int ind, tid;
+    int ind, tid = -1;
+    
+    /* Don't even try... */
+    if ( cuda_queue2_last == cuda_queue_size )
+        return -1;
 
     /* Get the index of the next task. */
-    if ( ( ind = atomicAdd( &cuda_queue_first , 1 ) ) >= cuda_queue_last ) {
-        atomicAdd( &cuda_queue_first , -1 );
-        return -1;
-        }
+    ind = atomicAdd( &cuda_queue_first , 1 );
         
     /* Wrap the index. */
     ind %= cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
-    while ( cuda_queue_first < cuda_queue_last && ( tid = cuda_queue_data[ind] ) < 0 );
+    while ( atomicCAS( &cuda_queue2_last , 0 , 0 ) < cuda_queue_size && ( tid = atomicCAS( &cuda_queue_data[ind] , 0 , 0 ) ) < 0 );
     
     /* Scratch that task from the queue. */
     cuda_queue_data[ind] = -1;
@@ -256,9 +260,12 @@ __device__ void cuda_queue_puttask ( int tid ) {
     int ind;
 
     /* Get the index of the next task. */
-    ind = atomicAdd( &cuda_queue_last , 1 ) % cuda_queue_size; 
+    ind = atomicAdd( &cuda_queue_last , 1 ) % cuda_queue_size;
+    
+    /* Wait for the slot in the queue to be empty. */
+    while ( cuda_queue_data[ind] != -1 );
 
-    /* Loop until there is a valid task at that index. */
+    /* Write the task back to the queue. */
     cuda_queue_data[ind] = tid;
     
     }
@@ -270,7 +277,9 @@ __device__ void cuda_queue_puttask ( int tid ) {
  
 __device__ int runner_cuda_gettask ( ) {
 
-    int tid, cid, cjd;
+    int tid = -1, cid, cjd;
+    
+    TIMER_TIC
     
     /* Main loop. */
     while ( ( tid = cuda_queue_gettask() ) >= 0 ) {
@@ -281,7 +290,7 @@ __device__ int runner_cuda_gettask ( ) {
     
         /* Lock down this task? */
         if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
-            if ( cid == cjd || cuda_mutex_trylock( &cuda_taboo[ cjd ] ) )
+            if ( cid == cjd || cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
                 break;
             else
                 cuda_mutex_unlock( &cuda_taboo[ cid ] );
@@ -294,6 +303,8 @@ __device__ int runner_cuda_gettask ( ) {
     /* Put this task into the second queue. */
     if ( tid >= 0 )
         cuda_queue2_data[ atomicAdd( &cuda_queue2_last , 1 ) ] = tid;
+        
+    TIMER_TOC(tid_queue);
         
     /* Return whatever we got. */
     return tid;
@@ -1560,6 +1571,8 @@ __device__ void runner_dopair4_verlet_left_cuda ( float4 *parts_i , int count_i 
     /* Re-build sorted pairs list? */
     if ( verlet_rebuild ) {
     
+        TIMER_TIC2
+    
         /* Pack the parts of i and j into the sort arrays. */
         for ( k = threadID ; k < count_i ; k += 4*cuda_frame ) {
             #ifdef PARTS_TEX
@@ -1786,8 +1799,6 @@ __device__ void runner_dopair4_verlet_right_cuda ( float4 *parts_i , int count_i
     
     /* Pre-compute the inverse norm of the shift. */
     dmaxdist = 2 + cuda_dscale * cuda_maxdist;
-       
-    TIMER_TIC2
        
     /* Loop over the particles in cell_j, frame-wise. */
     ci = count_i;
@@ -2669,8 +2680,6 @@ __device__ void runner_dopair4_sorted_right_cuda ( float4 *parts_i , int count_i
     
     /* Pre-compute the inverse norm of the shift. */
     dcutoff = 2 + cuda_dscale * cuda_cutoff;
-       
-    TIMER_TIC2
        
     /* Loop over the particles in cell_j, frame-wise. */
     ci = count_i;
@@ -3690,7 +3699,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         float timers[ tid_count ];
         double icpms = 1000.0 / 1.4e9; 
     #endif
-
+    
     /* Load the particle data onto the device. */
     tic = getticks();
     if ( ( maxcount = engine_cuda_load_parts( e ) ) < 0 )
@@ -3844,6 +3853,19 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             printf( "%.2f " , icpms * timers[k] );
         printf( "] ms\n" );
     #endif
+    
+    /* int queue[ e->s.nr_pairs ], queue2[ e->s.nr_pairs ];
+    void *dptr;
+    if ( cudaMemcpyFromSymbol( &dptr , cuda_queue_data , sizeof(int *) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);   
+    if ( cudaMemcpy( queue , dptr , sizeof(int) * e->s.nr_pairs , cudaMemcpyDeviceToHost ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);   
+    if ( cudaMemcpyFromSymbol( &dptr , cuda_queue2_data , sizeof(int *) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);   
+    if ( cudaMemcpy( queue2 , dptr , sizeof(int) * e->s.nr_pairs , cudaMemcpyDeviceToHost ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    for ( int k = 0 ; k < e->s.nr_pairs ; k++ )
+        printf( "\t%5i\t%5i\t%5i\n" , k , queue[k] , queue2[k] ); */
         
     /* Get the IO data. */
     /*if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
