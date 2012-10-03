@@ -34,7 +34,7 @@
 #ifdef __SSE__
     #include <xmmintrin.h>
 #endif
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 

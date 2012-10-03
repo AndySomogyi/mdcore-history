@@ -55,15 +55,29 @@ if HAVECUDA
     lib_LTLIBRARIES += libmdcore_single_cuda.la
 endif
 
+# Build a MPI-enabled version too?
+if HAVEMPI
+    lib_LTLIBRARIES += libmdcore_mpi.la libmdcore_single_mpi.la
+endif
+
 
 # Set-up for general (double-precision) case
 libmdcore_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 
+# Set-up for general (double-precision) MPI-endabled case
+libmdcore_mpi_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
+libmdcore_mpi_la_CFLAGS = -DWITH_MPI $(AM_CFLAGS)
+libmdcore_mpi_la_SHORTNAME = mpi
 
 # Set-up for single-precision case
 libmdcore_single_la_SOURCES = $(SOURCES)
 libmdcore_single_la_SHORTNAME = sp
 libmdcore_single_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS)
+
+# Set-up for single-precision MPI-enabled case
+libmdcore_single_mpi_la_SOURCES = $(SOURCES)
+libmdcore_single_mpi_la_SHORTNAME = sp_mpi
+libmdcore_single_mpi_la_CFLAGS = -DFPTYPE_SINGLE -DWITH_MPI $(AM_CFLAGS)
 
 # Set-up for single-precision case with CUDA
 libmdcore_single_cuda_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)

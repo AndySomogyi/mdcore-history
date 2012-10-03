@@ -31,7 +31,7 @@
 
 /* Include conditional headers. */
 #include "../config.h"
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 #ifdef HAVE_OPENMP

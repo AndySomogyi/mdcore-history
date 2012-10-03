@@ -32,7 +32,7 @@
 #ifdef HAVE_OPENMP
     #include <omp.h>
 #endif
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 
@@ -1394,7 +1394,7 @@ struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , 
         i = s->next_pair;
     
         /* try to find an unused pair */
-        while ( s->next_pair < s->nr_pairs && count > 0 ) {
+        while ( i < s->nr_pairs && count > 0 ) {
 
             /* run through the list of pairs */
             for (  ; i < s->nr_pairs ; i++ )

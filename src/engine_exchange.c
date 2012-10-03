@@ -31,7 +31,7 @@
 
 /* Include conditional headers. */
 #include "../config.h"
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 #ifdef HAVE_OPENMP
@@ -71,7 +71,7 @@
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
 int engine_exchange_rigid_wait ( struct engine *e ) {
 
     /* Try to grab the xchg_mutex, which will only be free while
@@ -111,7 +111,7 @@ int engine_exchange_rigid_wait ( struct engine *e ) {
  * the asynchronous communication to finish.
  */
 
-#ifdef HAVE_MPI 
+#ifdef WITH_MPI 
 int engine_exchange_rigid_async ( struct engine *e ) {
 
     /* Check the input. */
@@ -149,7 +149,7 @@ int engine_exchange_rigid_async ( struct engine *e ) {
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
 int engine_exchange_rigid ( struct engine *e ) {
 
     int i, j, k, ind, res;
@@ -295,7 +295,7 @@ int engine_exchange_rigid ( struct engine *e ) {
  *
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
 int engine_exchange_rigid_async_run ( struct engine *e ) {
 
     int i, j, k, ind, res, nr_neigh;
@@ -466,7 +466,7 @@ int engine_exchange_rigid_async_run ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
 int engine_exchange_wait ( struct engine *e ) {
 
     /* Try to grab the xchg_mutex, which will only be free while
@@ -507,7 +507,7 @@ int engine_exchange_wait ( struct engine *e ) {
  * the asynchronous communication to finish.
  */
 
-#ifdef HAVE_MPI 
+#ifdef WITH_MPI 
 int engine_exchange_async_run ( struct engine *e ) {
 
     int i, k, ind, cid, res, nr_neigh;
@@ -710,7 +710,7 @@ int engine_exchange_async_run ( struct engine *e ) {
  * the asynchronous communication to finish.
  */
 
-#ifdef HAVE_MPI 
+#ifdef WITH_MPI 
 int engine_exchange_async ( struct engine *e ) {
 
     int k, cid;
@@ -760,7 +760,7 @@ int engine_exchange_async ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-#ifdef HAVE_MPI 
+#ifdef WITH_MPI 
 int engine_exchange ( struct engine *e ) {
 
     int i, k, ind, res;
@@ -959,7 +959,7 @@ int engine_exchange ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-#ifdef HAVE_MPI 
+#ifdef WITH_MPI 
 int engine_exchange_incomming ( struct engine *e ) {
 
     int i, j, k, ind, res;

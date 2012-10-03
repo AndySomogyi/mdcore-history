@@ -31,7 +31,7 @@
 
 /* Include conditional headers. */
 #include "../config.h"
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 #ifdef HAVE_OPENMP
@@ -119,7 +119,7 @@ int engine_shuffle ( struct engine *e ) {
         return error(engine_err_space);
 
 
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     /* Get the incomming particle from other procs if needed. */
     if ( e->flags & engine_flag_mpi )
         if ( engine_exchange_incomming( e ) < 0 )
@@ -234,7 +234,7 @@ int engine_verlet_update ( struct engine *e ) {
                 }
         #endif
 
-        #ifdef HAVE_MPI
+        #ifdef WITH_MPI
         /* Collect the maximum displacement from other nodes. */
         if ( ( e->flags & engine_flag_mpi ) && ( e->nr_nodes > 1 ) ) {
             /* Do not use in-place as it is buggy when async is going on in the background. */
@@ -263,7 +263,7 @@ int engine_verlet_update ( struct engine *e ) {
         
         /* Wait for any unterminated exchange. */
         tic = getticks();
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
         if ( e->flags & engine_flag_async )
             if ( engine_exchange_wait( e ) < 0 )
                 return error(engine_err);
@@ -1211,7 +1211,7 @@ int engine_start ( struct engine *e , int nr_runners ) {
     if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
         e->flags &= ~( engine_flag_mpi | engine_flag_async );
 
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     /* Set up async communication? */
     if ( e->flags & engine_flag_async ) {
     
@@ -1347,7 +1347,7 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
     int i;
     struct runner *temp;
 
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     /* Set up async communication? */
     if ( e->flags & engine_flag_async ) {
     
@@ -1620,7 +1620,7 @@ int engine_step ( struct engine *e ) {
         e->timers[engine_timer_advance] += getticks() - tic;
         }
                     
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     /* Re-distribute the particles to the processors. */
     if ( e->flags & engine_flag_mpi ) {
         
@@ -1680,7 +1680,7 @@ int engine_step ( struct engine *e ) {
     /* Shake the particle positions? */
     if ( e->nr_rigids > 0 ) {
     
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
         /* If we have to do some communication first... */
         if ( e->flags & engine_flag_mpi ) {
         
@@ -1794,7 +1794,7 @@ int engine_barrier ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
 int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank ) {
 
     /* Init the engine. */

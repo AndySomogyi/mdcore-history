@@ -31,7 +31,7 @@
 
 /* Include conditional headers. */
 #include "../config.h"
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 #ifdef HAVE_OPENMP
@@ -347,7 +347,7 @@ int engine_rigid_sort ( struct engine *e ) {
 int engine_rigid_eval ( struct engine *e ) {
 
     int nr_local = e->rigids_local, nr_rigids = e->rigids_semilocal;
-    #ifdef HAVE_MPI
+    #ifdef WITH_MPI
         ticks tic;
     #endif
     #ifdef HAVE_OPENMP
@@ -402,7 +402,7 @@ int engine_rigid_eval ( struct engine *e ) {
                 rigid_eval_shake( e->rigids , nr_local , e );
                 
                 
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
             /* Wait for the async data to come in. */
             tic = getticks();
             if ( engine_exchange_rigid_wait( e ) < 0 )

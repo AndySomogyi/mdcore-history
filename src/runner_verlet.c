@@ -42,7 +42,7 @@
 #ifdef HAVE_SETAFFINITY
     #include <sched.h>
 #endif
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 

@@ -191,7 +191,7 @@ struct engine {
     int nr_dihedrals, dihedrals_size, nr_dihedralpots, dihedralpots_size;
     
     /** The Comm object for mpi. */
-    #ifdef HAVE_MPI
+    #ifdef WITH_MPI
         MPI_Comm comm;
         pthread_mutex_t xchg_mutex;
         pthread_cond_t xchg_cond;
@@ -304,7 +304,7 @@ int engine_unload_marked ( struct engine *e , double *x , double *v , int *type 
 int engine_unload_strays ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , double *epot , int N );
 int engine_unload ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , double *epot , int N );
 int engine_verlet_update ( struct engine *e );
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank );
     int engine_exchange ( struct engine *e );
     int engine_exchange_async ( struct engine *e );

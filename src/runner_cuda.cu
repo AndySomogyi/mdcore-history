@@ -235,7 +235,7 @@ __device__ int cuda_queue_gettask ( ) {
     ind = atomicAdd( &cuda_queue_first , 1 );
         
     /* Wrap the index. */
-    ind %= cuda_queue_size; 
+    ind = cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
     while ( atomicCAS( &cuda_queue2_last , 0 , 0 ) < cuda_queue_size && ( tid = atomicCAS( &cuda_queue_data[ind] , 0 , 0 ) ) < 0 );
