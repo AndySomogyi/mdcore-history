@@ -25,11 +25,16 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = jac_noverlet jac_verlet jac_pwverlet jac_pwverlet2 jac_cuda_noverlet jac_cuda_verlet
+bin_PROGRAMS = jac_noverlet jac_verlet jac_pwverlet jac_pseudoverlet jac_cuda_noverlet jac_cuda_verlet
+
+# Build a MPI-enabled version too?
+if HAVEMPI
+    bin_PROGRAMS += jac_mpi_noverlet jac_mpi_pseudoverlet
+endif
 
 # Sources for jac
 jac_noverlet_SOURCES = jac.c
-jac_noverlet_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
+jac_noverlet_CFLAGS =  -DFPTYPE_SINGLE $(AM_CFLAGS)
 jac_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
@@ -48,10 +53,10 @@ jac_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind
-# Sources for jac_verlet2
-jac_pwverlet2_SOURCES = jac.c
-jac_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
-jac_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for jac_pseudoverlet
+jac_pseudoverlet_SOURCES = jac.c
+jac_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+jac_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using CUDA and Verlet lists
@@ -67,4 +72,15 @@ jac_cuda_noverlet_SOURCES = jac.c
 jac_cuda_noverlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_CUDA -DENGINE_FLAGS="engine_flag_cuda" $(AM_CFLAGS)
 jac_cuda_noverlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
 
+
+# Using MPI
+# Sources for jac
+jac_mpi_noverlet_SOURCES = jac.c
+jac_mpi_noverlet_CFLAGS =  -DFPTYPE_SINGLE -DWITH_MPI $(AM_CFLAGS)
+jac_mpi_noverlet_LDADD = ../../src/.libs/libmdcore_single_mpi.a
+
+# Sources for jac_pseudoverlet
+jac_mpi_pseudoverlet_SOURCES = jac.c
+jac_mpi_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_MPI -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+jac_mpi_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single_mpi.a
 

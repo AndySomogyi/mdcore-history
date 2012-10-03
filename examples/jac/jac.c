@@ -30,7 +30,7 @@
 #include "cycle.h"
 
 /* MPI headers. */
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 
@@ -109,7 +109,7 @@ int main ( int argc , char *argv[] ) {
     tic = getticks();
     
     
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     /* Start by initializing MPI. */
     if ( ( res = MPI_Init_thread( &argc , &argv , MPI_THREAD_MULTIPLE , &prov ) ) != MPI_SUCCESS ) {
         printf( "main: call to MPI_Init failed with error %i.\n" , res );
@@ -144,8 +144,11 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    // if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS , MPI_COMM_WORLD , myrank ) != 0 ) {
+#ifdef WITH_MPI
+    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
+#else
     if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
+#endif
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         abort();
@@ -448,7 +451,7 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     if ( engine_exchange( &e ) != 0 ) {
         printf("main: engine_step failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
@@ -538,7 +541,7 @@ int main ( int argc , char *argv[] ) {
             }
         // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
             
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
         /* Collect vcom and ekin from all procs. */
         if ( e.nr_nodes > 1 ) {
             es[0] = epot; es[1] = ekin;
