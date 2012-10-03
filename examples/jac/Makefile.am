@@ -25,7 +25,12 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = jac_noverlet jac_verlet jac_pwverlet jac_pseudoverlet jac_cuda_noverlet jac_cuda_verlet
+bin_PROGRAMS = jac_noverlet jac_verlet jac_pwverlet jac_pseudoverlet
+
+# Build a CUDA-enabled version too?
+if HAVECUDA
+    bin_PROGRAMS += jac_cuda_noverlet jac_cuda_verlet
+endif
 
 # Build a MPI-enabled version too?
 if HAVEMPI
