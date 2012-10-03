@@ -628,10 +628,12 @@ int main ( int argc , char *argv[] ) {
         
     
     /* Exit gracefuly. */
-    /* if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
-        printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
-        abort();
-        } */
+    #ifdef WITH_MPI
+        if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
+            printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
+            abort();
+            }
+    #endif
     fflush(stdout);
     printf( "main[%i]: exiting.\n" , myrank );
     return 0;
