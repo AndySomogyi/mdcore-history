@@ -585,7 +585,16 @@ int main ( int argc , char *argv[] ) {
         if ( verbose && myrank == 0 ) {
             printf("main[%i]: thermostat took %.3f ms.\n",myrank,(double)timers[tid_temp] * itpms); fflush(stdout);
             }
-                        
+            
+#ifdef WITH_MPI
+        /* Agregate the engine timers. */
+        if ( ( res = MPI_Allreduce( MPI_IN_PLACE , e.timers , engine_timer_last , MPI_UNSIGNED_LONG , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
+            printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
+            abort();
+            }
+        for ( k = 0 ; k < engine_timer_last ; k++ )
+            e.timers[k] /= e.nr_nodes;
+#endif
         
         /* Drop a line. */
         toc_step = getticks();
