@@ -53,6 +53,7 @@
 #include "lock.h"
 #include "part.h"
 #include "fifo.h"
+#include "queue.h"
 #include "cell.h"
 #include "space.h"
 #include "potential.h"
@@ -1245,6 +1246,132 @@ int runner_run_verlet ( struct runner *r ) {
  */
 
 int runner_run_pairs ( struct runner *r ) {
+
+    struct engine *e = r->e;
+    struct space *s = &e->s;
+    int k, err = 0, acc = 0, naq, qid, myqid = e->nr_queues * r->id / e->nr_runners;
+    struct cellpair *p = NULL;
+    struct cell *ci, *cj;
+    struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
+    unsigned int myseed = rand() + r->id;
+
+    /* give a hoot */
+    printf( "runner_run: runner %i is up and running on queue %i (pairs)...\n" , r->id , myqid ); fflush(stdout);
+    
+    /* main loop, in which the runner should stay forever... */
+    while ( 1 ) {
+    
+        /* wait at the engine barrier */
+        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
+        if ( engine_barrier(e) < 0)
+            return error(runner_err_engine);
+            
+        /* Init the reaction counter. */
+        // runner_rcount = 0;
+        
+        /* Init the list of queues. */
+        for ( k = 0 ; k < e->nr_queues ; k++ )
+            queues[k] = &e->queues[k];
+        naq = e->nr_queues - 1;
+        queues[ myqid ] = queues[ naq ];
+                        
+        /* while i can still get a pair... */
+        /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
+        while ( myq->next < myq->count || naq > 0 ) {
+        
+            /* Try to get a pair from my own queue. */
+            if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , 0 ) ) == NULL ) {
+            
+                /* Clean up the list of queues. */
+                for ( k = 0 ; k < naq ; k++ )
+                    if ( queues[k]->next == queues[k]->count )
+                        queues[k--] = queues[--naq];
+                        
+                /* If there are no queues left, go back to go, do not collect 200 FLOPs. */
+                if ( naq == 0 )
+                    continue;
+                    
+                /* Otherwise, try to grab something from a random queue. */
+                qid = rand_r( &myseed ) % naq;
+                if ( ( p = (struct cellpair *)queue_get( queues[qid] , 1 ) ) != NULL ) {
+                
+                    /* Add this task to my own queue. */
+                    if ( !queue_insert( myq , p ) )
+                        queue_insert( queues[qid] , p );
+                
+                    }
+            
+                }
+                
+            /* If I didn't get a task, try again... */
+            if ( p == NULL )
+                continue;
+
+            /* Get the cells. */
+            ci = &( s->cells[ p->i ] );
+            cj = &( s->cells[ p->j ] );
+
+            /* for each cell, prefetch the parts involved. */
+            if ( e->flags & engine_flag_prefetch ) {
+                for ( k = 0 ; k < ci->count ; k++ )
+                    acc += ci->parts[k].id;
+                if ( p->i != p->j )
+                    for ( k = 0 ; k < cj->count ; k++ )
+                        acc += cj->parts[k].id;
+                }
+
+            /* Sorted interactions? */
+            if ( e->flags & engine_flag_verlet_pseudo ) {
+                if ( runner_dopair_verlet2( r , ci , cj , p->shift , p ) < 0 )
+                    return error(runner_err);
+                }
+            else if ( e->flags & engine_flag_verlet_pairwise ) {
+                if ( runner_dopair_verlet( r , ci , cj , p->shift , p ) < 0 )
+                    return error(runner_err);
+                }
+            else if ( e->flags & engine_flag_unsorted ) {
+                if ( runner_dopair_unsorted( r , ci , cj , p->shift ) < 0 )
+                    return error(runner_err);
+                }
+            else {
+                if ( runner_dopair( r , ci , cj , p->shift ) < 0 )
+                    return error(runner_err);
+                }
+
+            /* release this pair */
+            s->cells_taboo[ p->i ] = 0;
+            s->cells_taboo[ p->j ] = 0;
+
+            }
+
+        /* give the reaction count */
+        // printf("runner_run: last count was %u.\n",runner_rcount);
+        r->err = acc;
+            
+        /* did things go wrong? */
+        /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
+        if ( err < 0 )
+            return error(runner_err_space);
+    
+        }
+
+    }
+
+    
+/**
+ * @brief The #runner's main routine.
+ *
+ * @param r Pointer to the #runner to run.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err).
+ *
+ * This is the main routine for the #runner. When called, it enters
+ * an infinite loop in which it waits at the #engine @c r->e barrier
+ * and, once having paSSEd, calls #space_getpair until there are no pairs
+ * available.
+ */
+
+int runner_run_pairs_old ( struct runner *r ) {
 
     int k, err = 0, acc = 0;
     struct cellpair *p = NULL;

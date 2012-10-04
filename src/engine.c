@@ -46,6 +46,7 @@
 #include "part.h"
 #include "cell.h"
 #include "fifo.h"
+#include "queue.h"
 #include "space.h"
 #include "potential.h"
 #include "runner.h"
@@ -66,7 +67,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[25] = {
+char *engine_err_msg[26] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -92,6 +93,7 @@ char *engine_err_msg[25] = {
     "mdcore was not compiled with CUDA support.", 
     "CUDA support is only available in single-precision.", 
     "Max. number of parts per cell exceeded.",
+    "An error occured when calling a queue funtion.", 
 	};
 
 
@@ -1199,13 +1201,12 @@ int engine_addpot ( struct engine *e , struct potential *p , int i , int j ) {
  * the Verlet lists.
  */
 
-int engine_start ( struct engine *e , int nr_runners ) {
+int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
 
     int cid, pid, k, i;
     struct cell *c;
     struct part *p;
     struct space *s = &e->s;
-    struct runner *temp;
     
     /* Is MPI really needed? */
     if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
@@ -1291,23 +1292,38 @@ int engine_start ( struct engine *e , int nr_runners ) {
         }
     else {
 
-        /* (re)allocate the runners */
-        if ( e->nr_runners == 0 ) {
-            if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
-                return error(engine_err_malloc);
+        /* Allocate the queues */
+        if ( ( e->queues = (struct queue *)malloc( sizeof(struct queue) * nr_queues )) == NULL )
+            return error(engine_err_malloc);
+        e->nr_queues = nr_queues;
+        
+        /* Initialize  and fill the queues. */
+        if ( e->flags & engine_flag_tuples ) {
+            for ( i = 0 ; i < e->nr_queues ; i++ )
+                if ( queue_tuples_init( &e->queues[i] , 2*s->nr_tuples/e->nr_queues , s , s->tuples ) != queue_err_ok )
+                    return error(engine_err_queue);
+            for ( i = 0 ; i < s->nr_tuples ; i++ )
+                if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tuples[i] ) != queue_err_ok )
+                    return error(engine_err_queue);
             }
         else {
-            if ( ( temp = (struct runner *)malloc( sizeof(struct runner) * (e->nr_runners + nr_runners) )) == NULL )
-                return error(engine_err_malloc);
-            memcpy( temp , e->runners , sizeof(struct runner) * e->nr_runners );
-            e->runners = temp;
+            for ( i = 0 ; i < e->nr_queues ; i++ )
+                if ( queue_pairs_init( &e->queues[i] , 2*s->nr_pairs/e->nr_queues , s , s->pairs ) != queue_err_ok )
+                    return error(engine_err_queue);
+            for ( i = 0 ; i < s->nr_pairs ; i++ )
+                if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->pairs[i] ) < 0 )
+                    return error(engine_err_queue);
             }
+                
+        /* (Allocate the runners */
+        if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
+            return error(engine_err_malloc);
+        e->nr_runners = nr_runners;
 
         /* initialize the runners. */
         for ( i = 0 ; i < nr_runners ; i++ )
-            if ( runner_init(&e->runners[e->nr_runners + i],e,e->nr_runners + i) < 0 )
+            if ( runner_init( &e->runners[ i ] , e , i ) < 0 )
                 return error(engine_err_runner);
-        e->nr_runners += nr_runners;
 
         /* wait for the runners to be in place */
         if ( !( e->flags & engine_flag_dispatch ) )
@@ -1411,6 +1427,8 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
  
 int engine_nonbond_eval ( struct engine *e ) {
 
+    int k;
+
     /* Dispatcher or regular runners? */
     if ( e->flags & engine_flag_dispatch ) {
     
@@ -1422,6 +1440,10 @@ int engine_nonbond_eval ( struct engine *e ) {
 
     /* Otherwise, regular runners. */
     else {
+    
+        /* Re-set the queues. */
+        for ( k = 0 ; k < e->nr_queues ; k++ )
+            e->queues[k].next = 0;
 
         /* open the door for the runners */
         e->barrier_count = -e->barrier_count;
@@ -1869,6 +1891,10 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     /* Init the runners to 0. */
     e->runners = NULL;
     e->nr_runners = 0;
+    
+    /* Start with no queues. */
+    e->queues = NULL;
+    e->nr_queues = 0;
     
     /* Init the bonds array. */
     e->bonds_size = 100;

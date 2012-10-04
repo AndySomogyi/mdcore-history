@@ -44,6 +44,7 @@
 #define engine_err_nocuda                -22
 #define engine_err_cudasp                -23
 #define engine_err_maxparts              -24
+#define engine_err_queue                 -25
 
 
 /* some constants */
@@ -146,6 +147,10 @@ struct engine {
     
     /** The runners */
     struct runner *runners;
+    
+    /** The queues for the runners. */
+    struct queue *queues;
+    int nr_queues;
     
     /** The ID of the computational node we are on. */
     int nodeID;
@@ -297,7 +302,7 @@ int engine_shuffle ( struct engine *e );
 int engine_split_bisect ( struct engine *e , int N );
 int engine_split ( struct engine *e );
 int engine_start_SPU ( struct engine *e , int nr_runners );
-int engine_start ( struct engine *e , int nr_runners );
+int engine_start ( struct engine *e , int nr_runners , int nr_queues );
 int engine_step ( struct engine *e );
 int engine_timers_reset ( struct engine *e );
 int engine_unload_marked ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , double *epot , int N );

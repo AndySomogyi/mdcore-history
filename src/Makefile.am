@@ -25,13 +25,13 @@ AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
     errs.h bond.h angle.h reader.h rigid.h dihedral.h exclusion.h potential_eval.h \
-    fifo.h
+    fifo.h queue.h
     
 # Both precisions have the same sources.
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
     bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
     engine_bonded.c engine_rigid.c engine_exchange.c runner_verlet.c \
-    runner_pwverlet.c runner_dopair.c fifo.c
+    runner_pwverlet.c runner_dopair.c fifo.c queue.c
 
 # CUDA sources
 if HAVECUDA
