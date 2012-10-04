@@ -606,10 +606,10 @@ int main ( int argc , char *argv[] ) {
                 e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
                 (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
             }
-        printf( "main[%i]: queue lengths are [ %i " , myrank , e.queues[0].count );
+        /* printf( "main[%i]: queue lengths are [ %i " , myrank , e.queues[0].count );
         for ( i = 1 ; i < e.nr_queues ; i++ )
             printf( "%i ", e.queues[i].count );
-        printf( "]\n" );
+        printf( "]\n" ); */
         
         /* Re-set the timers. */
         if ( engine_timers_reset( &e ) < 0 ) {
