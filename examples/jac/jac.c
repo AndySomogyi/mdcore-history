@@ -425,7 +425,7 @@ int main ( int argc , char *argv[] ) {
         
         
     /* Start the engine. */
-    if ( engine_start( &e , nr_runners ) != 0 ) {
+    if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
         printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();
@@ -606,6 +606,10 @@ int main ( int argc , char *argv[] ) {
                 e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
                 (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
             }
+        printf( "main[%i]: queue lengths are [ %i " , myrank , e.queues[0].count );
+        for ( i = 1 ; i < e.nr_queues ; i++ )
+            printf( "%i ", e.queues[i].count );
+        printf( "]\n" );
         
         /* Re-set the timers. */
         if ( engine_timers_reset( &e ) < 0 ) {
