@@ -1303,7 +1303,7 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
                 if ( queue_tuples_init( &e->queues[i] , 2*s->nr_tuples/e->nr_queues , s , s->tuples ) != queue_err_ok )
                     return error(engine_err_queue);
             for ( i = 0 ; i < s->nr_tuples ; i++ )
-                if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tuples[i] ) != queue_err_ok )
+                if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tuples[i] ) < 0 )
                     return error(engine_err_queue);
             }
         else {

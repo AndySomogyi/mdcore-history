@@ -507,6 +507,10 @@ int queue_tuples_init ( struct queue *q , int size , struct space *s , struct ce
     q->count = 0;
     q->data.tuples = tuples;
 
+    /* Init the lock. */
+    if ( lock_init( &q->lock ) != 0 )
+        return error(queue_err_lock);
+
     /* Nothing to see here. */
     return queue_err_ok;
 

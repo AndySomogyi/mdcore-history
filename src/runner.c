@@ -1359,129 +1359,6 @@ int runner_run_pairs ( struct runner *r ) {
 
     
 /**
- * @brief The #runner's main routine.
- *
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having paSSEd, calls #space_getpair until there are no pairs
- * available.
- */
-
-int runner_run_pairs_old ( struct runner *r ) {
-
-    int k, err = 0, acc = 0;
-    struct cellpair *p = NULL;
-    struct cellpair *finger;
-    struct engine *e;
-    struct space *s;
-    struct cell *ci, *cj;
-
-    /* check the inputs */
-    if ( r == NULL )
-        return error(runner_err_null);
-        
-    /* get a pointer on the engine. */
-    e = r->e;
-    s = &e->s;
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running (pairs)...\n",r->id); fflush(stdout);
-    
-    /* main loop, in which the runner should stay forever... */
-    while ( 1 ) {
-    
-        /* wait at the engine barrier */
-        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
-        if ( engine_barrier(e) < 0)
-            return error(runner_err_engine);
-            
-        /* Init the reaction counter. */
-        // runner_rcount = 0;
-                        
-        /* while i can still get a pair... */
-        /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
-        while ( 1 ) {
-        
-            /* Try to get at least one pair. */
-            if ( e->flags & engine_flag_affinity ) {
-                if ( ( p = space_getpair_spin( s , r->id , runner_bitesize , NULL , &err , 1 ) ) == NULL )
-                    break;
-                }
-            else {
-                if ( ( p = space_getpair( s , r->id , runner_bitesize , NULL , &err , 1 ) ) == NULL )
-                    break;
-                }
-
-            /* work this list of pair... */
-            for ( finger = p ; finger != NULL ; finger = finger->next ) {
-
-                /* Get the cells. */
-                ci = &( s->cells[ finger->i ] );
-                cj = &( s->cells[ finger->j ] );
-                
-                /* for each cell, prefetch the parts involved. */
-                if ( e->flags & engine_flag_prefetch ) {
-                    for ( k = 0 ; k < ci->count ; k++ )
-                        acc += ci->parts[k].id;
-                    if ( finger->i != finger->j )
-                        for ( k = 0 ; k < cj->count ; k++ )
-                            acc += cj->parts[k].id;
-                    }
-
-                /* Sorted interactions? */
-                if ( e->flags & engine_flag_verlet_pseudo ) {
-                    if ( runner_dopair_verlet2( r , ci , cj , finger->shift , finger ) < 0 )
-                        return error(runner_err);
-                    }
-                else if ( e->flags & engine_flag_verlet_pairwise ) {
-                    if ( runner_dopair_verlet( r , ci , cj , finger->shift , finger ) < 0 )
-                        return error(runner_err);
-                    }
-                else if ( e->flags & engine_flag_unsorted ) {
-                    if ( runner_dopair_unsorted( r , ci , cj , finger->shift ) < 0 )
-                        return error(runner_err);
-                    }
-                else {
-                    if ( runner_dopair( r , ci , cj , finger->shift ) < 0 )
-                        return error(runner_err);
-                    }
-
-                /* release this pair */
-                if ( e->flags & engine_flag_affinity ) {
-                    if ( space_releasepair_spin( s , finger->i , finger->j ) < 0 )
-                        return error(runner_err_space);
-                    }
-                else {
-                    if ( space_releasepair( s , finger->i , finger->j ) < 0 )
-                        return error(runner_err_space);
-                    }
-
-                }
-
-            }
-
-        /* give the reaction count */
-        // printf("runner_run: last count was %u.\n",runner_rcount);
-        r->err = acc;
-            
-        /* did things go wrong? */
-        /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
-        if ( err < 0 )
-            return error(runner_err_space);
-    
-        }
-
-    /* end well... */
-    return runner_err_ok;
-
-    }
-
-    
-/**
  * @brief The #runner's main routine (#celltuple model).
  *
  * @param r Pointer to the #runner to run.
@@ -1496,20 +1373,19 @@ int runner_run_pairs_old ( struct runner *r ) {
 
 int runner_run_tuples ( struct runner *r ) {
 
-    int res, i, j, k, ci, cj, acc = 0;
+    int i, j, k, ci, cj, acc = 0;
     struct celltuple *t;
     FPTYPE shift[3];
-    struct space *s;
-    struct engine *e;
+    struct engine *e = r->e;
+    struct space *s = &e->s;
+    int naq, qid, myqid = e->nr_queues * r->id / e->nr_runners;
     struct cell *c;
+    struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
+    unsigned int myseed = rand() + r->id;
 
     /* check the inputs */
     if ( r == NULL )
         return error(runner_err_null);
-        
-    /* Remember who the engine and the space are. */
-    e = r->e;
-    s = &(r->e->s);
         
     /* give a hoot */
     printf("runner_run: runner %i is up and running (tuples)...\n",r->id); fflush(stdout);
@@ -1522,25 +1398,45 @@ int runner_run_tuples ( struct runner *r ) {
         if ( engine_barrier(e) < 0 )
             return r->err = runner_err_engine;
             
+        /* Init the list of queues. */
+        for ( k = 0 ; k < e->nr_queues ; k++ )
+            queues[k] = &e->queues[k];
+        naq = e->nr_queues - 1;
+        queues[ myqid ] = queues[ naq ];
+                        
         // runner_rcount = 0;
                         
         /* Loop over tuples. */
-        while ( 1 ) {
+        while ( myq->next < myq->count || naq > 0  ) {
         
-            /* Get a tuple. */
-            if ( e->flags & engine_flag_affinity ) {
-                if ( ( res = space_gettuple_spin( s , &t , 1 ) ) < 0 )
-                    return r->err = runner_err_space;
-                }
-            else {
-                if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
-                    return r->err = runner_err_space;
+            /* Try to get a tuple from my own queue. */
+            if ( myq->next == myq->count || ( t = (struct celltuple *)queue_get( myq , r->id , 0 ) ) == NULL ) {
+            
+                /* Clean up the list of queues. */
+                for ( k = 0 ; k < naq ; k++ )
+                    if ( queues[k]->next == queues[k]->count )
+                        queues[k--] = queues[--naq];
+                        
+                /* If there are no queues left, go back to go, do not collect 200 FLOPs. */
+                if ( naq == 0 )
+                    continue;
+                    
+                /* Otherwise, try to grab something from a random queue. */
+                qid = rand_r( &myseed ) % naq;
+                if ( ( t = (struct celltuple *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
+                
+                    /* Add this task to my own queue. */
+                    if ( !queue_insert( myq , t ) )
+                        queue_insert( queues[qid] , t );
+                
+                    }
+            
                 }
                 
-            /* If there were no tuples left, bail. */
-            if ( res < 1 )
-                break;
-                
+            /* If I didn't get a task, try again... */
+            if ( t == NULL )
+                continue;
+
             /* for each cell, prefetch the parts involved. */
             if ( e->flags & engine_flag_prefetch )
                 for ( i = 0 ; i < t->n ; i++ ) {
