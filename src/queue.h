@@ -72,4 +72,4 @@ int queue_pairs_init ( struct queue *q , int size , struct space *s , struct cel
 int queue_tuples_init ( struct queue *q , int size , struct space *s , struct celltuple *tuples );
 void queue_reset ( struct queue *q );
 int queue_insert ( struct queue *q , void *thing );
-void *queue_get ( struct queue *q , int keep );
+void *queue_get ( struct queue *q , int rid , int keep );

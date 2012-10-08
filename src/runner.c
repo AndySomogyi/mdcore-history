@@ -1280,7 +1280,7 @@ int runner_run_pairs ( struct runner *r ) {
         while ( myq->next < myq->count || naq > 0 ) {
         
             /* Try to get a pair from my own queue. */
-            if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , 0 ) ) == NULL ) {
+            if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , r->id , 0 ) ) == NULL ) {
             
                 /* Clean up the list of queues. */
                 for ( k = 0 ; k < naq ; k++ )
@@ -1293,7 +1293,7 @@ int runner_run_pairs ( struct runner *r ) {
                     
                 /* Otherwise, try to grab something from a random queue. */
                 qid = rand_r( &myseed ) % naq;
-                if ( ( p = (struct cellpair *)queue_get( queues[qid] , 1 ) ) != NULL ) {
+                if ( ( p = (struct cellpair *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
                 
                     /* Add this task to my own queue. */
                     if ( !queue_insert( myq , p ) )
