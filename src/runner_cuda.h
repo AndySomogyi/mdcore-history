@@ -27,6 +27,7 @@
 #define cuda_maxblocks                      64
 #define cuda_memcpy_chunk                   6
 #define cuda_sum_chunk                      3
+#define cuda_maxqueues                      30
 
 
 /* Some flags that control optional behaviour */
@@ -71,6 +72,27 @@ enum {
     #define TIMER_TIC2
     #define TIMER_TOC2(tid)
 #endif
+
+
+/** Struct for a task queue. */
+struct queue_cuda {
+
+    /* Indices to the first and last elements. */
+    int first, last;
+    
+    /* Number of elements in this queue. */
+    int count;
+    
+    /* Number of elements in the recycled list. */
+    int rec_count;
+    
+    /* The queue data. */
+    int *data;
+    
+    /* The recycling list. */
+    int *rec_data;
+
+    };
 
 
 /** Struct for each cellpair (compact). */

@@ -93,13 +93,10 @@ __device__ int *cuda_taboo;
 /* The index of the next free cell pair. */
 __device__ int cuda_pair_next = 0;
 
-/* Indices for the "new" queue. */
-__device__ int cuda_queue_first = 0;
-__device__ int cuda_queue_last = 0;
+/* The per-SM task queues. */
+__device__ struct queue_cuda cuda_queues[ cuda_maxqueues ];
+__constant__ int cuda_nrqueues;
 __constant__ int cuda_queue_size;
-__device__ int cuda_queue2_last = 0;
-__device__ int *cuda_queue_data;
-__device__ int *cuda_queue2_data;
 
 /* Some constants. */
 __constant__ float cuda_cutoff2 = 0.0f;
@@ -219,29 +216,39 @@ __device__ void cuda_mutex_unlock ( int *m ) {
     
     
 /**
- * @brief Get a task ID from the queue.
+ * @brief Get a task ID from the given queue.
  *
  */
  
-__device__ int cuda_queue_gettask ( ) {
+__device__ int cuda_queue_gettask ( struct queue_cuda *q , int steal ) {
 
     int ind, tid = -1;
     
     /* Don't even try... */
-    if ( cuda_queue2_last == cuda_queue_size )
+    if ( q->rec_count == q->count )
         return -1;
 
     /* Get the index of the next task. */
-    ind = atomicAdd( &cuda_queue_first , 1 );
+    ind = atomicAdd( &q->first , 1 );
         
     /* Wrap the index. */
-    ind = cuda_queue_size; 
+    ind %= cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
-    while ( atomicCAS( &cuda_queue2_last , 0 , 0 ) < cuda_queue_size && ( tid = atomicCAS( &cuda_queue_data[ind] , 0 , 0 ) ) < 0 );
+    while ( atomicCAS( &q->rec_count , 0 , 0 ) < q->count && ( tid = atomicCAS( &q->data[ind] , 0 , 0 ) ) < 0 );
     
-    /* Scratch that task from the queue. */
-    cuda_queue_data[ind] = -1;
+    
+    /* Did we get a task? */
+    if ( tid >= 0 ) {
+    
+        /* Scratch that task from the queue. */
+        q->data[ind] = -1;
+        
+        /* Forget about ever getting this task back? */
+        if ( steal )
+            atomicSub( &q->count , 1 );
+            
+        }
     
     /* Return the acquired task ID. */
     return tid;
@@ -250,39 +257,56 @@ __device__ int cuda_queue_gettask ( ) {
 
 
 /**
- * @brief Put a task onto the queue.
+ * @brief Put a task onto the given queue.
  *
  * @param tid The task ID to add to the end of the queue.
  */
  
-__device__ void cuda_queue_puttask ( int tid ) {
+__device__ void cuda_queue_puttask ( struct queue_cuda *q , int tid ) {
 
     int ind;
 
     /* Get the index of the next task. */
-    ind = atomicAdd( &cuda_queue_last , 1 ) % cuda_queue_size;
+    ind = atomicAdd( &q->last , 1 ) % cuda_queue_size;
     
     /* Wait for the slot in the queue to be empty. */
-    while ( cuda_queue_data[ind] != -1 );
+    while ( q->data[ind] != -1 );
 
     /* Write the task back to the queue. */
-    cuda_queue_data[ind] = tid;
+    q->data[ind] = tid;
     
     }
     
     
 /**
- * @brief Get a task from the task queue.
+ * @brief Get the ID of the block's SM.
  */
  
-__device__ int runner_cuda_gettask ( ) {
+__noinline__ __device__ uint get_smid ( void ) {
+    uint ret;
+    asm("mov.u32 %0, %smid;" : "=r"(ret) );
+    return ret;
+    }
+
+
+/**
+ * @brief Get a task from the given task queue.
+ *
+ * Picks tasks from the queue sequentially and checks if they
+ * can be computed. If not, they are returned to the queue.
+ *
+ * This routine blocks until a valid task is picked up, or the
+ * specified queue is empty.
+ */
+ 
+__device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
 
     int tid = -1, cid, cjd;
     
     TIMER_TIC
     
     /* Main loop. */
-    while ( ( tid = cuda_queue_gettask() ) >= 0 ) {
+    while ( ( tid = cuda_queue_gettask( q , steal ) ) >= 0 ) {
     
         /* Decode this task. */
         cid = cuda_pairs[tid].i;
@@ -296,13 +320,13 @@ __device__ int runner_cuda_gettask ( ) {
                 cuda_mutex_unlock( &cuda_taboo[ cid ] );
                 
         /* Put this task back into the queue. */
-        cuda_queue_puttask( tid );
+        cuda_queue_puttask( q , tid );
     
         }
         
-    /* Put this task into the second queue. */
-    if ( tid >= 0 )
-        cuda_queue2_data[ atomicAdd( &cuda_queue2_last , 1 ) ] = tid;
+    /* Put this task into the recycling queue, if needed. */
+    if ( tid >= 0 && !steal )
+        q->rec_data[ atomicAdd( &q->rec_count , 1 ) ] = tid;
         
     TIMER_TOC(tid_queue);
         
@@ -4117,6 +4141,83 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
 
 
 /**
+ * @brief Load the queues onto the CUDA device.
+ *
+ * @param e The #engine.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_cuda_queues_load ( struct engine *e ) {
+    
+    int did, nr_queues, qid, k, qsize, nr_pairs = e->s.nr_pairs;
+    struct cudaDeviceProp prop;
+    int *data;
+    struct queue_cuda queues[ cuda_maxqueues ];
+    
+    /* Get the device properties. */
+    if ( cudaGetDevice( &did ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaGetDeviceProperties( &prop , did ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
+    /* Get the number of SMs on the current device. */
+    nr_queues = prop.multiProcessorCount;
+    
+    /* Set the size of each queue. */
+    qsize = 2 * nr_pairs / nr_queues;
+    if ( cudaMemcpyToSymbol( cuda_queue_size , &qsize , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    
+    /* Allocate a temporary buffer for the queue data. */
+    data = (int *)alloca( sizeof(int) * qsize );
+    
+    /* Set the number of queues. */
+    if ( cudaMemcpyToSymbol( cuda_nrqueues , &nr_queues , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    
+    /* Init each queue separately. */
+    for ( qid = 0 ; qid < nr_queues ; qid++ ) {
+    
+        /* Fill the data for this queue. */
+        queues[qid].count = 0;
+        for ( k = qid ; k < nr_pairs ; k += nr_queues )
+            data[ queues[qid].count++ ] = k;
+        for ( k = queues[qid].count ; k < qsize ; k++ )
+            data[k] = -1;
+            
+        /* Allocate and copy the data. */
+        if ( cudaMalloc( &queues[qid].data , sizeof(int) * qsize ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( queues[qid].data , data , sizeof(int) * qsize , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        
+        /* Allocate and copy the recycling data. */
+        for ( k = 0 ; k < queues[qid].count ; k++ )
+            data[k] = -1;
+        if ( cudaMalloc( &queues[qid].rec_data , sizeof(int) * qsize ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( queues[qid].rec_data , data , sizeof(int) * qsize , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        
+        /* Set some other values. */
+        queues[qid].first = 0;
+        queues[qid].last = queues[qid].count;
+        queues[qid].rec_count = 0;
+            
+        }
+        
+    /* Copy the queue structures to the device. */
+    if ( cudaMemcpyToSymbol( cuda_queues , queues , sizeof(struct queue_cuda) * nr_queues , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
+    /* Fade to grey. */
+    return engine_err_ok;
+
+    }
+    
+
+/**
  * @brief Load the potentials and cell pairs onto the CUDA device.
  *
  * @param e The #engine.
@@ -4136,8 +4237,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
-    void *devptr;
-    unsigned int *taboo_cuda, pairIDs[ e->s.nr_pairs ], *diags, *diags_cuda;
+    unsigned int *taboo_cuda, *diags, *diags_cuda;
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -4322,22 +4422,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
         
     /* Init the pair queue on the device. */
-    for ( k = 0 ; k < e->s.nr_pairs ; k++ )
-        pairIDs[k] = k;
-    if ( cudaMalloc( &devptr , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpy( devptr , pairIDs , sizeof(int) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_queue_data , &devptr , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMalloc( &devptr , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_queue2_data , &devptr , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_queue_size , &e->s.nr_pairs , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_queue_last , &e->s.nr_pairs , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
+    if ( engine_cuda_queues_load( e ) < 0 )
+        return error(engine_err);
         
     /* He's done it! */
     return engine_err_ok;

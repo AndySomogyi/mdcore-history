@@ -45,6 +45,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nrparts ];
         unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nrparts ];
     #else
+        unsigned int seed = 6178 + blockIdx.x;
         float *forces_i, *forces_j;
         __shared__ unsigned int sort_i[ cuda_nrparts ];
         __shared__ unsigned int sort_j[ cuda_nrparts ];
@@ -57,6 +58,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             float4 *parts_i, *parts_j;
         #endif
     #endif
+    struct queue_cuda *myq , *queues[ cuda_maxqueues ];
+    int naq = cuda_nrqueues, qid;
     
     TIMER_TIC2
     
@@ -72,18 +75,49 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         } */
         
 
-    /* Let the first thread grab a pair. */
+    /* Init the list of queues. */
     if ( threadID == 0 ) {
-        #ifdef FORCES_LOCAL
-            pid = atomicAdd( &cuda_pair_next , 1 );
-        #else
-            pid = runner_cuda_gettask();
-        #endif
+        myq = &cuda_queues[ get_smid() ];
+        for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
+            queues[qid] = &cuda_queues[qid];
+        naq = cuda_nrqueues - 1;
+        queues[ get_smid() ] = queues[ naq ];
         }
-            
+        
+
     /* Main loop... */
     while ( pid >= 0 && pid < cuda_nr_pairs ) {
     
+        /* Let the first thread grab a pair. */
+        if ( threadID == 0 ) {
+            #ifdef FORCES_LOCAL
+                pid = atomicAdd( &cuda_pair_next , 1 );
+                if ( pid > cuda_nr_pairs )
+                    pid = -1;
+            #else
+                while ( 1 ) {
+                    if ( myq->rec_count >= myq->count || ( pid = runner_cuda_gettask( myq , 0 ) ) < 0 ) {
+                        for ( qid = 0 ; qid < naq ; qid++ )
+                            if ( queues[qid]->rec_count >= queues[qid]->count )
+                                queues[ qid-- ] = queues[ --naq ];
+                        if ( naq == 0 )
+                            break;
+                        seed = 1103515245 * seed + 12345;
+                        qid = seed & naq;
+                        if ( ( pid = runner_cuda_gettask( queues[qid] , 1 ) ) >= 0 ) {
+                            myq->rec_data[ atomicAdd( &myq->rec_count , 1 ) ] = pid;
+                            atomicAdd( &myq->count , 1 );
+                            break;
+                            }
+                        }
+                    }
+            #endif
+            }
+            
+        /* Exit if we didn't get a valid pair. */
+        if ( pid < 0 )
+            break;
+
         /* Get a hold of the pair cells. */
         cid = cuda_pairs[pid].i;
         cjd = cuda_pairs[pid].j;
@@ -261,15 +295,6 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         
             }
             
-        /* Let the first thread grab the next pair. */
-        if ( threadID == 0 ) {
-            #ifdef FORCES_LOCAL
-                pid = atomicAdd( &cuda_pair_next , 1 );
-            #else
-                pid = runner_cuda_gettask();
-            #endif
-            }
-            
         } /* main loop. */
         
     /* Accumulate the potential energy. */
@@ -283,9 +308,12 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         #ifdef FORCES_LOCAL
             cuda_pair_next = 0;
         #else
-            int *temp = cuda_queue_data; cuda_queue_data = cuda_queue2_data; cuda_queue2_data = temp;
-            cuda_queue_first = cuda_queue2_last = 0;
-            cuda_queue_last = cuda_nr_pairs;
+            for ( qid = 0 ; qid < cuda_nrqueues ; qid++ ) {
+                int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
+                cuda_queues[qid].first = 0;
+                cuda_queues[qid].last = cuda_queues[qid].count;
+                cuda_queues[qid].rec_count = 0;
+                }
         #endif
         }
     
@@ -315,6 +343,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nrparts ];
         unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nrparts ];
     #else
+        unsigned int seed = 6178 + blockIdx.x;
         float *forces_i, *forces_j;
         __shared__ unsigned int sort_i[ cuda_nrparts ];
         __shared__ unsigned int sort_j[ cuda_nrparts ];
@@ -327,7 +356,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             float4 *parts_i, *parts_j;
         #endif
     #endif
-    // float *forces_k;
+    struct queue_cuda *myq , *queues[ cuda_maxqueues ];
+    int naq = cuda_nrqueues, qid;
     
     TIMER_TIC2
     
@@ -342,19 +372,49 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         return;
         } */
         
-
-    /* Let the first thread grab a pair. */
+    /* Init the list of queues. */
     if ( threadID == 0 ) {
-        #ifdef FORCES_LOCAL
-            pid = atomicAdd( &cuda_pair_next , 1 );
-        #else
-            pid = runner_cuda_gettask();
-        #endif
+        myq = &cuda_queues[ get_smid() ];
+        for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
+            queues[qid] = &cuda_queues[qid];
+        naq = cuda_nrqueues - 1;
+        queues[ get_smid() ] = queues[ naq ];
         }
-            
+        
+
     /* Main loop... */
-    while ( pid >= 0 && pid < cuda_nr_pairs ) {
+    while ( 1 ) {
     
+        /* Let the first thread grab a pair. */
+        if ( threadID == 0 ) {
+            #ifdef FORCES_LOCAL
+                pid = atomicAdd( &cuda_pair_next , 1 );
+                if ( pid > cuda_nr_pairs )
+                    pid = -1;
+            #else
+                while ( 1 ) {
+                    if ( myq->rec_count >= myq->count || ( pid = runner_cuda_gettask( myq , 0 ) ) < 0 ) {
+                        for ( qid = 0 ; qid < naq ; qid++ )
+                            if ( queues[qid]->rec_count >= queues[qid]->count )
+                                queues[ qid-- ] = queues[ --naq ];
+                        if ( naq == 0 )
+                            break;
+                        seed = 1103515245 * seed + 12345;
+                        qid = seed & naq;
+                        if ( ( pid = runner_cuda_gettask( queues[qid] , 1 ) ) >= 0 ) {
+                            myq->rec_data[ atomicAdd( &myq->rec_count , 1 ) ] = pid;
+                            atomicAdd( &myq->count , 1 );
+                            break;
+                            }
+                        }
+                    }
+            #endif
+            }
+            
+        /* Exit if we didn't get a valid pair. */
+        if ( pid < 0 )
+            break;
+            
         /* Get a hold of the pair cells. */
         cid = cuda_pairs[pid].i;
         cjd = cuda_pairs[pid].j;
@@ -539,15 +599,6 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             
             }
           
-        /* Let the first thread grab the next pair. */
-        if ( threadID == 0 ) {
-            #ifdef FORCES_LOCAL
-                pid = atomicAdd( &cuda_pair_next , 1 );
-            #else
-                pid = runner_cuda_gettask();
-            #endif
-            }
-            
         } /* main loop. */
 
     /* Accumulate the potential energy. */
@@ -561,9 +612,12 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         #ifdef FORCES_LOCAL
             cuda_pair_next = 0;
         #else
-            int *temp = cuda_queue_data; cuda_queue_data = cuda_queue2_data; cuda_queue2_data = temp;
-            cuda_queue_first = cuda_queue2_last = 0;
-            cuda_queue_last = cuda_nr_pairs;
+            for ( qid = 0 ; qid < cuda_nrqueues ; qid++ ) {
+                int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
+                cuda_queues[qid].first = 0;
+                cuda_queues[qid].last = cuda_queues[qid].count;
+                cuda_queues[qid].rec_count = 0;
+                }
         #endif
         }
     
