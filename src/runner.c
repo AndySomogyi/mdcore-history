@@ -1254,6 +1254,7 @@ int runner_run_pairs ( struct runner *r ) {
     struct cell *ci, *cj;
     struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
     unsigned int myseed = rand() + r->id;
+    int count;
 
     /* give a hoot */
     printf( "runner_run: runner %i is up and running on queue %i (pairs)...\n" , r->id , myqid ); fflush(stdout);
@@ -1283,9 +1284,12 @@ int runner_run_pairs ( struct runner *r ) {
             if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , r->id , 0 ) ) == NULL ) {
             
                 /* Clean up the list of queues. */
-                for ( k = 0 ; k < naq ; k++ )
+                count = 0;
+                for ( k = 0 ; k < naq ; k++ ) {
+                    count += queues[k]->count - queues[k]->next;
                     if ( queues[k]->next == queues[k]->count )
                         queues[k--] = queues[--naq];
+                    }
                         
                 /* If there are no queues left, go back to go, do not collect 200 FLOPs. */
                 if ( naq == 0 )
@@ -1301,6 +1305,10 @@ int runner_run_pairs ( struct runner *r ) {
                 
                     }
             
+                /* If there are more queues than tasks, fall on sword. */
+                if ( p == NULL && count < r->id )
+                    break;
+                    
                 }
                 
             /* If I didn't get a task, try again... */
