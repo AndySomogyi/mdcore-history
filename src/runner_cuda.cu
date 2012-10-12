@@ -220,7 +220,7 @@ __device__ void cuda_mutex_unlock ( int *m ) {
  *
  */
  
-__device__ int cuda_queue_gettask ( struct queue_cuda *q , int steal ) {
+__device__ int cuda_queue_gettask ( struct queue_cuda *q ) {
 
     int ind, tid = -1;
     
@@ -235,21 +235,13 @@ __device__ int cuda_queue_gettask ( struct queue_cuda *q , int steal ) {
     ind %= cuda_queue_size; 
 
     /* Loop until there is a valid task at that index. */
-    while ( atomicCAS( &q->rec_count , 0 , 0 ) < q->count && ( tid = atomicCAS( &q->data[ind] , 0 , 0 ) ) < 0 );
+    while ( q->rec_count < q->count && ( tid = q->data[ind] ) < 0 );
     
     
-    /* Did we get a task? */
-    if ( tid >= 0 ) {
-    
-        /* Scratch that task from the queue. */
+    /* Scratch the task from the queue */
+    if ( tid >= 0 )
         q->data[ind] = -1;
-        
-        /* Forget about ever getting this task back? */
-        if ( steal )
-            atomicSub( &q->count , 1 );
-            
-        }
-    
+
     /* Return the acquired task ID. */
     return tid;
     
@@ -306,7 +298,7 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
     TIMER_TIC
     
     /* Main loop. */
-    while ( ( tid = cuda_queue_gettask( q , steal ) ) >= 0 ) {
+    while ( ( tid = cuda_queue_gettask( q ) ) >= 0 ) {
     
         /* Decode this task. */
         cid = cuda_pairs[tid].i;
@@ -325,8 +317,12 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
         }
         
     /* Put this task into the recycling queue, if needed. */
-    if ( tid >= 0 && !steal )
-        q->rec_data[ atomicAdd( &q->rec_count , 1 ) ] = tid;
+    if ( tid >= 0 ) {
+        if ( steal )
+            atomicSub( (int *)&q->count , 1 );
+        else
+            q->rec_data[ atomicAdd( (int *)&q->rec_count , 1 ) ] = tid;
+        }
         
     TIMER_TOC(tid_queue);
         
@@ -4165,7 +4161,7 @@ int engine_cuda_queues_load ( struct engine *e ) {
     nr_queues = prop.multiProcessorCount;
     
     /* Set the size of each queue. */
-    qsize = 2 * nr_pairs / nr_queues;
+    qsize = 3 * nr_pairs / min( nr_queues , e->nr_runners );
     if ( cudaMemcpyToSymbol( cuda_queue_size , &qsize , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
@@ -4189,7 +4185,7 @@ int engine_cuda_queues_load ( struct engine *e ) {
         /* Allocate and copy the data. */
         if ( cudaMalloc( &queues[qid].data , sizeof(int) * qsize ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
-        if ( cudaMemcpy( queues[qid].data , data , sizeof(int) * qsize , cudaMemcpyHostToDevice ) != cudaSuccess )
+        if ( cudaMemcpy( (void *)queues[qid].data , data , sizeof(int) * qsize , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         
         /* Allocate and copy the recycling data. */
@@ -4197,7 +4193,7 @@ int engine_cuda_queues_load ( struct engine *e ) {
             data[k] = -1;
         if ( cudaMalloc( &queues[qid].rec_data , sizeof(int) * qsize ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
-        if ( cudaMemcpy( queues[qid].rec_data , data , sizeof(int) * qsize , cudaMemcpyHostToDevice ) != cudaSuccess )
+        if ( cudaMemcpy( (void *)queues[qid].rec_data , data , sizeof(int) * qsize , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         
         /* Set some other values. */

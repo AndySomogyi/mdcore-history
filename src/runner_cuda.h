@@ -41,6 +41,7 @@
 enum {
     tid_mutex = 0,
     tid_queue,
+    tid_gettask,
     tid_memcpy,
     tid_update,
     tid_pack,
@@ -81,16 +82,16 @@ struct queue_cuda {
     int first, last;
     
     /* Number of elements in this queue. */
-    int count;
+    volatile int count;
     
     /* Number of elements in the recycled list. */
-    int rec_count;
+    volatile int rec_count;
     
     /* The queue data. */
-    int *data;
+    volatile int *data;
     
     /* The recycling list. */
-    int *rec_data;
+    volatile int *rec_data;
 
     };
 

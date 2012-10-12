@@ -95,22 +95,33 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                 if ( pid > cuda_nr_pairs )
                     pid = -1;
             #else
+                TIMER_TIC
                 while ( 1 ) {
                     if ( myq->rec_count >= myq->count || ( pid = runner_cuda_gettask( myq , 0 ) ) < 0 ) {
                         for ( qid = 0 ; qid < naq ; qid++ )
                             if ( queues[qid]->rec_count >= queues[qid]->count )
                                 queues[ qid-- ] = queues[ --naq ];
-                        if ( naq == 0 )
+                        if ( naq == 0 ) {
+                            pid = -1;
                             break;
+                            }
                         seed = 1103515245 * seed + 12345;
-                        qid = seed & naq;
+                        qid = seed % naq;
                         if ( ( pid = runner_cuda_gettask( queues[qid] , 1 ) ) >= 0 ) {
-                            myq->rec_data[ atomicAdd( &myq->rec_count , 1 ) ] = pid;
-                            atomicAdd( &myq->count , 1 );
+                            if ( atomicAdd( (int *)&myq->count , 1 ) < cuda_queue_size )
+                                myq->rec_data[ atomicAdd( (int *)&myq->rec_count , 1 ) ] = pid;
+                            else {
+                                atomicSub( (int *)&myq->count , 1 );
+                                atomicAdd( (int *)&queues[qid]->count , 1 );
+                                queues[qid]->rec_data[ atomicAdd( (int *)&queues[qid]->rec_count , 1 ) ] = pid;
+                                }
                             break;
                             }
                         }
+                    else
+                        break;
                     }
+                TIMER_TOC(tid_gettaks)
             #endif
             }
             
@@ -309,7 +320,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             cuda_pair_next = 0;
         #else
             for ( qid = 0 ; qid < cuda_nrqueues ; qid++ ) {
-                int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
+                volatile int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
                 cuda_queues[qid].first = 0;
                 cuda_queues[qid].last = cuda_queues[qid].count;
                 cuda_queues[qid].rec_count = 0;
@@ -374,7 +385,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         
     /* Init the list of queues. */
     if ( threadID == 0 ) {
-        myq = &cuda_queues[ get_smid() ];
+        myq = &cuda_queues[ get_smid() % cuda_nrqueues ];
         for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
             queues[qid] = &cuda_queues[qid];
         naq = cuda_nrqueues - 1;
@@ -392,22 +403,33 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 if ( pid > cuda_nr_pairs )
                     pid = -1;
             #else
+                TIMER_TIC
                 while ( 1 ) {
                     if ( myq->rec_count >= myq->count || ( pid = runner_cuda_gettask( myq , 0 ) ) < 0 ) {
                         for ( qid = 0 ; qid < naq ; qid++ )
                             if ( queues[qid]->rec_count >= queues[qid]->count )
                                 queues[ qid-- ] = queues[ --naq ];
-                        if ( naq == 0 )
+                        if ( naq == 0 ) {
+                            pid = -1;
                             break;
+                            }
                         seed = 1103515245 * seed + 12345;
-                        qid = seed & naq;
+                        qid = seed % naq;
                         if ( ( pid = runner_cuda_gettask( queues[qid] , 1 ) ) >= 0 ) {
-                            myq->rec_data[ atomicAdd( &myq->rec_count , 1 ) ] = pid;
-                            atomicAdd( &myq->count , 1 );
+                            if ( atomicAdd( (int *)&myq->count , 1 ) < cuda_queue_size )
+                                myq->rec_data[ atomicAdd( (int *)&myq->rec_count , 1 ) ] = pid;
+                            else {
+                                atomicSub( (int *)&myq->count , 1 );
+                                atomicAdd( (int *)&queues[qid]->count , 1 );
+                                queues[qid]->rec_data[ atomicAdd( (int *)&queues[qid]->rec_count , 1 ) ] = pid;
+                                }
                             break;
                             }
                         }
+                    else
+                        break;
                     }
+                TIMER_TOC(tid_gettaks)
             #endif
             }
             
@@ -612,12 +634,16 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         #ifdef FORCES_LOCAL
             cuda_pair_next = 0;
         #else
+            // int nr_tasks = 0;
             for ( qid = 0 ; qid < cuda_nrqueues ; qid++ ) {
-                int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
+                volatile int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
                 cuda_queues[qid].first = 0;
                 cuda_queues[qid].last = cuda_queues[qid].count;
                 cuda_queues[qid].rec_count = 0;
+                // printf( "runner_cuda: queue %i has %i elements.\n" , qid , cuda_queues[qid].count );
+                // nr_tasks += cuda_queues[qid].count;
                 }
+            // printf( "runner_cuda: counted %i tasks in all queues.\n" , nr_tasks );
         #endif
         }
     
