@@ -1254,8 +1254,7 @@ int runner_run_pairs ( struct runner *r ) {
     struct cell *ci, *cj;
     struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
     unsigned int myseed = rand() + r->id;
-    int count, backoff = 0;
-    struct timespec ts = { 0 , 0 };
+    int count;
 
     /* give a hoot */
     printf( "runner_run: runner %i is up and running on queue %i (pairs)...\n" , r->id , myqid ); fflush(stdout);
@@ -1315,21 +1314,18 @@ int runner_run_pairs ( struct runner *r ) {
             /* If I didn't get a task, try again... */
             if ( p == NULL ) {
                 
-                /* Take a nap? */
-                if ( backoff == 0 )
-                    backoff = runner_minsleep;
-                else {
-                    ts.tv_nsec = rand_r( &myseed ) % backoff;
-                    nanosleep( &ts , NULL );
-                    backoff *= 2;
-                    }
+                /* Wait for a sign. */
+                if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+                    return error(runner_err_pthread);
+                if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
+                    return error(runner_err_pthread);
+                if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+                    return error(runner_err_pthread);
                 
                 /* Skip back to the top of the queue. */
                 continue;
                 
                 }
-            else
-                backoff = 0;
 
             /* Get the cells. */
             ci = &( s->cells[ p->i ] );
@@ -1362,9 +1358,18 @@ int runner_run_pairs ( struct runner *r ) {
                     return error(runner_err);
                 }
 
-            /* release this pair */
+            /* Release this pair */
             s->cells_taboo[ p->i ] = 0;
             s->cells_taboo[ p->j ] = 0;
+            
+            /* Bing! */
+            if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+                return error(runner_err_pthread);
+            if ( pthread_cond_broadcast( &s->cellpairs_avail ) != 0 )
+                return error(runner_err_pthread);
+            if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+                return error(runner_err_pthread);
+            
 
             }
 
