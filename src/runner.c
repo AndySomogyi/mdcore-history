@@ -1284,7 +1284,7 @@ int runner_run_pairs ( struct runner *r ) {
             if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , r->id , 0 ) ) == NULL ) {
             
                 /* Clean up the list of queues. */
-                count = 0;
+                count = myq->count - myq->next;
                 for ( k = 0 ; k < naq ; k++ ) {
                     count += queues[k]->count - queues[k]->next;
                     if ( queues[k]->next == queues[k]->count )

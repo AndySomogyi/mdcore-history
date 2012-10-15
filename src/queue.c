@@ -79,128 +79,6 @@ char *queue_err_msg[5] = {
  *      or @c NULL if none could be found.
  */
  
-void *queue_get_old ( struct queue *q , int rid , int keep ) {
-
-    int j, k, tid = -1, qflags = q->flags;
-    struct cellpair *p;
-    struct celltuple *t;
-    struct space *s = q->space;
-    char *cells_taboo = s->cells_taboo, *cells_owner = s->cells_owner;
-
-    /* Check if the queue is empty first. */
-    if ( q->next >= q->count )
-        return NULL;
-
-    /* Lock the queue. */
-    if ( lock_lock( &q->lock ) != 0 ) {
-        error(queue_err_lock);
-        return NULL;
-        }
-        
-    /* Loop over the entries. */
-    for ( k = q->next ; k < q->count ; k++ ) {
-    
-        /* Pairs or tuples? */
-        if ( qflags & queue_flag_pairs ) {
-        
-            /* Put a finger on the kth pair. */
-            p = &q->data.pairs[ q->ind[k] ];
-            
-            /* Is this pair ok? */
-            if ( __sync_val_compare_and_swap( &cells_taboo[ p->i ] , 0 , 1 ) == 0 ) {
-                if ( p->i == p->j || __sync_val_compare_and_swap( &cells_taboo[ p->j ] , 0 , 1 ) == 0 )
-                    break;
-                else
-                    s->cells_taboo[ p->i ] = 0;
-                }
-        
-            }
-            
-        else {
-        
-            /* Put a finger on the kth tuple. */
-            t = &q->data.tuples[ q->ind[k] ];
-            
-            /* Is this tuple ok? */
-            for ( j = 0 ; j < t->n ; j++ )
-                if ( __sync_val_compare_and_swap( &cells_taboo[ t->cellid[ j ] ] , 0 , 1 ) != 0 )
-                    break;
-            if ( j == t->n )
-                break;
-            else
-                while ( j >= 0 )
-                    cells_taboo[ t->cellid[ j-- ] ] = 0;
-            
-            }
-    
-        } /* loop over the entries. */
-        
-    /* Did we get an entry? */
-    if ( k < q->count ) {
-    
-        /* Keep an eye on this index. */
-        tid = q->ind[k];
-        
-        /* Own this pair/tuple. */
-        if ( qflags & queue_flag_pairs ) {
-            p = &q->data.pairs[ q->ind[k] ];
-            cells_owner[ p->i ] = rid;
-            cells_owner[ p->j ] = rid;
-            }
-        else {
-            t = &q->data.tuples[ q->ind[k] ];
-            for ( j = 0 ; j < t->n ; j++ )
-                cells_owner[ t->cellid[ j ] ] = rid;
-            }
-    
-        /* Remove this entry from the queue? */
-        if ( keep ) {
-        
-            /* Shuffle all the indices down. */
-            q->count -= 1;
-            for ( j = k ; j < q->count ; j++ )
-                q->ind[j] = q->ind[j+1];
-        
-            }
-            
-        /* Otherwise, just shuffle it to the front. */
-        else {
-        
-            /* Bubble down... */
-            while ( k > q->next ) {
-                q->ind[k] = q->ind[k-1];
-                k -= 1;
-                }
-                
-            /* Write the original index back to the list. */
-            q->ind[ k ] = tid;
-            
-            /* Move the next pointer up a notch. */
-            q->next += 1;
-        
-            }
-    
-        } /* did we get an entry? */
-
-    /* Unlock the queue. */
-    if ( lock_unlock( &q->lock ) != 0 ) {
-        error(queue_err_lock);
-        return NULL;
-        }
-        
-    /* Return whatever we've got. */
-    if ( tid == -1 )
-        return NULL;
-    else {
-        if ( qflags & queue_flag_pairs )
-            return &q->data.pairs[ tid ];
-        else
-            return &q->data.tuples[ tid ];
-        }
-        
-    }
-
-
 void *queue_get ( struct queue *q , int rid , int keep ) {
 
     int j, k, tid = -1, ind_best = -1, score, score_best = -1, qflags = q->flags;
@@ -236,18 +114,35 @@ void *queue_get ( struct queue *q , int rid , int keep ) {
                 continue;
             
             /* Is this pair ok? */
-            if ( __sync_val_compare_and_swap( &cells_taboo[ p->i ] , 0 , 1 ) == 0 ) {
-                if ( p->i == p->j || __sync_val_compare_and_swap( &cells_taboo[ p->j ] , 0 , 1 ) == 0 ) {
-                    if ( ind_best >= 0 ) {
-                        p = &q->data.pairs[ q->ind[ ind_best ] ];
-                        cells_taboo[ p->i ] = 0;
-                        cells_taboo[ p->j ] = 0;
+            if ( rid & 1 ) {
+                if ( __sync_val_compare_and_swap( &cells_taboo[ p->i ] , 0 , 1 ) == 0 ) {
+                    if ( p->i == p->j || __sync_val_compare_and_swap( &cells_taboo[ p->j ] , 0 , 1 ) == 0 ) {
+                        if ( ind_best >= 0 ) {
+                            p = &q->data.pairs[ q->ind[ ind_best ] ];
+                            cells_taboo[ p->i ] = 0;
+                            cells_taboo[ p->j ] = 0;
+                            }
+                        score_best = score;
+                        ind_best = k;
                         }
-                    score_best = score;
-                    ind_best = k;
+                    else
+                        cells_taboo[ p->i ] = 0;
                     }
-                else
-                    cells_taboo[ p->i ] = 0;
+                }
+            else {
+                if ( __sync_val_compare_and_swap( &cells_taboo[ p->j ] , 0 , 1 ) == 0 ) {
+                    if ( p->i == p->j || __sync_val_compare_and_swap( &cells_taboo[ p->i ] , 0 , 1 ) == 0 ) {
+                        if ( ind_best >= 0 ) {
+                            p = &q->data.pairs[ q->ind[ ind_best ] ];
+                            cells_taboo[ p->i ] = 0;
+                            cells_taboo[ p->j ] = 0;
+                            }
+                        score_best = score;
+                        ind_best = k;
+                        }
+                    else
+                        cells_taboo[ p->j ] = 0;
+                    }
                 }
         
             }
