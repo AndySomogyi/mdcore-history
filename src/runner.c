@@ -1254,7 +1254,8 @@ int runner_run_pairs ( struct runner *r ) {
     struct cell *ci, *cj;
     struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
     unsigned int myseed = rand() + r->id;
-    int count;
+    int count, backoff = 0;
+    struct timespec ts = { 0 , 0 };
 
     /* give a hoot */
     printf( "runner_run: runner %i is up and running on queue %i (pairs)...\n" , r->id , myqid ); fflush(stdout);
@@ -1312,8 +1313,23 @@ int runner_run_pairs ( struct runner *r ) {
                 }
                 
             /* If I didn't get a task, try again... */
-            if ( p == NULL )
+            if ( p == NULL ) {
+                
+                /* Take a nap? */
+                if ( backoff == 0 )
+                    backoff = runner_minsleep;
+                else {
+                    ts.tv_nsec = rand_r( &myseed ) % backoff;
+                    nanosleep( &ts , NULL );
+                    backoff *= 2;
+                    }
+                
+                /* Skip back to the top of the queue. */
                 continue;
+                
+                }
+            else
+                backoff = 0;
 
             /* Get the cells. */
             ci = &( s->cells[ p->i ] );

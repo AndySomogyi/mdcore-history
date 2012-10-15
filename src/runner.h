@@ -32,6 +32,9 @@
 
 
 /* some constants */
+/* Minimum number of nanoseconds to sleep if no task available. */
+#define runner_minsleep                  1000
+
 /** Maximum number of cellpairs to get from space_getpair. */
 #define runner_bitesize                  3
 
