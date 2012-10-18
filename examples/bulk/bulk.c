@@ -83,9 +83,10 @@ int main ( int argc , char *argv[] ) {
     #ifdef CELL
         unsigned long long tic, toc, toc_step, toc_temp;
     #else
-        ticks tic, toc, toc_step, toc_temp;
+        ticks tic_step, tic_temp, tic, toc, toc_step, toc_temp;
     #endif
     double itpms = 1000.0 / CPU_TPS;
+    int myrank = 0;
     
     #ifdef CELL
         tic = __mftb();
@@ -342,7 +343,7 @@ int main ( int argc , char *argv[] ) {
             return 1;
             }
     #else
-        if ( engine_start( &e , nr_runners ) != 0 ) {
+        if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
             printf("main: engine_start failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
@@ -358,22 +359,22 @@ int main ( int argc , char *argv[] ) {
     
         // take a step
         #ifdef CELL
-            tic = __mftb();
+            tic_step = __mftb();
         #else
-            tic = getticks();
+            tic_step = getticks();
         #endif
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
             errs_dump(stdout);
             return 1;
-            }
-        #ifdef CELL
-            toc_step = __mftb();
-        #else
-            toc_step = getticks();
-        #endif
-        
+            }        
             
+        // take a step
+        #ifdef CELL
+            tic_temp = __mftb();
+        #else
+            tic_temp = getticks();
+        #endif
         // get the total COM-velocities, ekin and epot
         vcom_tot[0] = 0.0; vcom_tot[1] = 0.0; vcom_tot[2] = 0.0;
         ekin = 0.0; epot = e.s.epot;
@@ -415,15 +416,33 @@ int main ( int argc , char *argv[] ) {
             
 
         #ifdef CELL
-            toc_temp = __mftb();
+            toc_step = toc_temp = __mftb();
         #else
-            toc_temp = getticks();
+            toc_step = toc_temp = getticks();
         #endif
-        printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
-            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
-            e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms, e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
-            (toc_temp-toc_step)*itpms ); fflush(stdout);
-        fflush(stdout);
+        /* Drop a line. */
+        toc_step = getticks();
+        if ( myrank == 0 ) {
+            /* printf("%i %e %e %e %i %i %.3f ms\n",
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
+            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
+                e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
+                e.timers[engine_timer_cuda_load]*itpms, e.timers[engine_timer_cuda_dopairs]*itpms, e.timers[engine_timer_cuda_unload]*itpms, 
+                (toc_temp - tic_temp)*itpms ); fflush(stdout);
+            /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
+                e.timers[engine_timer_bonds]*itpms, e.timers[engine_timer_angles]*itpms, e.timers[engine_timer_dihedrals]*itpms, e.timers[engine_timer_exclusions]*itpms, 
+                e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
+            }
+        /* printf( "main[%i]: queue lengths are [ %i " , myrank , e.queues[0].count );
+        for ( i = 1 ; i < e.nr_queues ; i++ )
+            printf( "%i ", e.queues[i].count );
+        printf( "]\n" ); */
         
         /* Re-set the timers. */
         if ( engine_timers_reset( &e ) < 0 ) {

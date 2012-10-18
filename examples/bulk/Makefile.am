@@ -25,53 +25,69 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS) $(CUDA_LIBS)
 
 # Set-up the library
-bin_PROGRAMS = bulk bulk_single bulk_verlet bulk_single_verlet bulk_pwverlet bulk_single_pwverlet bulk_pwverlet2 bulk_single_pwverlet2
+bin_PROGRAMS = bulk_noverlet bulk_verlet bulk_pwverlet bulk_pseudoverlet
+
+# Build a CUDA-enabled version too?
+if HAVECUDA
+    bin_PROGRAMS += bulk_cuda_noverlet bulk_cuda_verlet
+endif
+
+# Build a MPI-enabled version too?
+if HAVEMPI
+    bin_PROGRAMS += bulk_mpi_noverlet bulk_mpi_pseudoverlet
+endif
 
 # Plain old bulks
-# Sources for bulk
-bulk_SOURCES = bulk.c
-bulk_LDADD = ../../src/.libs/libmdcore.a
-
-# Sources for bulk_single
-bulk_single_SOURCES = bulk.c
-bulk_single_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples" -DFPTYPE_SINGLE $(AM_CFLAGS)
-bulk_single_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for bulk_noverlet
+bulk_noverlet_SOURCES = bulk.c
+bulk_noverlet_CFLAGS = -DENGINE_FLAGS="engine_flag_tuples" -DFPTYPE_SINGLE $(AM_CFLAGS)
+bulk_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using Verlet lists
 # Sources for bulk_verlet
 bulk_verlet_SOURCES = bulk.c
-bulk_verlet_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-bulk_verlet_LDADD = ../../src/.libs/libmdcore.a
-
-# Sources for bulk_single_verlet
-bulk_single_verlet_SOURCES = bulk.c
-bulk_single_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-bulk_single_verlet_LDADD = ../../src/.libs/libmdcore_single.a
+bulk_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
+bulk_verlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists
 # Sources for bulk_pwverlet
 bulk_pwverlet_SOURCES = bulk.c
-bulk_pwverlet_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-bulk_pwverlet_LDADD = ../../src/.libs/libmdcore.a
-
-# Sources for bulk_single_verlet
-bulk_single_pwverlet_SOURCES = bulk.c
-bulk_single_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-bulk_single_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
+bulk_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
+bulk_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind
 # Sources for bulk_pwverlet2
-bulk_pwverlet2_SOURCES = bulk.c
-bulk_pwverlet2_CFLAGS = -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
-bulk_pwverlet2_LDADD = ../../src/.libs/libmdcore.a
+bulk_pseudoverlet_SOURCES = bulk.c
+bulk_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+bulk_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
-# Sources for bulk_single_verlet2
-bulk_single_pwverlet2_SOURCES = bulk.c
-bulk_single_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
-bulk_single_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+
+# Using CUDA and Verlet lists
+# Sources for bulk_cuda_verlet
+bulk_cuda_verlet_SOURCES = bulk.c
+bulk_cuda_verlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_CUDA -DENGINE_FLAGS="(engine_flag_cuda | engine_flag_verlet_pseudo)" $(AM_CFLAGS)
+bulk_cuda_verlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
+
+# Sources for bulk_cuda
+bulk_cuda_noverlet_SOURCES = bulk.c
+bulk_cuda_noverlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_CUDA -DENGINE_FLAGS="engine_flag_cuda" $(AM_CFLAGS)
+bulk_cuda_noverlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
+
+
+# Using MPI
+# Sources for bulk
+bulk_mpi_noverlet_SOURCES = bulk.c
+bulk_mpi_noverlet_CFLAGS =  -DFPTYPE_SINGLE -DWITH_MPI $(AM_CFLAGS)
+bulk_mpi_noverlet_LDADD = ../../src/.libs/libmdcore_single_mpi.a
+
+# Sources for bulk_pseudoverlet
+bulk_mpi_pseudoverlet_SOURCES = bulk.c
+bulk_mpi_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DWITH_MPI -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+bulk_mpi_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single_mpi.a
+
 
 # Dummy target to make the Cell/BE version
 if HAVECELL
