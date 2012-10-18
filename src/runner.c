@@ -1306,24 +1306,47 @@ int runner_run_pairs ( struct runner *r ) {
                     }
             
                 /* If there are more queues than tasks, fall on sword. */
-                if ( p == NULL && count < r->id )
+                if ( p == NULL && count <= r->id )
                     break;
                     
                 }
                 
-            /* If I didn't get a task, try again... */
+            /* If I didn't get a task, try again, locking... */
             if ( p == NULL ) {
                 
-                /* Wait for a sign. */
+                /* Lock the mutex. */
                 if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
                     return error(runner_err_pthread);
-                if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
-                    return error(runner_err_pthread);
+                    
+                /* Try again to get a pair... */
+                if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , r->id , 0 ) ) == NULL ) {
+                    count = myq->count - myq->next;
+                    for ( k = 0 ; k < naq ; k++ ) {
+                        count += queues[k]->count - queues[k]->next;
+                        if ( queues[k]->next == queues[k]->count )
+                            queues[k--] = queues[--naq];
+                        }
+                    if ( naq != 0 ) {
+                        qid = rand_r( &myseed ) % naq;
+                        if ( ( p = (struct cellpair *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
+                            if ( !queue_insert( myq , p ) )
+                                queue_insert( queues[qid] , p );
+                            }
+                        }
+                    }
+                    
+                /* If no pair, wait... */
+                if ( count > 0 && p == NULL )    
+                    if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
+                        return error(runner_err_pthread);
+                        
+                /* Unlock the mutex. */
                 if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
                     return error(runner_err_pthread);
                 
-                /* Skip back to the top of the queue. */
-                continue;
+                /* Skip back to the top of the queue if empty-handed. */
+                if ( p == NULL )
+                    continue;
                 
                 }
 
@@ -1369,7 +1392,6 @@ int runner_run_pairs ( struct runner *r ) {
                 return error(runner_err_pthread);
             if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
                 return error(runner_err_pthread);
-            
 
             }
 
@@ -1382,6 +1404,14 @@ int runner_run_pairs ( struct runner *r ) {
         if ( err < 0 )
             return error(runner_err_space);
     
+        /* Bing! */
+        if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+            return error(runner_err_pthread);
+        if ( pthread_cond_broadcast( &s->cellpairs_avail ) != 0 )
+            return error(runner_err_pthread);
+        if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+            return error(runner_err_pthread);
+
         }
 
     }
@@ -1402,7 +1432,7 @@ int runner_run_pairs ( struct runner *r ) {
 
 int runner_run_tuples ( struct runner *r ) {
 
-    int i, j, k, ci, cj, acc = 0;
+    int i, j, k, ci, cj, acc = 0, count;
     struct celltuple *t;
     FPTYPE shift[3];
     struct engine *e = r->e;
@@ -1442,9 +1472,12 @@ int runner_run_tuples ( struct runner *r ) {
             if ( myq->next == myq->count || ( t = (struct celltuple *)queue_get( myq , r->id , 0 ) ) == NULL ) {
             
                 /* Clean up the list of queues. */
-                for ( k = 0 ; k < naq ; k++ )
+                count = myq->count - myq->next;
+                for ( k = 0 ; k < naq ; k++ ) {
+                    count += queues[k]->count - queues[k]->next;
                     if ( queues[k]->next == queues[k]->count )
                         queues[k--] = queues[--naq];
+                    }
                         
                 /* If there are no queues left, go back to go, do not collect 200 FLOPs. */
                 if ( naq == 0 )
@@ -1460,11 +1493,50 @@ int runner_run_tuples ( struct runner *r ) {
                 
                     }
             
+                /* If there are more queues than tasks, fall on sword. */
+                if ( t == NULL && count <= r->id )
+                    break;
+                    
                 }
                 
-            /* If I didn't get a task, try again... */
-            if ( t == NULL )
-                continue;
+            /* If I didn't get a task, try again, locking... */
+            if ( t == NULL ) {
+                
+                /* Lock the mutex. */
+                if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+                    return error(runner_err_pthread);
+                    
+                /* Try again to get a pair... */
+                if ( myq->next == myq->count || ( t = (struct celltuple *)queue_get( myq , r->id , 0 ) ) == NULL ) {
+                    count = myq->count - myq->next;
+                    for ( k = 0 ; k < naq ; k++ ) {
+                        count += queues[k]->count - queues[k]->next;
+                        if ( queues[k]->next == queues[k]->count )
+                            queues[k--] = queues[--naq];
+                        }
+                    if ( naq != 0 ) {
+                        qid = rand_r( &myseed ) % naq;
+                        if ( ( t = (struct celltuple *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
+                            if ( !queue_insert( myq , t ) )
+                                queue_insert( queues[qid] , t );
+                            }
+                        }
+                    }
+                    
+                /* If no pair, wait... */
+                if ( count > 0 && t == NULL )    
+                    if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
+                        return error(runner_err_pthread);
+                        
+                /* Unlock the mutex. */
+                if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+                    return error(runner_err_pthread);
+                
+                /* Skip back to the top of the queue if empty-handed. */
+                if ( t == NULL )
+                    continue;
+                
+                }
 
             /* for each cell, prefetch the parts involved. */
             if ( e->flags & engine_flag_prefetch )
