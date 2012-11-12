@@ -641,6 +641,11 @@ int main ( int argc , char *argv[] ) {
         
     
     /* Exit gracefuly. */
+    if ( engine_finalize( &e ) < 0 ) {
+        printf("main: engine_finalize failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        abort();
+        }
     #ifdef WITH_MPI
         if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
             printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
