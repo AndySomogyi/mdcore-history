@@ -736,6 +736,28 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
 
     }
     
+    
+/**
+ * @brief Free the memory associated with the given potential.
+ * 
+ * @param p Pointer to the #potential to clear.
+ */
+ 
+void potential_clear ( struct potential *p ) {
+
+    /* Do nothing? */
+    if ( p == NULL )
+        return;
+
+    /* Clear the flags. */
+    p->flags = potential_flag_none;
+    
+    /* Clear the coefficients. */
+    free( p->c );
+    p->c = NULL;
+
+    }
+    
 
 /**
  * @brief Construct a #potential from the given function.

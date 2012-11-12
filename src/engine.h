@@ -282,6 +282,7 @@ int engine_dump_PSF ( struct engine *e , FILE *psf , FILE *pdb , char *excl[] , 
 int engine_exclusion_add ( struct engine *e , int i , int j );
 int engine_exclusion_eval ( struct engine *e );
 int engine_exclusion_shrink ( struct engine *e );
+int engine_finalize ( struct engine *e );
 int engine_flush_ghosts ( struct engine *e );
 int engine_flush ( struct engine *e );
 int engine_gettype ( struct engine *e , char *name );

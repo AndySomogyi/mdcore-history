@@ -1835,6 +1835,89 @@ int engine_init_mpi ( struct engine *e , const double *origin , const double *di
 
 
 /**
+ * @brief Kill all runners and de-allocate the data of an engine.
+ *
+ * @param e the #engine to finalize.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_finalize ( struct engine *e ) {
+
+    int j, k;
+
+    /* make sure the inputs are ok */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Shut down the runners. */
+    for ( k = 0 ; k < e->nr_runners ; k++ )
+        if ( pthread_cancel( e->runners[k].thread ) != 0 )
+            return error(engine_err_pthread);
+    free( e->runners );
+    free( e->queues );
+            
+    /* Finalize the space. */
+    // if ( space_finalize( &e->s ) < 0 )
+    //     return error(engine_err_space);
+        
+    /* Free-up the types. */
+    free( e->types );
+    
+    /* Free the potentials. */
+    for ( j = 0 ; j < e->nr_types ; j++ )
+        for ( k = j ; k < e->nr_types ; k++ ) {
+            if ( e->p[ j*e->max_type + k ] != NULL )
+                potential_clear( e->p[ j*e->max_type + k ] );
+            if ( e->p_bond[ j*e->max_type + k ] != NULL )
+                potential_clear( e->p_bond[ j*e->max_type + k ] );
+            }
+    for ( k = 0 ; k < e->nr_anglepots ; k++ )
+        potential_clear( e->p_angle[k] );
+    for ( k = 0 ; k < e->nr_dihedralpots ; k++ )
+        potential_clear( e->p_dihedral[k] );
+    free( e->p );
+    free( e->p_bond );
+    free( e->p_angle );
+    free( e->p_dihedral );
+    
+    /* Free the communicators, if needed. */
+    if ( e->flags & engine_flag_mpi ) {
+        for ( k = 0 ; k < e->nr_nodes ; k++ ) {
+            free( e->send[k].cellid );
+            free( e->recv[k].cellid );
+            }
+        free( e->send );
+        free( e->recv );
+        }
+        
+    /* Free the bonded interactions. */
+    free( e->bonds );
+    free( e->angles );
+    free( e->dihedrals );
+    free( e->exclusions );
+    free( e->rigids );
+    free( e->part2rigid );
+    
+    /* If we have bonded sets, kill them. */
+    for ( k = 0 ; k < e->nr_sets ; k++ ) {
+        free( e->sets[k].bonds );
+        free( e->sets[k].angles );
+        free( e->sets[k].dihedrals );
+        free( e->sets[k].exclusions );
+        free( e->sets[k].confl );
+        }
+        
+    /* Clear all the counts and what not. */
+    bzero( e , sizeof( struct engine ) );
+        
+    /* Happy and I know it... */
+    return engine_err_ok;
+    
+    }
+
+
+/**
  * @brief Initialize an #engine with the given data.
  *
  * @param e The #engine to initialize.
