@@ -49,6 +49,8 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         float *forces_i, *forces_j;
         __shared__ unsigned int sort_i[ cuda_nrparts ];
         __shared__ unsigned int sort_j[ cuda_nrparts ];
+        struct queue_cuda *myq , *queues[ cuda_maxqueues ];
+        int naq = cuda_nrqueues, qid;
     #endif
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
@@ -58,8 +60,6 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
             float4 *parts_i, *parts_j;
         #endif
     #endif
-    struct queue_cuda *myq , *queues[ cuda_maxqueues ];
-    int naq = cuda_nrqueues, qid;
     
     TIMER_TIC2
     
@@ -76,6 +76,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         
 
     /* Init the list of queues. */
+    #ifndef FORCES_LOCAL
     if ( threadID == 0 ) {
         myq = &cuda_queues[ get_smid() ];
         for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
@@ -83,6 +84,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         naq = cuda_nrqueues - 1;
         queues[ get_smid() ] = queues[ naq ];
         }
+    #endif
         
 
     /* Main loop... */
@@ -91,8 +93,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
         /* Let the first thread grab a pair. */
         if ( threadID == 0 ) {
             #ifdef FORCES_LOCAL
-                pid = atomicAdd( &cuda_pair_next , 1 );
-                if ( pid > cuda_nr_pairs )
+                if ( ( pid = atomicAdd( &cuda_pair_next , 1 ) ) >= cuda_nr_pairs )
                     pid = -1;
             #else
                 TIMER_TIC
@@ -358,6 +359,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         float *forces_i, *forces_j;
         __shared__ unsigned int sort_i[ cuda_nrparts ];
         __shared__ unsigned int sort_j[ cuda_nrparts ];
+        struct queue_cuda *myq , *queues[ cuda_maxqueues ];
+        int naq = cuda_nrqueues, qid;
     #endif
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
@@ -367,8 +370,6 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             float4 *parts_i, *parts_j;
         #endif
     #endif
-    struct queue_cuda *myq , *queues[ cuda_maxqueues ];
-    int naq = cuda_nrqueues, qid;
     
     TIMER_TIC2
     
@@ -384,6 +385,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         } */
         
     /* Init the list of queues. */
+    #ifndef FORCES_LOCAL
     if ( threadID == 0 ) {
         myq = &cuda_queues[ get_smid() % cuda_nrqueues ];
         for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
@@ -391,6 +393,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         naq = cuda_nrqueues - 1;
         queues[ get_smid() ] = queues[ naq ];
         }
+    #endif
         
 
     /* Main loop... */
@@ -399,8 +402,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         /* Let the first thread grab a pair. */
         if ( threadID == 0 ) {
             #ifdef FORCES_LOCAL
-                pid = atomicAdd( &cuda_pair_next , 1 );
-                if ( pid > cuda_nr_pairs )
+                if ( ( pid = atomicAdd( &cuda_pair_next , 1 ) ) >= cuda_nr_pairs )
                     pid = -1;
             #else
                 TIMER_TIC
