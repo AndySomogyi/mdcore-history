@@ -1850,12 +1850,14 @@ int engine_finalize ( struct engine *e ) {
     if ( e == NULL )
         return error(engine_err_null);
         
-    /* Shut down the runners. */
-    for ( k = 0 ; k < e->nr_runners ; k++ )
-        if ( pthread_cancel( e->runners[k].thread ) != 0 )
-            return error(engine_err_pthread);
-    free( e->runners );
-    free( e->queues );
+    /* Shut down the runners, if they were started. */
+    if ( e->runners != NULL ) {
+        for ( k = 0 ; k < e->nr_runners ; k++ )
+            if ( pthread_cancel( e->runners[k].thread ) != 0 )
+                return error(engine_err_pthread);
+        free( e->runners );
+        free( e->queues );
+        }
             
     /* Finalize the space. */
     // if ( space_finalize( &e->s ) < 0 )
