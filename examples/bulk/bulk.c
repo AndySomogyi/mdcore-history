@@ -34,7 +34,7 @@
 #include "../config.h"
 
 /* MPI headers. */
-#ifdef HAVE_MPI
+#ifdef WITH_MPI
     #include <mpi.h>
 #endif
 
@@ -83,7 +83,7 @@ int main ( int argc , char *argv[] ) {
     #ifdef CELL
         unsigned long long tic, toc, toc_step, toc_temp;
     #else
-        ticks tic_step, tic_temp, tic, toc, toc_step, toc_temp;
+        ticks tic, toc, toc_step, toc_temp;
     #endif
     double itpms = 1000.0 / CPU_TPS;
     int myrank = 0;
@@ -107,12 +107,21 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cellwidth , cutoff , space_periodic_full , 2 , ENGINE_FLAGS ) != 0 ) {
+    if ( engine_init( &e , origin , dim , cellwidth , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
         }
     printf("done.\n"); fflush(stdout);
+    
+    #ifdef WITH_CUDA
+        if ( engine_cuda_setdevice( 0 ) != 0 ) {
+            printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
+            errs_dump(stdout);
+            abort();
+            }
+    #endif
+    
     
     // set the interaction cutoff
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
@@ -359,9 +368,9 @@ int main ( int argc , char *argv[] ) {
     
         // take a step
         #ifdef CELL
-            tic_step = __mftb();
+            tic = __mftb();
         #else
-            tic_step = getticks();
+            tic = getticks();
         #endif
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
@@ -371,9 +380,9 @@ int main ( int argc , char *argv[] ) {
             
         // take a step
         #ifdef CELL
-            tic_temp = __mftb();
+            toc_step = __mftb();
         #else
-            tic_temp = getticks();
+            toc_step = getticks();
         #endif
         // get the total COM-velocities, ekin and epot
         vcom_tot[0] = 0.0; vcom_tot[1] = 0.0; vcom_tot[2] = 0.0;
@@ -420,29 +429,18 @@ int main ( int argc , char *argv[] ) {
         #else
             toc_step = toc_temp = getticks();
         #endif
-        /* Drop a line. */
-        toc_step = getticks();
-        if ( myrank == 0 ) {
-            /* printf("%i %e %e %e %i %i %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
-            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
-                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
-                e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
-                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
-                e.timers[engine_timer_cuda_load]*itpms, e.timers[engine_timer_cuda_dopairs]*itpms, e.timers[engine_timer_cuda_unload]*itpms, 
-                (toc_temp - tic_temp)*itpms ); fflush(stdout);
-            /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
-                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
-                e.timers[engine_timer_bonds]*itpms, e.timers[engine_timer_angles]*itpms, e.timers[engine_timer_dihedrals]*itpms, e.timers[engine_timer_exclusions]*itpms, 
-                e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
-                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms, timers[tid_temp]*itpms ); fflush(stdout); */
-            }
-        /* printf( "main[%i]: queue lengths are [ %i " , myrank , e.queues[0].count );
-        for ( i = 1 ; i < e.nr_queues ; i++ )
-            printf( "%i ", e.queues[i].count );
-        printf( "]\n" ); */
+        /* printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls, e.timers[engine_timer_step] * itpms,
+            e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms, e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+            (toc_temp-toc_step)*itpms ); fflush(stdout); */
+        printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+            e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_temp-tic) * itpms,
+            e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
+            e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+            (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
+            e.timers[engine_timer_cuda_load]*itpms, e.timers[engine_timer_cuda_dopairs]*itpms, e.timers[engine_timer_cuda_unload]*itpms, 
+            (toc_temp - toc_step)*itpms ); fflush(stdout);
+        fflush(stdout);
         
         /* Re-set the timers. */
         if ( engine_timers_reset( &e ) < 0 ) {
@@ -465,7 +463,15 @@ int main ( int argc , char *argv[] ) {
     //         printf("%i %e %e %e\n",e.s.cells[cid].parts[pid].id,x[0],x[1],x[2]);
     //         }
         
-    // clean break
+        
+    /* Exit gracefuly. */
+    if ( engine_finalize( &e ) < 0 ) {
+        printf("main: engine_finalize failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        abort();
+        }
+    fflush(stdout);
+    printf( "main: exiting.\n" );
     return 0;
 
     }
