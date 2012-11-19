@@ -122,7 +122,7 @@ __global__ void runner_run_verlet_cuda(cuda_nrparts) ( float *forces , int *coun
                     else
                         break;
                     }
-                TIMER_TOC(tid_gettaks)
+                TIMER_TOC(tid_gettask)
             #endif
             }
             
@@ -431,7 +431,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                     else
                         break;
                     }
-                TIMER_TOC(tid_gettaks)
+                TIMER_TOC(tid_gettask)
             #endif
             }
             
