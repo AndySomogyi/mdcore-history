@@ -45,7 +45,7 @@
 
 /* Engine flags? */
 #ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS (engine_flag_tuples | engine_flag_parbonded)
+    #define ENGINE_FLAGS engine_flag_parbonded
 #endif
 
 /* Enumeration for the different timers */
@@ -77,14 +77,14 @@ int main ( int argc , char *argv[] ) {
 
 
     /* Local variables. */
-    int res = 0, myrank;
+    int res = 0, myrank = 0;
     int step, i, j, k, cid;
     FPTYPE ee, eff;
     double temp, v[3];
     FILE *dump, *psf, *pdb, *xplor;
     char fname[100];
     double es[6], ekin, epot, vcom[3], vcom_x , vcom_y , vcom_z , mass_tot, w, v2;
-    ticks tic, toc, tic_step, toc_step, timers[10];
+    ticks tic, toc, timers[10];
     double itpms = 1000.0 / CPU_TPS;
     int nr_nodes = 1;
     int verbose = 0;
@@ -107,23 +107,25 @@ int main ( int argc , char *argv[] ) {
     
     
     /* Start by initializing MPI. */
-    if ( ( res = MPI_Init( &argc , &argv ) ) != MPI_SUCCESS ) {
-        printf( "main: call to MPI_Init failed with error %i.\n" , res );
-        return -1;
-        }
-    if ( ( res = MPI_Comm_rank( MPI_COMM_WORLD , &myrank ) ) != MPI_SUCCESS ) {
-        printf( "main: call to MPI_Comm_rank failed with error %i.\n" , res );
-        return -1;
-        }
-    if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
-        printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
-        errs_dump(stdout);
-        return -1;
-        }
-    if ( myrank == 0 ) {
-        printf( "main[%i]: MPI is up and running...\n" , myrank );
-        fflush(stdout);
-        }
+    #ifdef WITH_MPI
+        if ( ( res = MPI_Init( &argc , &argv ) ) != MPI_SUCCESS ) {
+            printf( "main: call to MPI_Init failed with error %i.\n" , res );
+            return -1;
+            }
+        if ( ( res = MPI_Comm_rank( MPI_COMM_WORLD , &myrank ) ) != MPI_SUCCESS ) {
+            printf( "main: call to MPI_Comm_rank failed with error %i.\n" , res );
+            return -1;
+            }
+        if ( ( res = MPI_Comm_size( MPI_COMM_WORLD , &nr_nodes ) != MPI_SUCCESS ) ) {
+            printf("main[%i]: MPI_Comm_size failed with error %i.\n",myrank,res);
+            errs_dump(stdout);
+            return -1;
+            }
+        if ( myrank == 0 ) {
+            printf( "main[%i]: MPI is up and running...\n" , myrank );
+            fflush(stdout);
+            }
+    #endif
     
     
     /* Initialize our own input parameters. */
@@ -135,7 +137,11 @@ int main ( int argc , char *argv[] ) {
     
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , 1.25 , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async | engine_flag_verlet , MPI_COMM_WORLD , myrank ) != 0 ) {
+    #ifdef WITH_MPI
+        if ( engine_init_mpi( &e , origin , dim , 1.2 , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
+    #else
+        if ( engine_init( &e , origin , dim , 1.2 , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async ) != 0 ) {
+    #endif
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
         return -1;
@@ -342,33 +348,35 @@ int main ( int argc , char *argv[] ) {
         }
     return 0; */
     
-    /* Split the engine over the processors. */
-    if ( engine_split_bisect( &e , nr_nodes ) < 0 ) {
-        printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
-        errs_dump(stdout);
-        return -1;
-        }
-    if ( engine_split( &e ) < 0 ) {
-        printf("main[%i]: engine_split failed with engine_err=%i.\n",myrank,engine_err);
-        errs_dump(stdout);
-        return -1;
-        }
-    /* for ( k = 0 ; k < e.nr_nodes ; k++ ) {
-        printf( "main[%i]: %i cells to send to node %i: [ " , myrank , e.send[k].count , k );
-        for ( j = 0 ; j < e.send[k].count ; j++ )
-            printf( "%i " , e.send[k].cellid[j] );
-        printf( "]\n" );
-        }
-    for ( k = 0 ; k < e.nr_nodes ; k++ ) {
-        printf( "main[%i]: %i cells to recv from node %i: [ " , myrank , e.recv[k].count , k );
-        for ( j = 0 ; j < e.recv[k].count ; j++ )
-            printf( "%i " , e.recv[k].cellid[j] );
-        printf( "]\n" );
-        } */
+    #ifdef WITH_MPI
+        /* Split the engine over the processors. */
+        if ( engine_split_bisect( &e , nr_nodes ) < 0 ) {
+            printf("main[%i]: engine_split_bisect failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            return -1;
+            }
+        if ( engine_split( &e ) < 0 ) {
+            printf("main[%i]: engine_split failed with engine_err=%i.\n",myrank,engine_err);
+            errs_dump(stdout);
+            return -1;
+            }
+        /* for ( k = 0 ; k < e.nr_nodes ; k++ ) {
+            printf( "main[%i]: %i cells to send to node %i: [ " , myrank , e.send[k].count , k );
+            for ( j = 0 ; j < e.send[k].count ; j++ )
+                printf( "%i " , e.send[k].cellid[j] );
+            printf( "]\n" );
+            }
+        for ( k = 0 ; k < e.nr_nodes ; k++ ) {
+            printf( "main[%i]: %i cells to recv from node %i: [ " , myrank , e.recv[k].count , k );
+            for ( j = 0 ; j < e.recv[k].count ; j++ )
+                printf( "%i " , e.recv[k].cellid[j] );
+            printf( "]\n" );
+            } */
+    #endif
         
         
     /* Start the engine. */
-    if ( engine_start( &e , nr_runners ) != 0 ) {
+    if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
         printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         return -1;
@@ -389,11 +397,13 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         return -1;
         }
-    if ( engine_exchange( &e ) != 0 ) {
-        printf("main: engine_step failed with engine_err=%i.\n",engine_err);
-        errs_dump(stdout);
-        return -1;
-        }
+    #ifdef WITH_MPI
+        if ( engine_exchange( &e ) != 0 ) {
+            printf("main: engine_step failed with engine_err=%i.\n",engine_err);
+            errs_dump(stdout);
+            return -1;
+            }
+    #endif
         
             
     /* Timing. */    
@@ -408,10 +418,6 @@ int main ( int argc , char *argv[] ) {
     /* Main time-stepping loop. */
     for ( step = 0 ; step < nr_steps ; step++ ) {
     
-        /* Start the clock. */
-        tic_step = getticks();
-        
-        
         /* Compute a step. */
         if ( engine_step( &e ) != 0 ) {
             printf("main: engine_step failed with engine_err=%i.\n",engine_err);
@@ -452,6 +458,7 @@ int main ( int argc , char *argv[] ) {
         // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
             
         /* Collect vcom and ekin from all procs. */
+        #ifdef WITH_MPI
         if ( e.nr_nodes > 1 ) {
             es[0] = epot; es[1] = ekin;
             es[2] = vcom[0]; es[3] = vcom[1]; es[4] = vcom[2];
@@ -464,6 +471,7 @@ int main ( int argc , char *argv[] ) {
             vcom[0] = es[2]; vcom[1] = es[3]; vcom[2] = es[4];
             mass_tot = es[5];
             }
+        #endif
         vcom[0] /= mass_tot; vcom[1] /= mass_tot; vcom[2] /= mass_tot;
             
         /* Compute the temperature. */
@@ -495,7 +503,6 @@ int main ( int argc , char *argv[] ) {
                         
         
         /* Drop a line. */
-        toc_step = getticks();
         if ( myrank == 0 ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
@@ -530,10 +537,17 @@ int main ( int argc , char *argv[] ) {
         
     
     /* Exit gracefuly. */
-    if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
-        printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
-        return -1;
+    if ( engine_finalize( &e ) < 0 ) {
+        printf("main: engine_finalize failed with engine_err=%i.\n",engine_err);
+        errs_dump(stdout);
+        abort();
         }
+    #ifdef WITH_MPI
+        if ( ( res = MPI_Finalize() ) != MPI_SUCCESS ) {
+            printf( "main[%i]: call to MPI_Finalize failed with error %i.\n" , myrank , res );
+            return -1;
+            }
+    #endif
     fflush(stdout);
     printf( "main[%i]: exiting.\n" , myrank );
     return 0;
