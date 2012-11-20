@@ -1867,21 +1867,26 @@ int engine_finalize ( struct engine *e ) {
     free( e->types );
     
     /* Free the potentials. */
-    for ( j = 0 ; j < e->nr_types ; j++ )
-        for ( k = j ; k < e->nr_types ; k++ ) {
-            if ( e->p[ j*e->max_type + k ] != NULL )
-                potential_clear( e->p[ j*e->max_type + k ] );
-            if ( e->p_bond[ j*e->max_type + k ] != NULL )
-                potential_clear( e->p_bond[ j*e->max_type + k ] );
-            }
-    for ( k = 0 ; k < e->nr_anglepots ; k++ )
-        potential_clear( e->p_angle[k] );
-    for ( k = 0 ; k < e->nr_dihedralpots ; k++ )
-        potential_clear( e->p_dihedral[k] );
-    free( e->p );
-    free( e->p_bond );
-    free( e->p_angle );
-    free( e->p_dihedral );
+    if ( e->p != NULL ) {
+        for ( j = 0 ; j < e->nr_types ; j++ )
+            for ( k = j ; k < e->nr_types ; k++ ) {
+                if ( e->p[ j*e->max_type + k ] != NULL )
+                    potential_clear( e->p[ j*e->max_type + k ] );
+                if ( e->p_bond[ j*e->max_type + k ] != NULL )
+                    potential_clear( e->p_bond[ j*e->max_type + k ] );
+                }
+        for ( k = 0 ; k < e->nr_anglepots ; k++ )
+            potential_clear( e->p_angle[k] );
+        for ( k = 0 ; k < e->nr_dihedralpots ; k++ )
+            potential_clear( e->p_dihedral[k] );
+        free( e->p );
+        }
+    if ( e->p_bond != NULL )
+        free( e->p_bond );
+    if ( e->p_angle != NULL )
+        free( e->p_angle );
+    if ( e->p_dihedral != NULL )
+        free( e->p_dihedral );
     
     /* Free the communicators, if needed. */
     if ( e->flags & engine_flag_mpi ) {
