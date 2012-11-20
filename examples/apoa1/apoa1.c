@@ -160,6 +160,14 @@ int main ( int argc , char *argv[] ) {
         printf( "main[%i]: space is [ %i , %i , %i ] cells.\n" , myrank , e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     fflush(stdout);
     
+    #ifdef WITH_CUDA
+        if ( engine_cuda_setdevice( 0 ) != 0 ) {
+            printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
+            errs_dump(stdout);
+            abort();
+            }
+    #endif
+    
     
     /* Load the PSF/PDB files. */
     printf( "main[%i]: reading psf/pdb files....\n" , myrank ); fflush(stdout);
@@ -534,7 +542,8 @@ int main ( int argc , char *argv[] ) {
         
         if ( myrank == 0 && e.time % 100 == 0 ) {
             sprintf( fname , "apoa1_%08i.pdb" , e.time ); pdb = fopen( fname , "w" );
-            if ( engine_dump_PSF( &e , NULL , pdb , excl , 2 ) < 0 ) {
+            // if ( engine_dump_PSF( &e , NULL , pdb , excl , 2 ) < 0 ) {
+            if ( engine_dump_PSF( &e , NULL , pdb , excl , 0 ) < 0 ) {
                 printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
                 errs_dump(stdout);
                 return 1;
