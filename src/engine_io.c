@@ -1632,6 +1632,10 @@ int engine_dump_PSF ( struct engine *e , FILE *psf , FILE *pdb , char *excl[] , 
                 p->id+1 , "WAT" , p->vid+1 , "TIP3" , e->types[p->type].name , e->types[p->type].name , e->types[p->type].charge , e->types[p->type].mass );
         }
         
+    /* Close-up the PDB file. */
+    if ( pdb != NULL )
+        fprintf( pdb , "END\n" );
+        
     /* Dump bonds and angles to PSF? */
     if ( psf != NULL ) {
     
