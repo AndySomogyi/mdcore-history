@@ -87,6 +87,7 @@ int main ( int argc , char *argv[] ) {
     #endif
     double itpms = 1000.0 / CPU_TPS;
     int myrank = 0;
+    double L[] = { cutoff , cutoff , cutoff };
     
     #ifdef CELL
         tic = __mftb();
@@ -98,8 +99,10 @@ int main ( int argc , char *argv[] ) {
     if ( argc > 4 ) {
         cellwidth = atof( argv[4] );
         nr_mols *= ( cellwidth * cellwidth * cellwidth );
-        for ( k = 0 ; k < 3 ; k++ )
+        for ( k = 0 ; k < 3 ; k++ ) {
+            L[k] = cellwidth;
             dim[k] *= cellwidth * (1.0 + DBL_EPSILON);
+            }
         }
     else
         cellwidth = cutoff;
@@ -107,7 +110,7 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , cellwidth , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
+    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;

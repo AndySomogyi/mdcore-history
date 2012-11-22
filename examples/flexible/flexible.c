@@ -80,6 +80,7 @@ int main ( int argc , char *argv[] ) {
     FILE *psf, *pdb;
     char fname[100];
     ticks tic, toc, toc_step, toc_bonded, toc_temp;
+    double L[] = { cutoff , cutoff , cutoff };
     
     
     /* Start the clock... */
@@ -92,8 +93,10 @@ int main ( int argc , char *argv[] ) {
     if ( argc > 4 ) {
         cellwidth = atof( argv[4] );
         nr_mols *= ( cellwidth * cellwidth * cellwidth );
-        for ( k = 0 ; k < 3 ; k++ )
+        for ( k = 0 ; k < 3 ; k++ ) {
+            L[k] = cellwidth;
             dim[k] *= cellwidth * (1.0 + DBL_EPSILON);
+            }
         }
     else
         cellwidth = 1.0;
@@ -101,7 +104,7 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 3 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
+    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 3 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -370,7 +373,7 @@ int main ( int argc , char *argv[] ) {
         nr_runners = atoi( argv[1] );
         
     // start the engine
-    if ( engine_start( &e , nr_runners ) != 0 ) {
+    if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
         printf("main: engine_start failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;

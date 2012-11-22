@@ -25,7 +25,7 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = neon neon_verlet neon_pwverlet neon_pwverlet2
+bin_PROGRAMS = neon neon_verlet neon_pwverlet neon_pseudoverlet
 
 # Plain old tests
 # Sources for test
@@ -49,8 +49,8 @@ neon_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind
-# Sources for neon_pwverlet2
-neon_pwverlet2_SOURCES = neon.c
-neon_pwverlet2_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise2" $(AM_CFLAGS)
-neon_pwverlet2_LDADD = ../../src/.libs/libmdcore_single.a
+# Sources for neon_pseudoverlet
+neon_pseudoverlet_SOURCES = neon.c
+neon_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+neon_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single.a
 

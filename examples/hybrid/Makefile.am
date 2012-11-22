@@ -33,11 +33,11 @@ endif
 
 # Sources for ppm_test
 ppm_test_SOURCES = ppm_test.c
-ppm_test_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
-ppm_test_LDADD = ../../src/.libs/libmdcore_single.a -lppm -lmetis -lmpif77 -lmpif90 -lgfortran
+ppm_test_CFLAGS =  -DFPTYPE_SINGLE -DWITH_MPI -I/usr/lib/openmpi/include $(AM_CFLAGS)
+ppm_test_LDADD = ../../src/.libs/libmdcore_single_mpi.a -lppm -lmetis -lmpif77 -lmpif90 -lgfortran
 
 # Sources for hybrid
 hybrid_SOURCES = hybrid.c
-hybrid_CFLAGS =  -DFPTYPE_SINGLE -I/usr/lib/openmpi/include $(AM_CFLAGS)
-hybrid_LDADD = ../../src/.libs/libmdcore_single.a
+hybrid_CFLAGS =  -DFPTYPE_SINGLE -DWITH_MPI -I/usr/lib/openmpi/include $(AM_CFLAGS)
+hybrid_LDADD = ../../src/.libs/libmdcore_single_mpi.a
 

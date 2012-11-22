@@ -80,6 +80,7 @@ int main ( int argc , char *argv[] ) {
     double itpms = 1000.0 / CPU_TPS;
     struct part *p_O, *p_H1, *p_H2;
     int nr_nodes = 1, count = 0;
+    double L[] = { cutoff , cutoff , cutoff };
     
     
     /* mdcore stuff. */
@@ -202,7 +203,7 @@ int main ( int argc , char *argv[] ) {
         
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
-    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , L , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
     // if ( engine_init( &e , origin , dim , 1.1*cutoff , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_verlet_pairwise ) != 0 ) {
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
@@ -349,7 +350,7 @@ int main ( int argc , char *argv[] ) {
         
         
     /* Start the engine. */
-    if ( engine_start( &e , nr_runners ) != 0 ) {
+    if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
         printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();

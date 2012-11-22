@@ -101,6 +101,7 @@ int main ( int argc , char *argv[] ) {
     struct cell *c;
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
+    double L[] = { cutoff , cutoff , cutoff };
     
     
     /* Start the clock. */
@@ -145,9 +146,9 @@ int main ( int argc , char *argv[] ) {
     /* Initialize the engine. */
     printf( "main[%i]: initializing the engine...\n" , myrank ); fflush(stdout);
 #ifdef WITH_MPI
-    if ( engine_init_mpi( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
+    if ( engine_init_mpi( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
 #else
-    if ( engine_init( &e , origin , dim , cutoff , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
+    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
 #endif
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
