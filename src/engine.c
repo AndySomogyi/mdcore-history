@@ -1817,7 +1817,7 @@ int engine_barrier ( struct engine *e ) {
  */
 
 #ifdef WITH_MPI
-int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank ) {
+int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double *L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank ) {
 
     /* Init the engine. */
     if ( engine_init( e , origin , dim , L , cutoff , period , max_type , flags | engine_flag_mpi ) < 0 )
@@ -1931,7 +1931,7 @@ int engine_finalize ( struct engine *e ) {
  * @param origin An array of three doubles containing the cartesian origin
  *      of the space.
  * @param dim An array of three doubles containing the size of the space.
- * @param L The minimum cell edge length, should be at least @c cutoff.
+ * @param L The minimum cell edge length in each dimension.
  * @param cutoff The maximum interaction cutoff to use.
  * @param period A bitmask describing the periodicity of the domain
  *      (see #space_periodic_full).
@@ -1942,12 +1942,12 @@ int engine_finalize ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-int engine_init ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags ) {
+int engine_init ( struct engine *e , const double *origin , const double *dim , double *L , double cutoff , unsigned int period , int max_type , unsigned int flags ) {
 
     int cid;
 
     /* make sure the inputs are ok */
-    if ( e == NULL || origin == NULL || dim == NULL )
+    if ( e == NULL || origin == NULL || dim == NULL || L == NULL )
         return error(engine_err_null);
         
     /* Check for bad flags. */

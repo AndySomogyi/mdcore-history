@@ -1470,7 +1470,7 @@ struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , 
  *      of the rectangular domain.
  * @param dim Pointer to an array of three doubles specifying the length
  *      of the rectangular domain along each dimension.
- * @param L The minimum cell edge length, should be at least @c cutoff.
+ * @param L The minimum cell edge length, in each dimension.
  * @param cutoff A double-precision value containing the maximum cutoff lenght
  *      that will be used in the potentials.
  * @param period Unsigned integer containing the flags #space_periodic_x,
@@ -1482,14 +1482,14 @@ struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , 
  * generates the cell-pair list.
  */
 
-int space_init ( struct space *s , const double *origin , const double *dim , double L , double cutoff , unsigned int period ) {
+int space_init ( struct space *s , const double *origin , const double *dim , double *L , double cutoff , unsigned int period ) {
 
     int i, j, k, l[3], ii, jj, kk;
     int pairs_size, span[3], id1, id2;
     double o[3], shift[3], lh[3];
 
     /* check inputs */
-    if ( s == NULL || origin == NULL || dim == NULL )
+    if ( s == NULL || origin == NULL || dim == NULL || L == NULL )
         return error(space_err_null);
         
     /* Clear the space. */
@@ -1499,7 +1499,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     for ( i = 0 ; i < 3 ; i++ ) {
         s->origin[i] = origin[i];
         s->dim[i] = dim[i];
-        s->cdim[i] = floor( dim[i] / L );
+        s->cdim[i] = floor( dim[i] / L[i] );
         }
         
     /* remember the cutoff */
@@ -1579,7 +1579,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         span[k] = ceil( cutoff * s->ih[k] );
         
     /* allocate the cell pairs array (pessimistic guess) */
-    pairs_size = s->nr_cells * 14 * span[0] * span[1] * span[2];
+    pairs_size = s->nr_cells * (2*span[0] + 1) * (2*span[1] + 1) * (2*span[2] + 1);
     if ( (s->pairs = (struct cellpair *)malloc( sizeof(struct cellpair) * pairs_size )) == NULL )
         return error(space_err_malloc);
     

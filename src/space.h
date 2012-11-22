@@ -216,7 +216,7 @@ struct verlet_entry {
 
 
 /* associated functions */
-int space_init ( struct space *s , const double *origin , const double *dim , double L , double cutoff , unsigned int period );
+int space_init ( struct space *s , const double *origin , const double *dim , double *L , double cutoff , unsigned int period );
 struct cellpair *space_getpair ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
 struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
 int space_releasepair ( struct space *s , int ci , int cj );

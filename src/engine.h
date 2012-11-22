@@ -287,7 +287,7 @@ int engine_flush_ghosts ( struct engine *e );
 int engine_flush ( struct engine *e );
 int engine_gettype ( struct engine *e , char *name );
 int engine_gettype2 ( struct engine *e , char *name2 );
-int engine_init ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags );
+int engine_init ( struct engine *e , const double *origin , const double *dim , double *L , double cutoff , unsigned int period , int max_type , unsigned int flags );
 int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , int N );
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , int N );
 int engine_nonbond_eval ( struct engine *e );
@@ -311,7 +311,7 @@ int engine_unload_strays ( struct engine *e , double *x , double *v , int *type 
 int engine_unload ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , double *epot , int N );
 int engine_verlet_update ( struct engine *e );
 #ifdef WITH_MPI
-    int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank );
+    int engine_init_mpi ( struct engine *e , const double *origin , const double *dim , double *L , double cutoff , unsigned int period , int max_type , unsigned int flags , MPI_Comm comm , int rank );
     int engine_exchange ( struct engine *e );
     int engine_exchange_async ( struct engine *e );
     int engine_exchange_async_run ( struct engine *e );
