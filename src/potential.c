@@ -225,21 +225,6 @@ inline double potential_Ewald_6p ( double r , double kappa ) {
     }
         
 
-/**
- * @brief Creates a harmonic bond #potential
- *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
- * @param K The energy of the bond.
- * @param r0 The minimum energy distance.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ K(r-r_0)^2 @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- */
- 
 double potential_create_harmonic_K;
 double potential_create_harmonic_r0;
 
@@ -256,6 +241,21 @@ double potential_create_harmonic_d6fdr6 ( double r ) {
     return 0;
     }
         
+/**
+ * @brief Creates a harmonic bond #potential
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param K The energy of the bond.
+ * @param r0 The minimum energy distance.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ K(r-r_0)^2 @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+ 
 struct potential *potential_create_harmonic ( double a , double b , double K , double r0 , double tol ) {
 
     struct potential *p;
@@ -280,20 +280,6 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
     }
     
 
-/**
- * @brief Creates a harmonic dihedral #potential
- *
- * @param K The energy of the dihedral.
- * @param n The multiplicity of the dihedral.
- * @param delta The minimum energy dihedral.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ K(1 + \cos(n\arccos(r)-delta) @f$ in @f$[-1,1]@f$
- *      or @c NULL on error (see #potential_err).
- */
- 
 double potential_create_harmonic_dihedral_K;
 int potential_create_harmonic_dihedral_n;
 double potential_create_harmonic_dihedral_delta;
@@ -339,6 +325,20 @@ double potential_create_harmonic_dihedral_d6fdr6 ( double r ) {
     return 0.0;
     }
         
+/**
+ * @brief Creates a harmonic dihedral #potential
+ *
+ * @param K The energy of the dihedral.
+ * @param n The multiplicity of the dihedral.
+ * @param delta The minimum energy dihedral.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ K(1 + \cos(n\arccos(r)-delta) @f$ in @f$[-1,1]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+ 
 struct potential *potential_create_harmonic_dihedral ( double K , int n , double delta , double tol ) {
 
     struct potential *p;
@@ -364,21 +364,6 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
     }
     
 
-/**
- * @brief Creates a harmonic angle #potential
- *
- * @param a The smallest angle for which the potential will be constructed.
- * @param b The largest angle for which the potential will be constructed.
- * @param K The energy of the angle.
- * @param theta0 The minimum energy angle.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ K(\arccos(r)-r_0)^2 @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- */
- 
 double potential_create_harmonic_angle_K;
 double potential_create_harmonic_angle_theta0;
 
@@ -402,6 +387,21 @@ double potential_create_harmonic_angle_d6fdr6 ( double r ) {
     return 0.0;
     }
         
+/**
+ * @brief Creates a harmonic angle #potential
+ *
+ * @param a The smallest angle for which the potential will be constructed.
+ * @param b The largest angle for which the potential will be constructed.
+ * @param K The energy of the angle.
+ * @param theta0 The minimum energy angle.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ K(\arccos(r)-r_0)^2 @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+ 
 struct potential *potential_create_harmonic_angle ( double a , double b , double K , double theta0 , double tol ) {
 
     struct potential *p;
@@ -439,22 +439,6 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
     }
     
 
-/**
- * @brief Creates a #potential representing the real-space part of an Ewald 
- *      potential.
- *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
- * @param q The charge scaling of the potential.
- * @param kappa The screening distance of the Ewald potential.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ q\frac{\mbox{erfc}(\kappa r}{r} @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- */
-
 double potential_create_Ewald_q;
 double potential_create_Ewald_kappa;
 
@@ -471,6 +455,22 @@ double potential_create_Ewald_d6fdr6 ( double r ) {
     return potential_create_Ewald_q * potential_Ewald_6p( r , potential_create_Ewald_kappa );
     }
         
+/**
+ * @brief Creates a #potential representing the real-space part of an Ewald 
+ *      potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param q The charge scaling of the potential.
+ * @param kappa The screening distance of the Ewald potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ q\frac{\mbox{erfc}(\kappa r}{r} @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol ) {
 
     struct potential *p;
@@ -495,25 +495,6 @@ struct potential *potential_create_Ewald ( double a , double b , double q , doub
     }
     
 
-/**
- * @brief Creates a #potential representing the sum of a
- *      12-6 Lennard-Jones potential and the real-space part of an Ewald 
- *      potential.
- *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
- * @param A The first parameter of the Lennard-Jones potential.
- * @param B The second parameter of the Lennard-Jones potential.
- * @param q The charge scaling of the potential.
- * @param kappa The screening distance of the Ewald potential.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- */
-
 double potential_create_LJ126_Ewald_A;
 double potential_create_LJ126_Ewald_B;
 double potential_create_LJ126_Ewald_kappa;
@@ -535,6 +516,25 @@ double potential_create_LJ126_Ewald_d6fdr6 ( double r ) {
         potential_create_LJ126_Ewald_q * potential_Ewald_6p( r , potential_create_LJ126_Ewald_kappa );
     }
         
+/**
+ * @brief Creates a #potential representing the sum of a
+ *      12-6 Lennard-Jones potential and the real-space part of an Ewald 
+ *      potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param q The charge scaling of the potential.
+ * @param kappa The screening distance of the Ewald potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
 struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol ) {
 
     struct potential *p;
@@ -561,20 +561,6 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
     }
     
 
-/**
- * @brief Creates a #potential representing a shifted Coulomb potential.
- *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
- * @param q The charge scaling of the potential.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ \frac{1}{4\pi r} @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- */
-
 double potential_create_Coulomb_q;
 double potential_create_Coulomb_b;
 
@@ -592,6 +578,20 @@ double potential_create_Coulomb_d6fdr6 ( double r ) {
     return 720.0 * potential_escale * potential_create_Coulomb_q / r7;
     }
         
+/**
+ * @brief Creates a #potential representing a shifted Coulomb potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param q The charge scaling of the potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \frac{1}{4\pi r} @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
 struct potential *potential_create_Coulomb ( double a , double b , double q , double tol ) {
 
     struct potential *p;
@@ -616,23 +616,6 @@ struct potential *potential_create_Coulomb ( double a , double b , double q , do
     }
     
 
-/**
- * @brief Creates a #potential representing the sum of a
- *      12-6 Lennard-Jones potential and a shifted Coulomb potential.
- *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
- * @param A The first parameter of the Lennard-Jones potential.
- * @param B The second parameter of the Lennard-Jones potential.
- * @param q The charge scaling of the potential.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- */
-
 double potential_create_LJ126_Coulomb_q;
 double potential_create_LJ126_Coulomb_b;
 double potential_create_LJ126_Coulomb_A;
@@ -655,6 +638,23 @@ double potential_create_LJ126_Coulomb_d6fdr6 ( double r ) {
         720.0 * potential_escale * potential_create_LJ126_Coulomb_q / r7;
     }
         
+/**
+ * @brief Creates a #potential representing the sum of a
+ *      12-6 Lennard-Jones potential and a shifted Coulomb potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param q The charge scaling of the potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
 struct potential *potential_create_LJ126_Coulomb ( double a , double b , double A , double B , double q , double tol ) {
 
     struct potential *p;
@@ -681,22 +681,6 @@ struct potential *potential_create_LJ126_Coulomb ( double a , double b , double 
     }
     
     
-/**
- * @brief Creates a #potential representing a 12-6 Lennard-Jones potential
- *
- * @param a The smallest radius for which the potential will be constructed.
- * @param b The largest radius for which the potential will be constructed.
- * @param A The first parameter of the Lennard-Jones potential.
- * @param B The second parameter of the Lennard-Jones potential.
- * @param tol The tolerance to which the interpolation should match the exact
- *      potential.
- *
- * @return A newly-allocated #potential representing the potential
- *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
- *      or @c NULL on error (see #potential_err).
- *
- */
-
 double potential_create_LJ126_A;
 double potential_create_LJ126_B;
 
@@ -712,6 +696,22 @@ double potential_create_LJ126_dfdr ( double r ) {
 double potential_create_LJ126_d6fdr6 ( double r ) {
     return potential_LJ126_6p ( r , potential_create_LJ126_A , potential_create_LJ126_B );
     }
+
+/**
+ * @brief Creates a #potential representing a 12-6 Lennard-Jones potential
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ *
+ */
 
 struct potential *potential_create_LJ126 ( double a , double b , double A , double B , double tol ) {
 

@@ -237,7 +237,6 @@ __device__ int cuda_queue_gettask ( struct queue_cuda *q ) {
     /* Loop until there is a valid task at that index. */
     while ( q->rec_count < q->count && ( tid = q->data[ind] ) < 0 );
     
-    
     /* Scratch the task from the queue */
     if ( tid >= 0 )
         q->data[ind] = -1;

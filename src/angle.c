@@ -350,7 +350,7 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
  
 int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out ) {
 
-    int aid, pid, pjd, pkd, k, *loci, *locj, *lock, shift;
+    int aid, pid, pjd, pkd, k, l, *loci, *locj, *lock, shift;
     double h[3], epot = 0.0;
     struct space *s;
     struct part *pi, *pj, *pk, **partlist;
@@ -362,7 +362,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
     struct potential **pots;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
-    int icount = 0, l;
+    int icount = 0;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
     FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));

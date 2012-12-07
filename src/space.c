@@ -1677,7 +1677,9 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                             id2 = space_cellid(s,ii,jj,kk);
                             
                             /* store this pair? */
-                            if ( id1 <= id2 || (s->cells[id2].flags & cell_flag_ghost ) ) {
+                            if ( id1 < id2 ||
+                                 ( id1 == id2 && l[0] == 0 && l[1] == 0 && l[2] == 0 ) ||
+                                 (s->cells[id2].flags & cell_flag_ghost ) ) {
                                 s->pairs[s->nr_pairs].i = id1;
                                 s->pairs[s->nr_pairs].j = id2;
                                 s->pairs[s->nr_pairs].shift[0] = shift[0];

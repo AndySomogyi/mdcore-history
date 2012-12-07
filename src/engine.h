@@ -59,7 +59,6 @@
 #define engine_flag_affinity             128
 #define engine_flag_prefetch             256
 #define engine_flag_verlet_pseudo        512
-#define engine_flag_partlist             1024
 #define engine_flag_unsorted             2048
 #define engine_flag_mpi                  4096
 #define engine_flag_parbonded            8192
