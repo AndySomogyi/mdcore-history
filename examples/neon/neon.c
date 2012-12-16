@@ -41,7 +41,7 @@
 
 /* What to do if ENGINE_FLAGS was not defined? */
 #ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS engine_flag_tuples
+    #define ENGINE_FLAGS engine_flag_none
 #endif
 #ifndef CPU_TPS
     #define CPU_TPS 2.67e+9
@@ -102,7 +102,7 @@ int main ( int argc , char *argv[] ) {
     
     // initialize the engine
     printf("main: initializing the engine... "); fflush(stdout);
-    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_affinity | engine_flag_tuples ) != 0 ) {
+    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 2 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
         printf("main: engine_init failed with engine_err=%i.\n",engine_err);
         errs_dump(stdout);
         return 1;
@@ -130,7 +130,7 @@ int main ( int argc , char *argv[] ) {
         
 
     // initialize the Ar-Ar potential
-    if ( ( pot_NeNe = potential_create_LJ126( 0.2 , 1.0 , 2.6513e-06 , 5.7190e-03 , 1.0e-3 ) ) == NULL ) {
+    if ( ( pot_NeNe = potential_create_LJ126( 0.2 , cutoff , 2.6513e-06 , 5.7190e-03 , 1.0e-3 ) ) == NULL ) {
         printf("main: potential_create_LJ126 failed with potential_err=%i.\n",potential_err);
         errs_dump(stdout);
         return 1;

@@ -80,7 +80,7 @@
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double tol , int rigidH ) {
+int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol , int rigidH ) {
 
     struct reader r;
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
@@ -90,7 +90,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
     struct potential *p;
     
     /* Check inputs. */
-    if ( e == NULL || xplor == NULL )
+    if ( e == NULL )
         return error(engine_err_null);
         
     /* Allocate some local memory for the index arrays. */
@@ -99,7 +99,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
         return error(engine_err_malloc);
         
     /* Init the reader with the XPLOR file. */
-    if ( reader_init( &r , xplor , NULL , "!{" , "\n" ) < 0 )
+    if ( reader_init( &r , xplor , NULL , "!{" , "\n" , engine_readbuff ) < 0 )
         return error(engine_err_reader);
         
     /* Main loop. */
@@ -487,7 +487,10 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
         if ( reader_skipline( &r ) < 0 )
             return error(engine_err_reader);
     
-        } /* Main loop. */
+        } /* Main reading loop. */
+        
+    /* Close the reader. */
+    reader_close( &r );
         
                         
     /* Loop over all the type pairs and construct the non-bonded potentials. */
@@ -625,7 +628,7 @@ int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double t
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol , int rigidH ) {
+int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , int rigidH ) {
 
     struct reader r;
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
@@ -636,7 +639,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
     struct potential *p;
     
     /* Check inputs. */
-    if ( e == NULL || cpf == NULL )
+    if ( e == NULL )
         return error(engine_err_null);
         
     /* Allocate some local memory for the index arrays. */
@@ -645,7 +648,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
         return error(engine_err_malloc);
         
     /* Init the reader with the PSF file. */
-    if ( reader_init( &r , cpf , NULL , "!" , "\n" ) < 0 )
+    if ( reader_init( &r , cpf , NULL , "!" , "\n" , engine_readbuff ) < 0 )
         return error(engine_err_reader);
         
     /* Skip all lines starting with a "*". */
@@ -901,7 +904,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
             continue;
             }
             
-        /* Get the parameters K and r0. */
+        /* Get the parameters K, n, and r0. */
         if ( reader_gettoken( &r , buff , 100 ) < 0 )
             return error(engine_err_reader);
         K = strtod( buff , &endptr );
@@ -935,8 +938,10 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
                 
                 /* Do we need to create the potential? */
                 if ( potid < 0 ) {
-                    if ( ( p = potential_create_harmonic_dihedral( 4.184*K , n , M_PI/180*r0 , tol ) ) == NULL )
+                    if ( ( p = potential_create_harmonic_dihedral( 4.184*K , n , M_PI/180*r0 , tol ) ) == NULL ) {
+                        printf( "engine_read_cpf: failed to create dihedral with K=%e, n=%i, delta=%e.\n" , K , n , r0 );
                         return error(engine_err_potential);
+                        }
                     if ( ( potid = engine_dihedral_addpot( e , p ) ) < 0 )
                         return error(engine_err);
                     /* printf( "engine_read_cpf: generated potential for dihedral %s %s %s %s in [%e,%e] with %i intervals.\n" ,
@@ -1072,8 +1077,10 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
         if ( reader_gettoken( &r , buff , 100 ) < 0 )
             return error(engine_err_reader);
         K = strtod( buff , &endptr );
-        if ( *endptr != 0 )
+        if ( *endptr != 0 ) {
+            printf( "engine_read_cpf: error parsing float token \"%s\" in non-bonded interactions.\n" , buff );
             return error(engine_err_cpf);
+            }
         if ( reader_gettoken( &r , buff , 100 ) < 0 )
             return error(engine_err_reader);
         r0 = strtod( buff , &endptr );
@@ -1092,6 +1099,9 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
             return error(engine_err_reader);
             
         }
+        
+    /* Close the reader. */
+    reader_close( &r );
         
     /* Loop over all the type pairs and construct the non-bonded potentials. */
     for ( j = 0 ; j < e->nr_types ; j++ )
@@ -1221,7 +1231,7 @@ int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol ,
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
-int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
+int engine_read_psf ( struct engine *e , int psf , int pdb ) {
 
     struct reader r;
     char type[100], typename[100], buff[100], *endptr;
@@ -1230,11 +1240,11 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
     struct part p;
     
     /* Check inputs. */
-    if ( e == NULL || psf == NULL || pdb == NULL )
+    if ( e == NULL )
         return error(engine_err_null);
         
     /* Init the reader with the PSF file. */
-    if ( reader_init( &r , psf , NULL , "!" , "\n" ) < 0 )
+    if ( reader_init( &r , psf , NULL , "!" , "\n" , engine_readbuff ) < 0 )
         return error(engine_err_reader);
         
     /* Read the PSF header token. */
@@ -1265,8 +1275,8 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
         return error(engine_err_psf);
         
     /* Allocate memory for the type IDs. */
-    if ( ( typeids = (int *)alloca( sizeof(int) * n ) ) == NULL ||
-         ( resids = (int *)alloca( sizeof(int) * n ) ) == NULL )
+    if ( ( typeids = (int *)malloc( sizeof(int) * n ) ) == NULL ||
+         ( resids = (int *)malloc( sizeof(int) * n ) ) == NULL )
         return error(engine_err_malloc);
         
     /* Loop over the atom list. */
@@ -1496,13 +1506,15 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
         }
         
     /* There may be more stuff in the file, but we'll ignore that for now! */
+    reader_close( &r );
     
     /* Init the reader with the PDb file. */
-    if ( reader_init( &r , pdb , NULL , NULL , NULL ) < 0 )
+    if ( reader_init( &r , pdb , NULL , NULL , NULL , engine_readbuff ) < 0 )
         return error(engine_err_reader);
         
     /* Init the part data. */
     bzero( &p , sizeof(struct part) );
+    pid = 0;
         
     /* Main loop. */
     while ( 1 ) {
@@ -1521,11 +1533,14 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
         else if ( strncmp( buff , "ATOM" , 4 ) == 0 ) {
         
             /* Get the atom ID. */
-            if ( reader_gettoken( &r , buff , 100 ) < 0 )
+            /* if ( reader_gettoken( &r , buff , 100 ) < 0 )
                 return error(engine_err_reader);
             pid = strtol( buff , &endptr , 0 );
             if ( *endptr != 0 )
-                return error(engine_err_pdb);
+                return error(engine_err_pdb); */
+            if ( reader_skiptoken( &r ) < 0 )
+                return error(engine_err_reader);
+            pid += 1;
                 
             /* Get the atom type. */
             if ( ( typelen = reader_gettoken( &r , type , 100 ) ) < 0 )
@@ -1546,8 +1561,10 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
                 if ( ( bufflen = reader_gettoken( &r , buff , 100 ) ) < 0 )
                     return error(engine_err_reader);
                 x[k] = fmod( e->s.dim[k] - e->s.origin[k] + 0.1 * strtod( buff , &endptr ) , e->s.dim[k] ) + e->s.origin[k];
-                if ( *endptr != 0 )
+                if ( *endptr != 0 ) {
+                    printf( "engine_read_psf: error reading %ith entry (%s), got position \"%s\".\n" , pid , type , buff );
                     return error(engine_err_pdb);
+                    }
                 }
                 
             /* Add a part of the given type at the given location. */
@@ -1576,6 +1593,10 @@ int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb ) {
             
         } /* main PDB loop. */
         
+    /* Clean up allocs. */
+    reader_close( &r );
+    free(typeids);
+    free(resids);
                     
     /* We're on the road again! */
     return engine_err_ok;

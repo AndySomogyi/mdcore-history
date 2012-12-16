@@ -20,6 +20,7 @@
 
 /* include some standard header files */
 #include <stdlib.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -55,6 +56,22 @@ int reader_error ( struct reader *r , int id , int line , const char *function )
 
 
 /**
+ * @brief wrap-up a reader.
+ */
+ 
+void reader_close ( struct reader *r ) {
+    
+    /* Free the character buffer. */
+    if ( r->buff != NULL )
+        free( r->buff );
+        
+    /* Flag as not ready. */
+    r->flags = reader_flag_none;
+    
+    }
+
+
+/**
  * @brief Read the next char.
  *
  * @param r The #reader.
@@ -64,12 +81,25 @@ int reader_error ( struct reader *r , int id , int line , const char *function )
  
 int reader_getc ( struct reader *r ) {
 
+    /* Do we need to fill the buffer? */
+    if ( r->first == r->last ) {
+        if ( ( r->last = read( r->fd , r->buff , r->size ) ) < 0 )
+            return error(r,reader_err_io);
+        r->first = 0;
+        }
+    
     /* Get the next char. */
-    if ( ( r->c = getc( r->file ) ) == EOF )
+    if ( r->first < r->last ) {
+        r->c = r->buff[ r->first ];
+        r->first += 1;
+        }
+    else {
+        r->c = EOF;
         r->flags |= reader_flag_eof;
-                
+        }
+
     /* End of line? */
-    else if ( r->c == '\n' || r->c == '\r' ) {
+    if ( r->c == '\n' || r->c == '\r' ) {
         r->line += 1;
         r->col = 0;
         }
@@ -513,17 +543,24 @@ int reader_skiptoken ( struct reader *r ) {
  * @return #reader_err_ok or < 0 on error (see #reader_err).
  */
  
-int reader_init ( struct reader *r , FILE *file , char *ws , char *comm_start , char *comm_stop ) {
+int reader_init ( struct reader *r , int fd , char *ws , char *comm_start , char *comm_stop , int buffsize ) {
 
     /* Check inputs. */
-    if ( r == NULL || file == NULL )
+    if ( r == NULL )
         return error(r,reader_err_null);
         
     /* Init the flags. */
     r->flags = reader_flag_none;
         
     /* Set the file. */
-    r->file = file;
+    r->fd = fd;
+    
+    /* Init the buffer. */
+    if ( ( r->buff = (char *)malloc( buffsize ) ) == NULL )
+        return error(r,reader_err_malloc);
+    r->first = 0;
+    r->last = 0;
+    r->size = buffsize;
     
     /* Re-set the line and column counts. */
     r->line = 1;

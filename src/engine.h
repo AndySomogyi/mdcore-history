@@ -72,6 +72,7 @@
 #define engine_rigids_chunk              50
 #define engine_dihedrals_chunk           100
 #define engine_exclusions_chunk          100
+#define engine_readbuff                  16384
 
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
@@ -290,9 +291,9 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
 int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , int N );
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , int N );
 int engine_nonbond_eval ( struct engine *e );
-int engine_read_cpf ( struct engine *e , FILE *cpf , double kappa , double tol , int rigidH );
-int engine_read_psf ( struct engine *e , FILE *psf , FILE *pdb );
-int engine_read_xplor ( struct engine *e , FILE *xplor , double kappa , double tol , int rigidH );
+int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , int rigidH );
+int engine_read_psf ( struct engine *e , int psf , int pdb );
+int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol , int rigidH );
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d );
 int engine_rigid_eval ( struct engine *e );
 int engine_rigid_sort ( struct engine *e );

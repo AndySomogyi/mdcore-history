@@ -17,7 +17,7 @@
  * 
  ******************************************************************************/
 
-/* reader error codes */
+/* Reader error codes */
 #define reader_err_ok                    0
 #define reader_err_null                  -1
 #define reader_err_malloc                -2
@@ -43,10 +43,14 @@ struct reader {
     unsigned int flags;
 
     /** File to which this reader is associated. */
-    FILE *file;
+    int fd;
     
     /** Current character. */
     int c;
+    
+    /** Character buffer. */
+    char *buff;
+    int first, last, size;
     
     /** Current location in file. */
     int line, col;
@@ -63,8 +67,9 @@ struct reader {
     
 
 /* associated functions */
+void reader_close ( struct reader *r );
 int reader_getc ( struct reader *r );
-int reader_init ( struct reader *r , FILE *file , char *ws , char *comm_start , char *comm_stop );
+int reader_init ( struct reader *r , int fd , char *ws , char *comm_start , char *comm_stop , int buffsize );
 int reader_gettoken ( struct reader *r , char *buff , int buff_size );
 int reader_getcomment ( struct reader *r , char *buff , int buff_size );
 int reader_getline ( struct reader *r , char *buff , int buff_size );

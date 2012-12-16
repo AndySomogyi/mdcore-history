@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <math.h>
 #include <float.h>
 #include <string.h>
@@ -83,7 +84,8 @@ int main ( int argc , char *argv[] ) {
     int step, i, j, k, cid;
     FPTYPE ee, eff;
     double temp, v[3];
-    FILE *dump, *psf, *pdb, *xplor;
+    FILE *dump, *fpdb;
+    int psf, pdb, xplor;
     char fname[100];
     double es[6], ekin, epot, vcom[3], vcom_x , vcom_y , vcom_z , mass_tot, w, v2;
     ticks tic, toc, tic_step, toc_step, timers[10];
@@ -172,12 +174,12 @@ int main ( int argc , char *argv[] ) {
     
     /* Load the PSF/PDB files. */
     printf( "main[%i]: reading psf/pdb files....\n" , myrank ); fflush(stdout);
-    if ( ( psf = fopen( argv[1] , "r" ) ) == NULL ) {
-        printf("main[%i]: could not fopen the file \"%s\".\n",myrank,argv[1]);
+    if ( ( psf = open( argv[1] , O_RDONLY ) ) < 0 ) {
+        printf("main[%i]: could not open the file \"%s\".\n",myrank,argv[1]);
         return -1;
         }
-    if ( ( pdb = fopen( argv[2] , "r" ) ) == NULL ) {
-        printf("main[%i]: could not fopen the file \"%s\".\n",myrank,argv[2]);
+    if ( ( pdb = open( argv[2] , O_RDONLY ) ) < 0 ) {
+        printf("main[%i]: could not open the file \"%s\".\n",myrank,argv[2]);
         return -1;
         }
     if ( engine_read_psf( &e , psf , pdb ) < 0 ) {
@@ -185,7 +187,7 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         return -1;
         }
-    fclose( psf ); fclose( pdb );
+    close( psf ); close( pdb );
     printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
     printf( "main[%i]: read %i particles.\n" , myrank , e.s.nr_parts );
     printf( "main[%i]: read %i bonds.\n" , myrank , e.nr_bonds );
@@ -197,8 +199,8 @@ int main ( int argc , char *argv[] ) {
     
     /* Load the CHARMM parameter file. */
     printf( "main[%i]: reading parameter file....\n" , myrank ); fflush(stdout);
-    if ( ( xplor = fopen( "apoa1.xplor" , "r" ) ) == NULL ) {
-        printf("main[%i]: could not fopen the file \"apoa1.xplor\".\n",myrank);
+    if ( ( xplor = open( "apoa1.xplor" , O_RDONLY ) ) < 0 ) {
+        printf("main[%i]: could not open the file \"apoa1.xplor\".\n",myrank);
         return -1;
         }
     if ( engine_read_xplor( &e , xplor , 0.0 , 1e-3 , 1 ) < 0 ) {
@@ -209,7 +211,7 @@ int main ( int argc , char *argv[] ) {
     printf( "main[%i]: done reading parameters.\n" , myrank );
     printf( "main[%i]: generated %i constraints in %i groups.\n" , myrank , e.nr_constr , e.nr_rigids );
     fflush(stdout);
-    fclose( xplor );
+    close( xplor );
     
     /* Dump bond types. */
     /* for ( j = 0 ; j < e.nr_types ; j++ )
@@ -426,6 +428,28 @@ int main ( int argc , char *argv[] ) {
         }
         
 
+    /* Dump the engine flags. */
+    if ( myrank == 0 ) {
+        printf( "main[%i]: engine flags:" , myrank );
+        if ( e.flags & engine_flag_tuples ) printf( " engine_flag_tuples" );
+        if ( e.flags & engine_flag_static ) printf( " engine_flag_static" );
+        if ( e.flags & engine_flag_localparts ) printf( " engine_flag_localparts" );
+        if ( e.flags & engine_flag_cuda ) printf( " engine_flag_cuda" );
+        if ( e.flags & engine_flag_explepot ) printf( " engine_flag_explepot" );
+        if ( e.flags & engine_flag_verlet ) printf( " engine_flag_verlet" );
+        if ( e.flags & engine_flag_verlet_pairwise ) printf( " engine_flag_verlet_pairwise" );
+        if ( e.flags & engine_flag_affinity ) printf( " engine_flag_affinity" );
+        if ( e.flags & engine_flag_prefetch ) printf( " engine_flag_prefetch" );
+        if ( e.flags & engine_flag_verlet_pseudo ) printf( " engine_flag_verlet_pseudo" );
+        if ( e.flags & engine_flag_unsorted ) printf( " engine_flag_unsorted" );
+        if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );
+        if ( e.flags & engine_flag_parbonded ) printf( " engine_flag_parbonded" );
+        if ( e.flags & engine_flag_async ) printf( " engine_flag_async" );
+        if ( e.flags & engine_flag_sets ) printf( " engine_flag_sets" );
+        printf( "\n" );
+        }
+       
+        
     /* Main time-stepping loop. */
     for ( step = 0 ; step < nr_steps ; step++ ) {
     
@@ -542,14 +566,14 @@ int main ( int argc , char *argv[] ) {
         
         
         if ( myrank == 0 && e.time % 100 == 0 ) {
-            sprintf( fname , "apoa1_%08i.pdb" , e.time ); pdb = fopen( fname , "w" );
+            sprintf( fname , "apoa1_%08i.pdb" , e.time ); fpdb = fopen( fname , "w" );
             // if ( engine_dump_PSF( &e , NULL , pdb , excl , 2 ) < 0 ) {
-            if ( engine_dump_PSF( &e , NULL , pdb , excl , 0 ) < 0 ) {
+            if ( engine_dump_PSF( &e , NULL , fpdb , excl , 0 ) < 0 ) {
                 printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
                 errs_dump(stdout);
                 return 1;
                 }
-            fclose(pdb);
+            fclose(fpdb);
             }
     
         } /* main loop. */

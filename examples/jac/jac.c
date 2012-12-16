@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <math.h>
 #include <float.h>
 #include <string.h>
@@ -83,7 +84,8 @@ int main ( int argc , char *argv[] ) {
     int step, incr, i, j, k, cid, w_min, w_max;
     FPTYPE ee, eff;
     double temp, v[3];
-    FILE *dump, *psf, *pdb, *cpf;
+    FILE *dump, *fpdb;
+    int psf, pdb, cpf;
     char fname[100];
     double es[6], ekin, ekin_local, epot, vcom[3], vcom_x , vcom_y , vcom_z , mass_tot, w, v2;
     ticks tic, toc, tic_step, toc_step, timers[10];
@@ -178,12 +180,12 @@ int main ( int argc , char *argv[] ) {
     
     /* Load the PSF/PDB files. */
     printf( "main[%i]: reading psf/pdb files....\n" , myrank ); fflush(stdout);
-    if ( ( psf = fopen( argv[1] , "r" ) ) == NULL ) {
-        printf("main[%i]: could not fopen the file \"%s\".\n",myrank,argv[1]);
+    if ( ( psf = open( argv[1] , O_RDONLY ) ) < 0 ) {
+        printf("main[%i]: could not open the file \"%s\".\n",myrank,argv[1]);
         abort();
         }
-    if ( ( pdb = fopen( argv[2] , "r" ) ) == NULL ) {
-        printf("main[%i]: could not fopen the file \"%s\".\n",myrank,argv[2]);
+    if ( ( pdb = open( argv[2] , O_RDONLY ) ) < 0 ) {
+        printf("main[%i]: could not open the file \"%s\".\n",myrank,argv[2]);
         abort();
         }
     if ( engine_read_psf( &e , psf , pdb ) < 0 ) {
@@ -191,13 +193,13 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
-    fclose( psf ); fclose( pdb );
+    close( psf ); close( pdb );
     
     
     /* Load the CHARMM parameter file. */
     printf( "main[%i]: reading parameter file....\n" , myrank ); fflush(stdout);
-    if ( ( cpf = fopen( "par_all22_prot.inp" , "r" ) ) == NULL ) {
-        printf("main[%i]: could not fopen the file \"par_all22_prot.inp\".\n",myrank);
+    if ( ( cpf = open( "par_all22_prot.inp" , O_RDONLY ) ) < 0 ) {
+        printf("main[%i]: could not open the file \"par_all22_prot.inp\".\n",myrank);
         abort();
         }
     if ( engine_read_cpf( &e , cpf , 3.0 , 3.3e-3 , 1 ) < 0 ) {
@@ -206,7 +208,7 @@ int main ( int argc , char *argv[] ) {
         abort();
         }
     printf( "main[%i]: done reading parameters.\n" , myrank ); fflush(stdout);
-    fclose( cpf );
+    close( cpf );
     
     
     /* Correct the water vids. */
@@ -473,7 +475,6 @@ int main ( int argc , char *argv[] ) {
         if ( e.flags & engine_flag_affinity ) printf( " engine_flag_affinity" );
         if ( e.flags & engine_flag_prefetch ) printf( " engine_flag_prefetch" );
         if ( e.flags & engine_flag_verlet_pseudo ) printf( " engine_flag_verlet_pseudo" );
-        if ( e.flags & engine_flag_partlist ) printf( " engine_flag_partlist" );
         if ( e.flags & engine_flag_unsorted ) printf( " engine_flag_unsorted" );
         if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );
         if ( e.flags & engine_flag_parbonded ) printf( " engine_flag_parbonded" );
@@ -629,13 +630,13 @@ int main ( int argc , char *argv[] ) {
             }
         
         if ( myrank == 0 && e.time % 100 == 0 ) {
-            sprintf( fname , "jac_%08i.pdb" , e.time ); pdb = fopen( fname , "w" );
-            if ( engine_dump_PSF( &e , NULL , pdb , excl , 2 ) < 0 ) {
+            sprintf( fname , "jac_%08i.pdb" , e.time ); fpdb = fopen( fname , "w" );
+            if ( engine_dump_PSF( &e , NULL , fpdb , excl , 2 ) < 0 ) {
                 printf("main: engine_dump_PSF failed with engine_err=%i.\n",engine_err);
                 errs_dump(stdout);
                 abort();
                 }
-            fclose(pdb);
+            fclose(fpdb);
             }
     
         } /* main loop. */

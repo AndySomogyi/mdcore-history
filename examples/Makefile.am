@@ -16,5 +16,5 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Recurse into the subdirs
-SUBDIRS = argon bulk hybrid flexible jac apoa1 # btree
+SUBDIRS = argon bulk hybrid flexible jac apoa1 stmv # btree
 
