@@ -97,7 +97,7 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE dummy = 0.0;
+    FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
@@ -167,8 +167,8 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
             dxq[icount*3] = dx[0];
             dxq[icount*3+1] = dx[1];
             dxq[icount*3+2] = dx[2];
-            effi[icount] = ( cid == cid_div ? pi->f : &dummy );
-            effj[icount] = ( cjd == cid_div ? pj->f : &dummy );
+            effi[icount] = ( cid == cid_div ? pi->f : dummy );
+            effj[icount] = ( cjd == cid_div ? pj->f : dummy );
             potq[icount] = pot;
             icount += 1;
 
@@ -303,7 +303,7 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE dummy = 0.0;
+    FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
@@ -373,8 +373,8 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
             dxq[icount*3] = dx[0];
             dxq[icount*3+1] = dx[1];
             dxq[icount*3+2] = dx[2];
-            effi[icount] = ( cid == cid_mod ? pi->f : &dummy );
-            effj[icount] = ( cjd == cid_mod ? pj->f : &dummy );
+            effi[icount] = ( cid == cid_mod ? pi->f : dummy );
+            effj[icount] = ( cjd == cid_mod ? pj->f : dummy );
             potq[icount] = pot;
             icount += 1;
 

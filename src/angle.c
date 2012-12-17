@@ -99,7 +99,7 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE dummy = 0.0;
+    FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
     FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
@@ -228,9 +228,9 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
             dkq[icount*3] = dxk[0];
             dkq[icount*3+1] = dxk[1];
             dkq[icount*3+2] = dxk[2];
-            effi[icount] = ( cid == cid_div ? pi->f : &dummy );
-            effj[icount] = ( cjd == cid_div ? pj->f : &dummy );
-            effk[icount] = ( ckd == cid_div ? pk->f : &dummy );
+            effi[icount] = ( cid == cid_div ? pi->f : dummy );
+            effj[icount] = ( cjd == cid_div ? pj->f : dummy );
+            effk[icount] = ( ckd == cid_div ? pk->f : dummy );
             potq[icount] = pot;
             icount += 1;
 

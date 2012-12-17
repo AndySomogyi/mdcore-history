@@ -103,7 +103,7 @@ int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_di
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE dummy = 0.0;
+    FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
     FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
@@ -281,10 +281,10 @@ int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_di
             dlq[icount*3] = dxl[0];
             dlq[icount*3+1] = dxl[1];
             dlq[icount*3+2] = dxl[2];
-            effi[icount] = ( cid == cid_div ? pi->f : &dummy );
-            effj[icount] = ( cjd == cid_div ? pj->f : &dummy );
-            effk[icount] = ( ckd == cid_div ? pk->f : &dummy );
-            effl[icount] = ( cld == cid_div ? pl->f : &dummy );
+            effi[icount] = ( cid == cid_div ? pi->f : dummy );
+            effj[icount] = ( cjd == cid_div ? pj->f : dummy );
+            effk[icount] = ( ckd == cid_div ? pk->f : dummy );
+            effl[icount] = ( cld == cid_div ? pl->f : dummy );
             potq[icount] = pot;
             icount += 1;
         
