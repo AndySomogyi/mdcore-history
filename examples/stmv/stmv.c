@@ -77,8 +77,8 @@ int main ( int argc , char *argv[] ) {
 
 
     /* Simulation constants. */
-    double origin[3] = { -5.44306 , -5.44306 , -3.8879 };
     double dim[3] = { 21.6832 , 21.6832 , 21.6832 };
+    double origin[3] = { dim[0]/2 , dim[1]/2 , dim[2]/2 };
     int nr_mols = 129024, nr_parts = nr_mols*3;
     // double dim[3] = { 8.0 , 8.0 , 8.0 };
     // int nr_mols = 16128, nr_parts = nr_mols*3;
@@ -438,17 +438,6 @@ int main ( int argc , char *argv[] ) {
     #endif
         
         
-    /* Start the engine. */
-    if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
-        printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
-        errs_dump(stdout);
-        return -1;
-        }
-        
-    /* Set the number of OpenMP threads to the number of runners. */
-    omp_set_num_threads( nr_runners );
-        
-        
     /* Give the system a quick shake before going anywhere. */
     if ( engine_rigid_sort( &e ) != 0 ) {
         printf("main: engine_rigid_sortl failed with engine_err=%i.\n",engine_err);
@@ -469,15 +458,17 @@ int main ( int argc , char *argv[] ) {
     #endif
         
             
-    /* Timing. */    
-    toc = getticks();
-    if ( myrank == 0 ) {
-        printf("main[%i]: setup took %.3f ms.\n",myrank,(double)(toc-tic) * itpms);
-        printf("# step e_pot e_kin swaps stalls ms_tot ms_nonbond ms_bonded ms_advance ms_shake ms_xchg ms_temp\n");
-        fflush(stdout);
+    /* Start the engine. */
+    if ( engine_start( &e , nr_runners , nr_runners ) != 0 ) {
+        printf("main[%i]: engine_start failed with engine_err=%i.\n",myrank,engine_err);
+        errs_dump(stdout);
+        return -1;
         }
         
-
+    /* Set the number of OpenMP threads to the number of runners. */
+    omp_set_num_threads( nr_runners );
+        
+        
     /* Dump the engine flags. */
     if ( myrank == 0 ) {
         printf( "main[%i]: engine flags:" , myrank );
@@ -488,18 +479,27 @@ int main ( int argc , char *argv[] ) {
         if ( e.flags & engine_flag_explepot ) printf( " engine_flag_explepot" );
         if ( e.flags & engine_flag_verlet ) printf( " engine_flag_verlet" );
         if ( e.flags & engine_flag_verlet_pairwise ) printf( " engine_flag_verlet_pairwise" );
+        if ( e.flags & engine_flag_verlet_pseudo ) printf( " engine_flag_verlet_pseudo" );
         if ( e.flags & engine_flag_affinity ) printf( " engine_flag_affinity" );
         if ( e.flags & engine_flag_prefetch ) printf( " engine_flag_prefetch" );
-        if ( e.flags & engine_flag_verlet_pseudo ) printf( " engine_flag_verlet_pseudo" );
         if ( e.flags & engine_flag_unsorted ) printf( " engine_flag_unsorted" );
         if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );
         if ( e.flags & engine_flag_parbonded ) printf( " engine_flag_parbonded" );
         if ( e.flags & engine_flag_async ) printf( " engine_flag_async" );
         if ( e.flags & engine_flag_sets ) printf( " engine_flag_sets" );
-        printf( "\n" );
+        printf( "\n" ); fflush(stdout);
         }
        
         
+    /* Timing. */    
+    toc = getticks();
+    if ( myrank == 0 ) {
+        printf("main[%i]: setup took %.3f ms.\n",myrank,(double)(toc-tic) * itpms);
+        printf("# step e_pot e_kin swaps stalls ms_tot ms_nonbond ms_bonded ms_advance ms_shake ms_xchg ms_temp\n");
+        fflush(stdout);
+        }
+        
+
     /* Main time-stepping loop. */
     for ( step = 0 ; step < nr_steps ; step++ ) {
     

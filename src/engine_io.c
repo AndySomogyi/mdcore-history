@@ -1645,8 +1645,8 @@ int engine_dump_PSF ( struct engine *e , FILE *psf , FILE *pdb , char *excl[] , 
         if ( nr_excl > 0 && k < nr_excl )
             continue;
         if ( pdb != NULL )
-            fprintf( pdb , "ATOM  %5d %4s %-4s %6d%1s %8.3f%8.3f%8.3f\n",
-                p->id+1 , e->types[p->type].name , "TIP3" , p->vid+1 , "" ,
+            fprintf( pdb , "ATOM  %5d %4s %3s X%4i    %8.3f%8.3f%8.3f\n" ,
+                (p->id+1)%100000 , e->types[p->type].name , "" , (p->vid+1)%10000 ,
                 10 * ( p->x[0] + c->origin[0] ) , 10 * ( p->x[1] + c->origin[1] ) , 10 * ( p->x[2] + c->origin[2] ) );
         if ( psf != NULL )
             fprintf( psf , "%8i %4s %4i %4s %4s %4s %15.6f %15.6f    0\n" ,
