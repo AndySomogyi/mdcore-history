@@ -36,6 +36,12 @@
 #include <mpi.h>
 #endif
 
+/* FFTW3 headers. */
+#ifdef HAVE_FFTW3
+    #include <complex.h>
+    #include <fftw3.h>
+#endif
+
 /* OpenMP headers. */
 #include <omp.h>
 
@@ -206,7 +212,7 @@ int main ( int argc , char *argv[] ) {
     e.tol_rigid = 1.0e-6;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
-        printf( "main[%i]: space has %i pairs and %i tuples.\n" , myrank , e.s.nr_pairs , e.s.nr_tuples );
+        printf( "main[%i]: space has %i tasks.\n" , myrank , e.s.nr_tasks );
     if ( myrank == 0 )
         printf( "main[%i]: cell size is [ %e , %e , %e ] nm.\n" , myrank , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     if ( myrank == 0 )
@@ -472,7 +478,6 @@ int main ( int argc , char *argv[] ) {
     /* Dump the engine flags. */
     if ( myrank == 0 ) {
         printf( "main[%i]: engine flags:" , myrank );
-        if ( e.flags & engine_flag_tuples ) printf( " engine_flag_tuples" );
         if ( e.flags & engine_flag_static ) printf( " engine_flag_static" );
         if ( e.flags & engine_flag_localparts ) printf( " engine_flag_localparts" );
         if ( e.flags & engine_flag_cuda ) printf( " engine_flag_cuda" );

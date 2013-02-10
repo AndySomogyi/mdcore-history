@@ -22,10 +22,10 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS)
+AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = stmv_noverlet stmv_verlet stmv_pwverlet stmv_pseudoverlet
+bin_PROGRAMS = stmv_noverlet stmv_pseudoverlet
 
 # Build a CUDA-enabled version too?
 if HAVECUDA
@@ -41,20 +41,6 @@ endif
 stmv_noverlet_SOURCES = stmv.c
 stmv_noverlet_CFLAGS =  -DFPTYPE_SINGLE $(AM_CFLAGS)
 stmv_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using Verlet lists
-# Sources for stmv_verlet
-stmv_verlet_SOURCES = stmv.c
-stmv_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-stmv_verlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using pairwise Verlet lists
-# Sources for stmv_verlet
-stmv_pwverlet_SOURCES = stmv.c
-stmv_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-stmv_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind

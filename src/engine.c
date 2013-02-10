@@ -45,7 +45,7 @@
 #include "lock.h"
 #include "part.h"
 #include "cell.h"
-#include "fifo.h"
+#include "task.h"
 #include "queue.h"
 #include "space.h"
 #include "potential.h"
@@ -257,12 +257,6 @@ int engine_verlet_update ( struct engine *e ) {
         /* printf("engine_verlet_update: re-building verlet lists next step...\n");
         printf("engine_verlet_update: maxdx=%e, skin=%e.\n",maxdx,skin); */
         
-        /* Re-set the sortlists in the cells if necessary. */
-        if ( e->flags & engine_flag_verlet_pseudo ) {
-            for ( cid = 0 ; cid < s->nr_marked ; cid++ )
-                bzero( s->cells[ s->cid_real[cid] ].sorted , sizeof(char) * 13 );
-            }
-        
         /* Wait for any unterminated exchange. */
         tic = getticks();
 #ifdef WITH_MPI
@@ -294,18 +288,14 @@ int engine_verlet_update ( struct engine *e ) {
                 }
             }
             
-        /* Set the nrpairs to zero. */
-        if ( !( e->flags & engine_flag_verlet_pairwise ) && s->verlet_nrpairs != NULL )
-            bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
-            
         /* Set the maximum displacement to zero. */
-        s->verlet_maxdx = 0;
+        s->maxdx = 0;
 
         }
         
     /* Otherwise, just store the maximum displacement. */
     else
-        s->verlet_maxdx = maxdx;
+        s->maxdx = maxdx;
             
     /* All done! */
     return engine_err_ok;
@@ -328,6 +318,7 @@ int engine_split ( struct engine *e ) {
 
     int i, k, cid, cjd;
     struct cell *ci, *cj, *ct;
+    struct space *s = &(e->s);
 
     /* Check for nonsense inputs. */
     if ( e == NULL )
@@ -349,17 +340,21 @@ int engine_split ( struct engine *e ) {
         }
         
     /* Un-mark all cells. */
-    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
-        e->s.cells[cid].flags &= ~cell_flag_marked;
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+        s->cells[cid].flags &= ~cell_flag_marked;
         
     /* Loop over each cell pair... */
-    for ( i = 0 ; i < e->s.nr_pairs ; i++ ) {
+    for ( i = 0 ; i < s->nr_tasks ; i++ ) {
+    
+        /* Is this task a pair? */
+        if ( s->tasks[i].type != task_type_pair )
+            continue;
     
         /* Get the cells in this pair. */
-        cid = e->s.pairs[i].i;
-        cjd = e->s.pairs[i].j;
-        ci = &( e->s.cells[ cid ] );
-        cj = &( e->s.cells[ cjd ] );
+        cid = s->tasks[i].i;
+        cjd = s->tasks[i].j;
+        ci = &( s->cells[ cid ] );
+        cj = &( s->cells[ cjd ] );
         
         /* If it is a ghost-ghost pair, skip it. */
         if ( (ci->flags & cell_flag_ghost) && (cj->flags & cell_flag_ghost) )
@@ -401,52 +396,80 @@ int engine_split ( struct engine *e ) {
             
         }
         
-    /* Nuke all ghost-ghost pairs. */
+    /* Nuke all ghost-ghost tasks. */
     i = 0;
-    while ( i < e->s.nr_pairs ) {
+    while ( i < s->nr_tasks ) {
     
-        /* Get the cells in this pair. */
-        ci = &( e->s.cells[ e->s.pairs[i].i ] );
-        cj = &( e->s.cells[ e->s.pairs[i].j ] );
-        
-        /* If it is a ghost-ghost pair, skip it. */
-        if ( (ci->flags & cell_flag_ghost) && (cj->flags & cell_flag_ghost) )
-            e->s.pairs[i] = e->s.pairs[ --(e->s.nr_pairs) ];
-        else
-            i += 1;
+        /* Pair? */
+        if ( s->tasks[i].type == task_type_pair ) {
+    
+            /* Get the cells in this pair. */
+            ci = &( s->cells[ s->tasks[i].i ] );
+            cj = &( s->cells[ s->tasks[i].j ] );
+
+            /* If it is a ghost-ghost pair, skip it. */
+            if ( (ci->flags & cell_flag_ghost) && (cj->flags & cell_flag_ghost) )
+                s->tasks[i] = s->tasks[ --(s->nr_tasks) ];
+            else
+                i += 1;
+
+            }
+            
+        /* Self? */
+        else if ( s->tasks[i].type == task_type_self ) {
+            
+            /* Get the cells in this pair. */
+            ci = &( s->cells[ s->tasks[i].i ] );
+
+            /* If it is a ghost-ghost pair, skip it. */
+            if ( ci->flags & cell_flag_ghost )
+                s->tasks[i] = s->tasks[ --(s->nr_tasks) ];
+            else
+                i += 1;
+
+            }
+            
+        /* Sort? */
+        else if ( s->tasks[i].type == task_type_sort ) {
+            
+            /* Get the cells in this pair. */
+            ci = &( s->cells[ s->tasks[i].i ] );
+
+            /* If it is a ghost-ghost pair, skip it. */
+            if ( !(ci->flags & cell_flag_marked) )
+                s->tasks[i] = s->tasks[ --(s->nr_tasks) ];
+            else
+                i += 1;
+
+            }
             
         }
         
     /* Empty unmarked cells. */
-    for ( k = 0 ; k < e->s.nr_cells ; k++ )
-        if ( !( e->s.cells[k].flags & cell_flag_marked ) )
-            cell_flush( &e->s.cells[k] , e->s.partlist , e->s.celllist );
+    for ( k = 0 ; k < s->nr_cells ; k++ )
+        if ( !( s->cells[k].flags & cell_flag_marked ) )
+            cell_flush( &s->cells[k] , s->partlist , s->celllist );
             
-    /* Set ghost markings. */
-    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
-        if ( e->s.cells[cid].flags & cell_flag_ghost )
-            for ( k = 0 ; k < e->s.cells[cid].count ; k++ )
-                e->s.cells[cid].parts[k].flags |= part_flag_ghost;
+    /* Set ghost markings on particles. */
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+        if ( s->cells[cid].flags & cell_flag_ghost )
+            for ( k = 0 ; k < s->cells[cid].count ; k++ )
+                s->cells[cid].parts[k].flags |= part_flag_ghost;
         
     /* Fill the cid lists with marked, local and ghost cells. */
-    e->s.nr_real = 0; e->s.nr_ghost = 0; e->s.nr_marked = 0;
-    for ( cid = 0 ; cid < e->s.nr_cells ; cid++ )
-        if ( e->s.cells[cid].flags & cell_flag_marked ) {
-            e->s.cid_marked[ e->s.nr_marked++ ] = cid;
-            if ( e->s.cells[cid].flags & cell_flag_ghost ) {
-                e->s.cells[cid].id = -e->s.nr_cells;
-                e->s.cid_ghost[ e->s.nr_ghost++ ] = cid;
+    s->nr_real = 0; s->nr_ghost = 0; s->nr_marked = 0;
+    for ( cid = 0 ; cid < s->nr_cells ; cid++ )
+        if ( s->cells[cid].flags & cell_flag_marked ) {
+            s->cid_marked[ s->nr_marked++ ] = cid;
+            if ( s->cells[cid].flags & cell_flag_ghost ) {
+                s->cells[cid].id = -s->nr_cells;
+                s->cid_ghost[ s->nr_ghost++ ] = cid;
                 }
             else {
-                e->s.cells[cid].id = e->s.nr_real;
-                e->s.cid_real[ e->s.nr_real++ ] = cid;
+                s->cells[cid].id = s->nr_real;
+                s->cid_real[ s->nr_real++ ] = cid;
                 }
             }
-        
-    /* Re-build the tuples if needed. */
-    if ( e->flags & engine_flag_tuples )
-        if ( space_maketuples( &e->s ) < 0 )
-            return error(engine_err_space);
         
     /* Done deal. */
     return engine_err_ok;
@@ -1261,10 +1284,6 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
                 }
             }
             
-        /* Set the nrpairs to zero. */
-        if ( !( e->flags & engine_flag_verlet_pairwise ) && s->verlet_nrpairs != NULL )
-            bzero( s->verlet_nrpairs , sizeof(int) * s->nr_parts );
-            
         /* Re-set the Verlet rebuild flag. */
         s->verlet_rebuild = 1;
 
@@ -1298,22 +1317,12 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
         e->nr_queues = nr_queues;
         
         /* Initialize  and fill the queues. */
-        if ( e->flags & engine_flag_tuples ) {
-            for ( i = 0 ; i < e->nr_queues ; i++ )
-                if ( queue_tuples_init( &e->queues[i] , 2*s->nr_tuples/e->nr_queues , s , s->tuples ) != queue_err_ok )
-                    return error(engine_err_queue);
-            for ( i = 0 ; i < s->nr_tuples ; i++ )
-                if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tuples[i] ) < 0 )
-                    return error(engine_err_queue);
-            }
-        else {
-            for ( i = 0 ; i < e->nr_queues ; i++ )
-                if ( queue_pairs_init( &e->queues[i] , 2*s->nr_pairs/e->nr_queues , s , s->pairs ) != queue_err_ok )
-                    return error(engine_err_queue);
-            for ( i = 0 ; i < s->nr_pairs ; i++ )
-                if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->pairs[i] ) < 0 )
-                    return error(engine_err_queue);
-            }
+        for ( i = 0 ; i < e->nr_queues ; i++ )
+            if ( queue_init( &e->queues[i] , 2*s->nr_tasks/e->nr_queues , s , s->tasks ) != queue_err_ok )
+                return error(engine_err_queue);
+        for ( i = 0 ; i < s->nr_tasks ; i++ )
+            if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tasks[i] ) < 0 )
+                return error(engine_err_queue);
                 
         /* (Allocate the runners */
         if ( ( e->runners = (struct runner *)malloc( sizeof(struct runner) * nr_runners )) == NULL )
@@ -1326,20 +1335,14 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
                 return error(engine_err_runner);
 
         /* wait for the runners to be in place */
-        if ( !( e->flags & engine_flag_dispatch ) )
-            while (e->barrier_count != e->nr_runners)
-                if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-                    return error(engine_err_pthread);
+        while (e->barrier_count != e->nr_runners)
+            if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
+                return error(engine_err_pthread);
                 
         }
         
     /* Set the number of runners. */
     e->nr_runners = nr_runners;
-    
-    /* Init the dispatch output queue, if needed. */
-    if ( e->flags & engine_flag_dispatch )
-        if ( fifo_init( &e->s.dispatch_out , runner_qlen * nr_runners ) < 0 )
-            return error(engine_err_runner);
     
     /* all is well... */
     return engine_err_ok;
@@ -1429,39 +1432,25 @@ int engine_nonbond_eval ( struct engine *e ) {
 
     int k;
 
-    /* Dispatcher or regular runners? */
-    if ( e->flags & engine_flag_dispatch ) {
-    
-        /* Run the dispatcher, if needed. */
-        if ( runner_dispatcher( e ) < 0 )
-            return error(engine_err_runner);
-            
-        }
+    /* Re-set the queues. */
+    for ( k = 0 ; k < e->nr_queues ; k++ )
+        e->queues[k].next = 0;
 
-    /* Otherwise, regular runners. */
+    /* open the door for the runners */
+    e->barrier_count = -e->barrier_count;
+    if ( e->nr_runners == 1 ) {
+        if (pthread_cond_signal(&e->barrier_cond) != 0)
+            return error(engine_err_pthread);
+        }
     else {
-    
-        /* Re-set the queues. */
-        for ( k = 0 ; k < e->nr_queues ; k++ )
-            e->queues[k].next = 0;
-
-        /* open the door for the runners */
-        e->barrier_count = -e->barrier_count;
-        if ( e->nr_runners == 1 ) {
-            if (pthread_cond_signal(&e->barrier_cond) != 0)
-                return error(engine_err_pthread);
-            }
-        else {
-            if (pthread_cond_broadcast(&e->barrier_cond) != 0)
-                return error(engine_err_pthread);
-            }
-
-        /* wait for the runners to come home */
-        while (e->barrier_count < e->nr_runners)
-            if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
-                return error(engine_err_pthread);
-            
+        if (pthread_cond_broadcast(&e->barrier_cond) != 0)
+            return error(engine_err_pthread);
         }
+
+    /* wait for the runners to come home */
+    while (e->barrier_count < e->nr_runners)
+        if (pthread_cond_wait(&e->done_cond,&e->barrier_mutex) != 0)
+            return error(engine_err_pthread);
             
     /* All in a days work. */
     return engine_err_ok;
@@ -1620,10 +1609,6 @@ int engine_step ( struct engine *e ) {
         /* Start the clock. */
         tic = getticks();
         
-        /* Prepare the Verlet data. */
-        if ( space_verlet_init( &(e->s) , !(e->flags & engine_flag_verlet_pairwise) ) != space_err_ok )
-            return error(engine_err_space);
-    
         /* Check particle movement and update cells if necessary. */
         if ( engine_verlet_update( e ) < 0 )
             return error(engine_err);

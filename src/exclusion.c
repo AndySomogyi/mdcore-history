@@ -47,7 +47,6 @@
 #include "potential.h"
 #include "potential_eval.h"
 #include "cell.h"
-#include "fifo.h"
 #include "space.h"
 #include "engine.h"
 #include "exclusion.h"

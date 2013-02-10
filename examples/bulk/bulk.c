@@ -38,6 +38,12 @@
     #include <mpi.h>
 #endif
 
+/* FFTW3 headers. */
+#ifdef HAVE_FFTW3
+    #include <complex.h>
+    #include <fftw3.h>
+#endif
+
 /* OpenMP headers. */
 #include <omp.h>
 
@@ -130,7 +136,7 @@ int main ( int argc , char *argv[] ) {
     printf("main: cell dimensions = [ %i , %i , %i ].\n", e.s.cdim[0] , e.s.cdim[1] , e.s.cdim[2] );
     printf("main: cell size = [ %e , %e , %e ].\n" , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     printf("main: cutoff set to %22.16e.\n", cutoff);
-    printf("main: nr tuples: %i.\n",e.s.nr_tuples);
+    printf("main: nr tasks: %i.\n",e.s.nr_tasks);
         
     /* mix-up the pair list just for kicks
     printf("main: shuffling the interaction pairs... "); fflush(stdout);

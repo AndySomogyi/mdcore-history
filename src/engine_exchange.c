@@ -45,7 +45,6 @@
 #include "lock.h"
 #include "part.h"
 #include "cell.h"
-#include "fifo.h"
 #include "space.h"
 #include "potential.h"
 #include "runner.h"
@@ -662,7 +661,14 @@ int engine_exchange_async_run ( struct engine *e ) {
                     cid = e->recv[ind].cellid[k];
                     c = &( s->cells[cid] );
                     cell_load( c , finger , counts_in[ind][k] , s->partlist , s->celllist );
-                    space_releasepair( &e->s , cid , cid );
+                    
+                    /* Somewhat convoluted lock/signal/unlock dance to avoid
+                       blocking if all runners are waiting. */
+                    pthread_mutex_lock( &s->tasks_mutex );
+                    s->cells_taboo[ cid ] = 0;
+                    pthread_cond_broadcast( &s->tasks_avail );
+                    pthread_mutex_unlock( &s->tasks_mutex );
+                    
                     finger = &( finger[ counts_in[ind][k] ] );
                     }
 

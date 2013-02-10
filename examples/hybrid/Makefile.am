@@ -22,7 +22,7 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS)
+AM_LDFLAGS = -L. $(MPILIBS) $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
 if HAVEMPI

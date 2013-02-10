@@ -102,26 +102,48 @@ AM_CONDITIONAL([HAVEMPI],[test -n "$MPICC"])
     
 # Check for metis
 AC_ARG_WITH([metis],
-    [AS_HELP_STRING([--with-metis=PATH],[prefix where the metis library is installed @<:@default=/opt/cell@:>@])],
-    [if test "x$with_metis" != "xno"
-     then
-        if test "x$with_metis" != "xyes"
-        then
-            METIS_LDFLAGS="-L$with_metis -lmetis"
-        else
-            METIS_LDFLAGS="-lmetis"
-        fi
-        AC_CHECK_LIB([metis],[METIS_PartGraphVKway],,AC_MSG_ERROR(something is wrong with the metis library!),$METIS_LDFLAGS)
-        AC_DEFINE([HAVE_METIS],[true],[The metis library appears to be present.])
-     fi])
+    [AS_HELP_STRING([--with-metis=PATH],[prefix where the metis library is installed @<:@default=no@:>@])],
+    [],
+    [with_metis=no])
+if test "x$with_metis" != "xno"
+    then
+       if test "x$with_metis" != "xyes"
+       then
+           METIS_LDFLAGS="-L$with_metis -lmetis"
+       else
+           METIS_LDFLAGS="-lmetis"
+       fi
+       AC_CHECK_LIB([metis],[METIS_PartGraphVKway],,AC_MSG_ERROR(something is wrong with the metis library!),$METIS_LDFLAGS)
+       AC_DEFINE([HAVE_METIS],[true],[The metis library appears to be present.])
+    fi
 AC_SUBST(METIS_LDFLAGS)
 AM_CONDITIONAL([HAVEMETIS],[test -n "$METIS_LDFLAGS"])
+
+
+# Check for fftw3
+AC_ARG_WITH([fftw3],
+    [AS_HELP_STRING([--with-fftw3=PATH],[prefix where the fftw3 library is installed @<:@default=yes@:>@])],
+    [],
+    [with_fftw3=yes])
+if test "x$with_fftw3" != "xno"
+    then
+       if test "x$with_fftw3" != "xyes"
+       then
+           FFTW3_LDFLAGS="-L$with_fftw3 -lfftw3f"
+       else
+           FFTW3_LDFLAGS="-lfftw3f"
+       fi
+       AC_CHECK_LIB([fftw3f],[fftwf_plan_dft_3d],,AC_MSG_ERROR(something is wrong with the fftw3 library!),$FFTW3_LDFLAGS)
+       AC_DEFINE([HAVE_FFTW3],[true],[The fftw3 library appears to be present.])
+    fi
+AC_SUBST(FFTW3_LDFLAGS)
+AM_CONDITIONAL([HAVEFFTW3],[test -n "$FFTW3_LDFLAGS"])
 
 
 
 # Check for CUDA
 AC_ARG_WITH([cuda],
-    [AS_HELP_STRING([--with-cuda=PATH],[prefix where cuda is installed @<:@default=auto@:>@])],
+    [AS_HELP_STRING([--with-cuda=PATH],[prefix where cuda is installed @<:@default=no@:>@])],
     [if test "x$with_cuda" != "xno"
      then
         if test "x$with_cuda" != "xyes"
@@ -149,7 +171,7 @@ AM_CONDITIONAL([HAVECUDA],[test -n "$NVCC"])
 
 # Check for CELL
 AC_ARG_WITH([cell],
-    [AS_HELP_STRING([--with-cell=PATH],[prefix where the IBM Cell-SDK and toolchain are installed @<:@default=/opt/cell@:>@])],
+    [AS_HELP_STRING([--with-cell=PATH],[prefix where the IBM Cell-SDK and toolchain are installed @<:@default=nol@:>@])],
     [if test "x$with_cell" != "xno"
      then
         if test "x$with_cell" != "xyes"

@@ -52,9 +52,9 @@
 #include "fptype.h"
 #include "lock.h"
 #include "part.h"
-#include "fifo.h"
 #include "queue.h"
 #include "cell.h"
+#include "task.h"
 #include "space.h"
 #include "potential.h"
 #include "engine.h"
@@ -77,7 +77,7 @@ unsigned int runner_rcount = 0;
 #define error(id)				( runner_err = errs_register( id , runner_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *runner_err_msg[11] = {
+char *runner_err_msg[12] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -88,7 +88,8 @@ char *runner_err_msg[11] = {
     "An error occured with the memory flow controler.",
     "The requested functionality is not available." ,
     "An error occured when calling an fifo function." ,
-    "Error filling Verlet list: too many neighbours."
+    "Error filling Verlet list: too many neighbours." , 
+    "Unknown task type." , 
 	};
     
     
@@ -247,419 +248,6 @@ void runner_sort_ascending ( unsigned int *parts , int N ) {
     }
     
 
-/**
- * @brief This is the dispatcher that passes pairs
- *      to the individual #runners.
- *
- * @param r Pointer to the #engine in which the runners reside.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- */
- 
-int runner_dispatcher ( struct engine *e ) {
-
-    int k, count = 0, pid, rid, cid, cjd, oid, ojd, tid, tjd;
-    int min_ind, min_count;
-    
-    /* Local copies of variables in engine and space. */
-    struct space *s = &e->s;
-    struct cellpair *pairs = s->pairs;
-    struct runner *r, *runners = e->runners;
-    int nr_pairs = s->nr_pairs, nr_cells = s->nr_cells;
-    int nr_runners = e->nr_runners;
-    char *cells_taboo = s->cells_taboo, *cells_owner = s->cells_owner;
-    struct fifo *dispatch_out = &s->dispatch_out;
-    
-    /* List of available pairs. */
-    int pairs_avail[ nr_pairs ], nr_pairs_avail = nr_pairs;
-    
-    /* Lists of blocked pairs. */
-    int pairs_blocked[ nr_cells * 27 ], nr_pairs_blocked[ nr_cells ];
-    
-    
-    /* Init the list of available pairs. */
-    for ( pid = 0 ; pid < nr_pairs ; pid++ )
-        pairs_avail[ pid ] = pid;
-        
-    /* Init the list of blocked pairs. */
-    for ( cid = 0 ; cid < nr_cells ; cid++ )
-        nr_pairs_blocked[ cid ] = 0;
-        
-    /* Init the taboo list. */
-    bzero( cells_taboo , sizeof(char) * nr_cells );
-        
-        
-    /* Main loop. */
-    while ( count < nr_pairs ) {
-    
-        /* Loop over the blocked pairs. */
-        for ( cid = 0 ; cid < nr_cells ; cid++ ) {
-        
-            /* If this cell is currently free, return all pairs to
-               the available list or other blocked lists. */
-            if ( cells_taboo[cid] == 0 ) {
-        
-                /* Loop over the pairs blocked by this cell's owner. */
-                for ( k = 0 ; k < nr_pairs_blocked[cid] ; k++ ) {
-
-                    /* Get the pair ID. */
-                    pid = pairs_blocked[ cid*27 + k ];
-                    tid = cells_taboo[ pairs[pid].i ];
-                    tjd = cells_taboo[ pairs[pid].j ];
- 
-                    /* Is this pair still blocked at all? */
-                    if ( ( tid == 0 ) && ( tjd == 0 ) ) {
-
-                        /* Add it to the list of available pairs. */
-                        pairs_avail[ nr_pairs_avail ] = pid;
-                        nr_pairs_avail += 1;
-
-                        }
-                        
-                    /* Otherwise, pop it into the correct blocked list. */
-                    else {
-                    
-                        /* Get the correct owner ID. */
-                        if ( tid > 0 )
-                            cjd = pairs[pid].i;
-                        else
-                            cjd = pairs[pid].j;
-                            
-                        /* Put this pair in the blocked list for cjd. */
-                        // printf( "runner_dispatcher:%i: adding pid=%i to blocked cell %i.\n" , __LINE__ , pid , cjd );
-                        pairs_blocked[ cjd*27 + nr_pairs_blocked[cjd] ] = pid;
-                        nr_pairs_blocked[cjd] += 1;
-                    
-                        }
-                        
-                    /* Remove it from the blocked list. */
-                    nr_pairs_blocked[cid] -= 1;
-                    pairs_blocked[ cid*27 + k ] = pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ];
-                    k -= 1;
-
-                    }
-                    
-                }
-                
-            /* Otherwise, if there is room in the runner, grab whatever is free. */
-            else {
-
-                /* Get the owner of this cell. */
-                oid = cells_owner[cid];
-                r = &runners[oid];
-            
-                /* Loop over the pairs blocked by this cell's owner. */
-                for ( k = 0 ; ( r->in.count < runner_qlen ) && ( k < nr_pairs_blocked[cid] ) ; k++ ) {
-
-                    /* Get the pair ID. */
-                    pid = pairs_blocked[ cid*27 + k ];
-                    
-                    /* Is this pair not blocked by anybody else? */
-                    if ( ( ( cells_taboo[pairs[pid].i] == 0 ) || ( cells_owner[pairs[pid].i] == oid ) ) &&
-                         ( ( cells_taboo[pairs[pid].j] == 0 ) || ( cells_owner[pairs[pid].j] == oid ) ) ) {
-
-                        /* Update cell ownership. */
-                        cells_owner[ pairs[pid].i ] = oid;
-                        cells_owner[ pairs[pid].j ] = oid;
-                        cells_taboo[ pairs[pid].i ] += 1;
-                        cells_taboo[ pairs[pid].j ] += 1;
-
-                        /* Add this pair to the runner. */
-                        if ( fifo_push( &r->in , pid ) < 0 )
-                            return error(runner_err_fifo);
-                        // printf( "runner_dispatch:%i: pushed pid=%i (cid=%i,npb=%i).\n" , __LINE__ , pid , cid , nr_pairs_blocked[cid] ); fflush(stdout);
-
-                        /* Remove it from the blocked list. */
-                        nr_pairs_blocked[cid] -= 1;
-                        pairs_blocked[ cid*27 + k ] = pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ];
-                        count += 1;
-                        k -= 1;
-
-                        }
-
-                    } /* loop over blocked pairs for this cell. */
-                    
-                }
-        
-            } /* Loop over the blocked pairs, cell-wise. */
-    
-    
-        /* Loop over the available pairs. */
-        for ( k = 0 ; k < nr_pairs_avail ; k++ ) {
-        
-            /* Get the pair ID. */
-            pid = pairs_avail[k];
-        
-            /* Get owner and taboos. */
-            cid = pairs[pid].i;
-            cjd = pairs[pid].j;
-            oid = cells_owner[ cid ];
-            ojd = cells_owner[ cjd ];
-            tid = cells_taboo[ cid ];
-            tjd = cells_taboo[ cjd ];
-            
-            /* If the pair is owned by nobody... */
-            if ( ( tid == 0 ) && ( tjd == 0 ) ) {
-            
-                /* Find the runner with the shortest queue. */
-                min_ind = 0; 
-                min_count = runners[0].in.count;
-                for ( rid = 1 ; rid < nr_runners ; rid++ )
-                    if ( runners[rid].in.count < min_count ) {
-                        min_count = runners[rid].in.count;
-                        min_ind = rid;
-                        }
-                        
-                /* Did we get a runner at all? */
-                if ( min_count < runner_qlen ) {
-                
-                    /* Update cell ownership. */
-                    cells_owner[cid] = min_ind;
-                    cells_owner[cjd] = min_ind;
-                    cells_taboo[cid] += 1;
-                    cells_taboo[cjd] += 1;
-                        
-                    /* Add this pair to the runner. */
-                    if ( fifo_push( &runners[min_ind].in , pid ) < 0 )
-                        return error(runner_err_fifo);
-                    // printf( "runner_dispatch:%i: pushed pid=%i.\n" , __LINE__ , pid ); fflush(stdout);
-                        
-                    /* Remove it from the avail list. */
-                    nr_pairs_avail -= 1;
-                    pairs_avail[k] = pairs_avail[nr_pairs_avail];
-                    count += 1;
-                    k -= 1;
-                
-                    }
-                
-                }
-                
-            /* Or it is owned by only a single runner... */
-            else if ( ( tid == 0 ) || ( tjd == 0 ) || ( oid == ojd ) ) {
-            
-                /* Make oid the owner. */
-                if ( tid == 0 )
-                    oid = ojd;
-                r = &runners[ oid ];
-                    
-                /* Does the owner have any space? */
-                if ( r->in.count < runner_qlen ) {
-                
-                    /* Update cell ownership. */
-                    cells_owner[cid] = oid;
-                    cells_owner[cjd] = oid;
-                    cells_taboo[cid] += 1;
-                    cells_taboo[cjd] += 1;
-                        
-                    /* Add this pair to the runner. */
-                    if ( fifo_push( &r->in , pid ) < 0 )
-                        return error(runner_err_fifo);
-                    // printf( "runner_dispatch:%i: pushed pid=%i.\n" , __LINE__ , pid ); fflush(stdout);
-                        
-                    /* Remove it from the avail list. */
-                    nr_pairs_avail -= 1;
-                    pairs_avail[k] = pairs_avail[nr_pairs_avail];
-                    count += 1;
-                    k -= 1;
-                
-                    }
-                    
-                /* Otherwise, put it in the blocked queue. */
-                else {
-
-                    /* Add pair to blocked queue of its first cell. */
-                    if ( tid == 0 ) cid = cjd;
-                    // printf( "runner_dispatcher:%i: adding pid=%i (%i,%i) to blocked cell %i.\n" , __LINE__ , pid , pairs[pid].i , pairs[pid].j , cid );
-                    pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ] = pid;
-                    nr_pairs_blocked[cid] += 1;
-
-                    /* Remove it from the available list. */
-                    nr_pairs_avail -= 1;
-                    pairs_avail[k] = pairs_avail[nr_pairs_avail];
-                    k -= 1;
-
-                    }
-            
-                }
-                
-            /* Nope, ownership is split, put it in the blocked queue
-               of the first cell. */
-            else {
-            
-                /* Add pair to blocked queue of its first cell. */
-                // printf( "runner_dispatcher:%i: adding pid=%i to blocked cell %i.\n" , __LINE__ , pid , cid );
-                pairs_blocked[ cid*27 + nr_pairs_blocked[cid] ] = pid;
-                nr_pairs_blocked[cid] += 1;
-                
-                /* Remove it from the available list. */
-                nr_pairs_avail -= 1;
-                pairs_avail[k] = pairs_avail[nr_pairs_avail];
-                k -= 1;
-                
-                }
-        
-            } /* loop over available pairs. */
-            
-        /* for ( sum = count + nr_pairs_avail , cid = 0 ; cid < nr_cells ; cid++ )
-            sum += nr_pairs_blocked[cid];
-        printf( "runner_dispatcher: total number of pairs is %i (done=%i,avail=%i,blocked=%i).\n" ,
-            sum , count , nr_pairs_avail , sum - count - nr_pairs_avail ); */
-            
-            
-        /* Catch any finished pairs. */
-        do {
-
-            /* Get a pair from the output fifo. */
-            if ( fifo_pop( dispatch_out , &pid ) < 0 )
-                return error(runner_err_fifo);
-
-            /* Get the cell indices. */
-            cid = pairs[pid].i;
-            cjd = pairs[pid].j;
-
-            /* Un-mark the taboo list. */
-            cells_taboo[cid] -= 1;
-            cells_taboo[cjd] -= 1;
-            
-            } while ( dispatch_out->count > 0 );
-            
-            
-        } /* main loop. */
-        
-        
-    /* Tell all the runners to stop. */
-    for ( rid = 0 ; rid < nr_runners ; rid++ )
-        fifo_push( &e->runners[rid].in , runner_dispatch_stop );
-        
-        
-    /* Wait for each of the runners to finish. */
-    count = e->nr_runners;
-    while( count > 0 ) {
-        fifo_pop( &s->dispatch_out , &pid );
-        if ( pid == runner_dispatch_stop )
-            count -= 1;
-        }
-        
-        
-    /* Everything is just peachy. */
-    return runner_err_ok;
-
-    }
-    
-
-/**
- * @brief The #runner's main routine.
- *
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, it picks pairs out of its "in" fifo,
- * processes them, and passes them to the "out" fifo, until a
- * #runner_stop is received.
- */
-
-int runner_run_dispatch ( struct runner *r ) {
-
-    int k, acc = 0;
-    struct cellpair *finger;
-    struct engine *e;
-    struct space *s;
-    struct cell *c;
-    int pid, cid, cjd;
-
-    /* check the inputs */
-    if ( r == NULL )
-        return error(runner_err_null);
-        
-    /* get a pointer on the engine. */
-    e = r->e;
-    s = &e->s;
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running (dispatch)...\n",r->id); fflush(stdout);
-    
-    /* main loop, in which the runner should stay forever... */
-    while ( 1 ) {
-    
-        /* Try to get the next pair. */
-        if ( fifo_pop( &r->in , &pid ) < 0 )
-            return error(runner_err);
-
-        /* Quit message? */
-        if ( pid == runner_dispatch_stop ) {
-            
-            /* Send a message back... */
-            if ( fifo_push( &s->dispatch_out , runner_dispatch_stop ) < 0 )
-                return error(runner_err);
-            
-            /* And return to the top of the loop. */
-            continue;
-            
-            }
-
-        // printf( "runner_run_dispatch: got pid=%i.\n" , pid ); fflush(stdout);
-
-        /* Put a finger on the pair, get the cell ids. */
-        finger = &s->pairs[pid];
-        cid = finger->i;
-        cjd = finger->j;
-
-        /* for each cell, prefetch the parts involved. */
-        if ( e->flags & engine_flag_prefetch ) {
-            c = &( e->s.cells[cid] );
-            for ( k = 0 ; k < c->count ; k++ )
-                acc += c->parts[k].id;
-            if ( finger->i != finger->j ) {
-                c = &( e->s.cells[cjd] );
-                for ( k = 0 ; k < c->count ; k++ )
-                    acc += c->parts[k].id;
-                }
-            }
-
-        /* Verlet list? */
-        if ( e->flags & engine_flag_verlet ) {
-
-            /* We don't do dispatched Verlet lists. */
-            return error(runner_err_unavail);
-
-            }
-
-        /* Pairwise Verlet list? */
-        else if ( e->flags & engine_flag_verlet_pairwise ) {
-
-            /* Compute the interactions of this pair. */
-            if ( e->flags & engine_flag_verlet_pseudo ) {
-                if ( runner_dopair_verlet2( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift , finger ) < 0 )
-                    return error(runner_err);
-                }
-            else {
-                if ( runner_dopair_verlet( r , &(s->cells[cid]) , &(s->cells[cjd]) , finger->shift , finger ) < 0 )
-                    return error(runner_err);
-                }
-
-            }
-
-        /* Otherwise, plain old... */
-        else {
-            if ( runner_dopair( r , &(e->s.cells[cid]) , &(e->s.cells[cjd]) , finger->shift ) < 0 )
-                return error(runner_err);
-            }
-
-        /* release this pair */
-        if ( fifo_push( &s->dispatch_out , pid ) < 0 )
-            return error(runner_err);
-
-        } /* while not stopped... */
-
-    /* end well... */
-    return runner_err_ok;
-
-    }
-
-    
 /**
  * @brief The #runner's main routine (for the Cell/BE SPU).
  *
@@ -1068,196 +656,18 @@ int runner_run_cell_tuples ( struct runner *r ) {
     }
 
 
-/**
- * @brief The #runner's main routine (for Verlet lists).
- *
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, checks first if the Verlet list should
- * be re-built and then proceeds to traverse the Verlet list cell-wise
- * and computes its interactions.
- */
-
-int runner_run_verlet ( struct runner *r ) {
-
-    int res, i, ci, j, cj, k, eff_size = 0, acc = 0;
-    struct engine *e;
-    struct space *s;
-    struct celltuple *t;
-    struct cell *c;
-    FPTYPE shift[3], *eff = NULL;
-    int count;
-
-    /* check the inputs */
-    if ( r == NULL )
-        return error(runner_err_null);
-        
-    /* get a pointer on the engine. */
-    e = r->e;
-    s = &(e->s);
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running (Verlet)...\n",r->id); fflush(stdout);
-    
-    /* main loop, in which the runner should stay forever... */
-    while ( 1 ) {
-    
-        /* wait at the engine barrier */
-        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
-        if ( engine_barrier(e) < 0)
-            return error(runner_err_engine);
-            
-        // runner_rcount = 0;
-            
-        /* Does the Verlet list need to be reconstructed? */
-        if ( s->verlet_rebuild ) {
-        
-            /* Loop over tuples. */
-            while ( 1 ) {
-
-                /* Get a tuple. */
-                if ( ( res = space_gettuple( s , &t , 1 ) ) < 0 )
-                    return r->err = runner_err_space;
-
-                /* If there were no tuples left, bail. */
-                if ( res < 1 )
-                    break;
-                    
-                /* for each cell, prefetch the parts involved. */
-                if ( e->flags & engine_flag_prefetch )
-                    for ( i = 0 ; i < t->n ; i++ ) {
-                        c = &( s->cells[t->cellid[i]] );
-                        for ( k = 0 ; k < c->count ; k++ )
-                            acc += c->parts[k].id;
-                        }
-
-                /* Loop over all pairs in this tuple. */
-                for ( i = 0 ; i < t->n ; i++ ) { 
-
-                    /* Get the cell ID. */
-                    ci = t->cellid[i];
-
-                    for ( j = i ; j < t->n ; j++ ) {
-
-                        /* Is this pair active? */
-                        if ( t->pairid[ space_pairind(i,j) ] < 0 )
-                            continue;
-
-                        /* Get the cell ID. */
-                        cj = t->cellid[j];
-
-                        /* Compute the shift between ci and cj. */
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            shift[k] = s->cells[cj].origin[k] - s->cells[ci].origin[k];
-                            if ( shift[k] * 2 > s->dim[k] )
-                                shift[k] -= s->dim[k];
-                            else if ( shift[k] * 2 < -s->dim[k] )
-                                shift[k] += s->dim[k];
-                            }
-
-                        /* Rebuild the Verlet entries for this cell pair. */
-                        if ( runner_verlet_fill( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return error(runner_err);
-                            
-                        /* release this pair */
-                        if ( space_releasepair( s , ci , cj ) < 0 )
-                            return error(runner_err_space);
-
-                        }
-
-                    }
-                    
-                } /* loop over tuples. */
-
-            /* did anything go wrong? */
-            if ( res < 0 )
-                return error(runner_err_space);
-                
-            } /* reconstruct the Verlet list. */
-            
-        /* Otherwise, just run through the Verlet list. */
-        else {
-            
-            /* Check if eff is large enough and re-allocate if needed. */
-            if ( eff_size < s->nr_parts ) {
-
-                /* Free old eff? */
-                if ( eff != NULL )
-                    free( eff );
-
-                /* Allocate new eff. */
-                eff_size = s->nr_parts * 1.1;
-                if ( ( eff = (FPTYPE *)malloc( sizeof(FPTYPE) * eff_size * 4 ) ) == NULL )
-                    return error(runner_err_malloc);
-
-                }
-
-            /* Reset the force vector. */
-            bzero( eff , sizeof(FPTYPE) * s->nr_parts * 4 );
-
-            /* Re-set the potential energy. */
-            r->epot = 0.0;
-
-            /* While there are still chunks of the Verlet list out there... */
-            while ( ( count = space_getcell( s , &c ) ) > 0 ) {
-
-                /* Dispatch the interactions to runner_verlet_eval. */
-                runner_verlet_eval( r , c , eff );
-
-                }
-
-            /* did things go wrong? */
-            if ( count < 0 )
-                return error(runner_err_space);
-
-            /* Send the forces and energy back to the space. */
-            if ( space_verlet_force( s , eff , r->epot ) < 0 )
-                return error(runner_err_space);
-            
-            }
-
-        /* Print the rcount. */
-        // printf("runner_run_verlet: runner_rcount=%i.\n", runner_rcount);
-        r->err = acc;
-            
-        }
-
-    /* end well... */
-    return runner_err_ok;
-
-    }
-
-    
-/**
- * @brief The #runner's main routine.
- *
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having paSSEd, calls #space_getpair until there are no pairs
- * available.
- */
-
-int runner_run_pairs ( struct runner *r ) {
+int runner_run ( struct runner *r ) {
 
     struct engine *e = r->e;
     struct space *s = &e->s;
     int k, err = 0, acc = 0, naq, qid, myqid = e->nr_queues * r->id / e->nr_runners;
-    struct cellpair *p = NULL;
-    struct cell *ci, *cj;
+    struct task *t = NULL;
     struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
     unsigned int myseed = rand() + r->id;
     int count;
 
     /* give a hoot */
-    printf( "runner_run: runner %i is up and running on queue %i (pairs)...\n" , r->id , myqid ); fflush(stdout);
+    printf( "runner_run: runner %i is up and running on queue %i (tasks)...\n" , r->id , myqid ); fflush(stdout);
     
     /* main loop, in which the runner should stay forever... */
     while ( 1 ) {
@@ -1281,7 +691,7 @@ int runner_run_pairs ( struct runner *r ) {
         while ( myq->next < myq->count || naq > 0 ) {
         
             /* Try to get a pair from my own queue. */
-            if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , r->id , 0 ) ) == NULL ) {
+            if ( myq->next == myq->count || ( t = queue_get( myq , r->id , 0 ) ) == NULL ) {
             
                 /* Clean up the list of queues. */
                 count = myq->count - myq->next;
@@ -1297,195 +707,7 @@ int runner_run_pairs ( struct runner *r ) {
                     
                 /* Otherwise, try to grab something from a random queue. */
                 qid = rand_r( &myseed ) % naq;
-                if ( ( p = (struct cellpair *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
-                
-                    /* Add this task to my own queue. */
-                    if ( !queue_insert( myq , p ) )
-                        queue_insert( queues[qid] , p );
-                
-                    }
-            
-                /* If there are more queues than tasks, fall on sword. */
-                if ( p == NULL && count <= r->id )
-                    break;
-                    
-                }
-                
-            /* If I didn't get a task, try again, locking... */
-            if ( p == NULL ) {
-                
-                /* Lock the mutex. */
-                if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
-                    return error(runner_err_pthread);
-                    
-                /* Try again to get a pair... */
-                if ( myq->next == myq->count || ( p = (struct cellpair *)queue_get( myq , r->id , 0 ) ) == NULL ) {
-                    count = myq->count - myq->next;
-                    for ( k = 0 ; k < naq ; k++ ) {
-                        count += queues[k]->count - queues[k]->next;
-                        if ( queues[k]->next == queues[k]->count )
-                            queues[k--] = queues[--naq];
-                        }
-                    if ( naq != 0 ) {
-                        qid = rand_r( &myseed ) % naq;
-                        if ( ( p = (struct cellpair *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
-                            if ( !queue_insert( myq , p ) )
-                                queue_insert( queues[qid] , p );
-                            }
-                        }
-                    }
-                    
-                /* If no pair, wait... */
-                if ( count > 0 && p == NULL )    
-                    if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
-                        return error(runner_err_pthread);
-                        
-                /* Unlock the mutex. */
-                if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
-                    return error(runner_err_pthread);
-                
-                /* Skip back to the top of the queue if empty-handed. */
-                if ( p == NULL )
-                    continue;
-                
-                }
-
-            /* Get the cells. */
-            ci = &( s->cells[ p->i ] );
-            cj = &( s->cells[ p->j ] );
-
-            /* for each cell, prefetch the parts involved. */
-            if ( e->flags & engine_flag_prefetch ) {
-                for ( k = 0 ; k < ci->count ; k++ )
-                    acc += ci->parts[k].id;
-                if ( p->i != p->j )
-                    for ( k = 0 ; k < cj->count ; k++ )
-                        acc += cj->parts[k].id;
-                }
-
-            /* Sorted interactions? */
-            if ( e->flags & engine_flag_verlet_pseudo ) {
-                if ( runner_dopair_verlet2( r , ci , cj , p->shift , p ) < 0 )
-                    return error(runner_err);
-                }
-            else if ( e->flags & engine_flag_verlet_pairwise ) {
-                if ( runner_dopair_verlet( r , ci , cj , p->shift , p ) < 0 )
-                    return error(runner_err);
-                }
-            else if ( e->flags & engine_flag_unsorted ) {
-                if ( runner_dopair_unsorted( r , ci , cj , p->shift ) < 0 )
-                    return error(runner_err);
-                }
-            else {
-                if ( runner_dopair( r , ci , cj , p->shift ) < 0 )
-                    return error(runner_err);
-                }
-
-            /* Release this pair */
-            s->cells_taboo[ p->i ] = 0;
-            s->cells_taboo[ p->j ] = 0;
-            
-            /* Bing! */
-            if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
-                return error(runner_err_pthread);
-            if ( pthread_cond_broadcast( &s->cellpairs_avail ) != 0 )
-                return error(runner_err_pthread);
-            if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
-                return error(runner_err_pthread);
-
-            }
-
-        /* give the reaction count */
-        // printf("runner_run: last count was %u.\n",runner_rcount);
-        r->err = acc;
-            
-        /* did things go wrong? */
-        /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
-        if ( err < 0 )
-            return error(runner_err_space);
-    
-        /* Bing! */
-        if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
-            return error(runner_err_pthread);
-        if ( pthread_cond_broadcast( &s->cellpairs_avail ) != 0 )
-            return error(runner_err_pthread);
-        if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
-            return error(runner_err_pthread);
-
-        }
-
-    }
-
-    
-/**
- * @brief The #runner's main routine (#celltuple model).
- *
- * @param r Pointer to the #runner to run.
- *
- * @return #runner_err_ok or <0 on error (see #runner_err).
- *
- * This is the main routine for the #runner. When called, it enters
- * an infinite loop in which it waits at the #engine @c r->e barrier
- * and, once having passed, calls #space_gettuple until there are no
- * tuples available.
- */
-
-int runner_run_tuples ( struct runner *r ) {
-
-    int i, j, k, ci, cj, acc = 0, count;
-    struct celltuple *t;
-    FPTYPE shift[3];
-    struct engine *e = r->e;
-    struct space *s = &e->s;
-    int naq, qid, myqid = e->nr_queues * r->id / e->nr_runners;
-    struct cell *c;
-    struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
-    unsigned int myseed = rand() + r->id;
-
-    /* check the inputs */
-    if ( r == NULL )
-        return error(runner_err_null);
-        
-    /* give a hoot */
-    printf("runner_run: runner %i is up and running (tuples)...\n",r->id); fflush(stdout);
-    
-    /* main loop, in which the runner should stay forever... */
-    while ( 1 ) {
-    
-        /* wait at the engine barrier */
-        /* printf("runner_run: runner %i waiting at barrier...\n",r->id); */
-        if ( engine_barrier(e) < 0 )
-            return r->err = runner_err_engine;
-            
-        /* Init the list of queues. */
-        for ( k = 0 ; k < e->nr_queues ; k++ )
-            queues[k] = &e->queues[k];
-        naq = e->nr_queues - 1;
-        queues[ myqid ] = queues[ naq ];
-                        
-        // runner_rcount = 0;
-                        
-        /* Loop over tuples. */
-        while ( myq->next < myq->count || naq > 0  ) {
-        
-            /* Try to get a tuple from my own queue. */
-            if ( myq->next == myq->count || ( t = (struct celltuple *)queue_get( myq , r->id , 0 ) ) == NULL ) {
-            
-                /* Clean up the list of queues. */
-                count = myq->count - myq->next;
-                for ( k = 0 ; k < naq ; k++ ) {
-                    count += queues[k]->count - queues[k]->next;
-                    if ( queues[k]->next == queues[k]->count )
-                        queues[k--] = queues[--naq];
-                    }
-                        
-                /* If there are no queues left, go back to go, do not collect 200 FLOPs. */
-                if ( naq == 0 )
-                    continue;
-                    
-                /* Otherwise, try to grab something from a random queue. */
-                qid = rand_r( &myseed ) % naq;
-                if ( ( t = (struct celltuple *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
+                if ( ( t = queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
                 
                     /* Add this task to my own queue. */
                     if ( !queue_insert( myq , t ) )
@@ -1503,11 +725,11 @@ int runner_run_tuples ( struct runner *r ) {
             if ( t == NULL ) {
                 
                 /* Lock the mutex. */
-                if ( pthread_mutex_lock( &s->cellpairs_mutex ) != 0 )
+                if ( pthread_mutex_lock( &s->tasks_mutex ) != 0 )
                     return error(runner_err_pthread);
                     
                 /* Try again to get a pair... */
-                if ( myq->next == myq->count || ( t = (struct celltuple *)queue_get( myq , r->id , 0 ) ) == NULL ) {
+                if ( myq->next == myq->count || ( t = queue_get( myq , r->id , 0 ) ) == NULL ) {
                     count = myq->count - myq->next;
                     for ( k = 0 ; k < naq ; k++ ) {
                         count += queues[k]->count - queues[k]->next;
@@ -1516,7 +738,7 @@ int runner_run_tuples ( struct runner *r ) {
                         }
                     if ( naq != 0 ) {
                         qid = rand_r( &myseed ) % naq;
-                        if ( ( t = (struct celltuple *)queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
+                        if ( ( t = queue_get( queues[qid] , r->id , 1 ) ) != NULL ) {
                             if ( !queue_insert( myq , t ) )
                                 queue_insert( queues[qid] , t );
                             }
@@ -1525,11 +747,11 @@ int runner_run_tuples ( struct runner *r ) {
                     
                 /* If no pair, wait... */
                 if ( count > 0 && t == NULL )    
-                    if ( pthread_cond_wait( &s->cellpairs_avail , &s->cellpairs_mutex ) != 0 )
+                    if ( pthread_cond_wait( &s->tasks_avail , &s->tasks_mutex ) != 0 )
                         return error(runner_err_pthread);
                         
                 /* Unlock the mutex. */
-                if ( pthread_mutex_unlock( &s->cellpairs_mutex ) != 0 )
+                if ( pthread_mutex_unlock( &s->tasks_mutex ) != 0 )
                     return error(runner_err_pthread);
                 
                 /* Skip back to the top of the queue if empty-handed. */
@@ -1537,81 +759,62 @@ int runner_run_tuples ( struct runner *r ) {
                     continue;
                 
                 }
-
-            /* for each cell, prefetch the parts involved. */
-            if ( e->flags & engine_flag_prefetch )
-                for ( i = 0 ; i < t->n ; i++ ) {
-                    c = &( s->cells[t->cellid[i]] );
-                    for ( k = 0 ; k < c->count ; k++ )
-                        acc += c->parts[k].id;
-                    }
-
-            /* Loop over all pairs in this tuple. */
-            for ( i = 0 ; i < t->n ; i++ ) { 
-                        
-                /* Get the cell ID. */
-                ci = t->cellid[i];
-                    
-                for ( j = i ; j < t->n ; j++ ) {
                 
-                    /* Is this pair active? */
-                    if ( t->pairid[ space_pairind(i,j) ] < 0 )
-                        continue;
-                        
-                    /* Get the cell ID. */
-                    cj = t->cellid[j];
-
-                    /* Compute the shift between ci and cj. */
-                    for ( k = 0 ; k < 3 ; k++ ) {
-                        shift[k] = s->cells[cj].origin[k] - s->cells[ci].origin[k];
-                        if ( shift[k] * 2 > s->dim[k] )
-                            shift[k] -= s->dim[k];
-                        else if ( shift[k] * 2 < -s->dim[k] )
-                            shift[k] += s->dim[k];
-                        }
-                    
-                    /* Sorted interactions? */
-                    if ( e->flags & engine_flag_verlet_pseudo ) {
-                        if ( runner_dopair_verlet2( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
+            /* Check task type... */
+            switch ( t->type ) {
+                case task_type_sort:
+                    if ( s->verlet_rebuild )
+                        if ( runner_dosort( r , &s->cells[ t->i ] ) < 0 )
                             return error(runner_err);
-                        }
-                    else if ( e->flags & engine_flag_verlet_pairwise ) {
-                        if ( runner_dopair_verlet( r , &(s->cells[ci]) , &(s->cells[cj]) , shift , &(s->pairs[ t->pairid[ space_pairind(i,j) ] ]) ) < 0 )
-                            return error(runner_err);
-                        }
-                    else if ( e->flags & engine_flag_unsorted ) {
-                        if ( runner_dopair_unsorted( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return error(runner_err);
-                        }
-                    else {
-                        if ( runner_dopair( r , &(s->cells[ci]) , &(s->cells[cj]) , shift ) < 0 )
-                            return error(runner_err);
-                        }
-
-                    /* release this pair */
-                    if ( e->flags & engine_flag_affinity ) {
-                        if ( space_releasepair_spin( s , ci , cj ) < 0 )
-                            return error(runner_err_space);
-                        }
-                    else {
-                        if ( space_releasepair( s , ci , cj ) < 0 )
-                            return error(runner_err_space);
-                        }
-                        
-                    }
-                    
+                    s->cells_taboo[ t->i ] = 0;
+                    break;
+                case task_type_self:
+                    if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
+                        return error(runner_err);
+                    s->cells_taboo[ t->i ] = 0;
+                    break;
+                case task_type_pair:
+                    if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] ) < 0 )
+                        return error(runner_err);
+                    s->cells_taboo[ t->i ] = 0;
+                    s->cells_taboo[ t->j ] = 0;
+                    break;
+                default:
+                    return error(runner_err_tasktype);
                 }
                 
-            } /* loop over the tuples. */
+            /* Unlock any dependent tasks. */
+            for ( k = 0 ; k < t->nr_unlock ; k++ )
+                __sync_fetch_and_sub( &t->unlock[k]->wait , 1 );
+
+            /* Bing! */
+            if ( pthread_mutex_lock( &s->tasks_mutex ) != 0 )
+                return error(runner_err_pthread);
+            if ( pthread_cond_broadcast( &s->tasks_avail ) != 0 )
+                return error(runner_err_pthread);
+            if ( pthread_mutex_unlock( &s->tasks_mutex ) != 0 )
+                return error(runner_err_pthread);
+
+            }
 
         /* give the reaction count */
-        // printf("runner_run_tuples: runner_rcount=%u.\n",runner_rcount);
+        // printf("runner_run: last count was %u.\n",runner_rcount);
         r->err = acc;
             
-        }
+        /* did things go wrong? */
+        /* printf("runner_run: runner %i done pairs.\n",r->id); fflush(stdout); */
+        if ( err < 0 )
+            return error(runner_err_space);
+    
+        /* Bing! */
+        if ( pthread_mutex_lock( &s->tasks_mutex ) != 0 )
+            return error(runner_err_pthread);
+        if ( pthread_cond_broadcast( &s->tasks_avail ) != 0 )
+            return error(runner_err_pthread);
+        if ( pthread_mutex_unlock( &s->tasks_mutex ) != 0 )
+            return error(runner_err_pthread);
 
-    /* end well... */
-    return runner_err_ok;
+        }
 
     }
 
@@ -1813,33 +1016,9 @@ int runner_init ( struct runner *r , struct engine *e , int id ) {
     r->e = e;
     r->id = id;
     
-    /* Init the input fifo for the dispatcher. */
-    if ( fifo_init( &r->in , runner_qlen ) < 0 )
-        return error(runner_err);
-    
-    /* init the thread using a dispatcher. */
-    if ( e->flags & engine_flag_dispatch ) {
-	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_dispatch , r ) != 0 )
-		    return error(runner_err_pthread);
-        }
-        
-    /* init the thread using a global Verlet list. */
-    else if ( e->flags & engine_flag_verlet && !(e->flags & engine_flag_verlet_pairwise) ) {
-	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_verlet , r ) != 0 )
-		    return error(runner_err_pthread);
-        }
-        
-    /* init the thread using tuples. */
-    else if ( e->flags & engine_flag_tuples ) {
-	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_tuples , r ) != 0 )
-		    return error(runner_err_pthread);
-        }
-        
-    /* default: use the normal pair-list instead. */
-    else {
-	    if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run_pairs , r ) != 0 )
-		    return error(runner_err_pthread);
-        }
+    /* init the thread using tasks. */
+	if ( pthread_create( &r->thread , NULL , (void *(*)(void *))runner_run , r ) != 0 )
+		return error(runner_err_pthread);
     
     /* If we can, try to restrict this runner to a single CPU. */
     #if defined(HAVE_SETAFFINITY) && !defined(CELL)

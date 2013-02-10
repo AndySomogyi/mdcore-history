@@ -437,7 +437,8 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
     c->count = 0;
     c->oldx_size = 0;
     c->oldx = NULL;
-    c->sortlist = NULL;
+    if ( ( c->sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * c->size ) ) == NULL )
+        return error(cell_err_malloc);
     
     /* allocate the incomming part buffer. */
     if ( posix_memalign( (void **)&(c->incomming) , cell_partalign , align_ceil( sizeof(struct part) * cell_incr ) ) != 0 )

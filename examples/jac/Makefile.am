@@ -21,11 +21,11 @@ AUTOMAKE_OPTIONS=gnu
 # Add the source directory and debug to CFLAGS
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
-# Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS)
+# Set the linker flags with any extras
+AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = jac_noverlet jac_verlet jac_pwverlet jac_pseudoverlet
+bin_PROGRAMS = jac_noverlet jac_pseudoverlet
 
 # Build a CUDA-enabled version too?
 if HAVECUDA
@@ -41,20 +41,6 @@ endif
 jac_noverlet_SOURCES = jac.c
 jac_noverlet_CFLAGS =  -DFPTYPE_SINGLE $(AM_CFLAGS)
 jac_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using Verlet lists
-# Sources for jac_verlet
-jac_verlet_SOURCES = jac.c
-jac_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-jac_verlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using pairwise Verlet lists
-# Sources for jac_verlet
-jac_pwverlet_SOURCES = jac.c
-jac_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-jac_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind

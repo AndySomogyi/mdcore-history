@@ -22,10 +22,10 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS)
+AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = bulk_noverlet bulk_verlet bulk_pwverlet bulk_pseudoverlet
+bin_PROGRAMS = bulk_noverlet bulk_pseudoverlet
 
 # Build a CUDA-enabled version too?
 if HAVECUDA
@@ -43,21 +43,7 @@ bulk_noverlet_CFLAGS =  -DFPTYPE_SINGLE $(AM_CFLAGS)
 bulk_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
-# Using Verlet lists
-# Sources for bulk_verlet
-bulk_verlet_SOURCES = bulk.c
-bulk_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-bulk_verlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using pairwise Verlet lists
-# Sources for bulk_verlet
-bulk_pwverlet_SOURCES = bulk.c
-bulk_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-bulk_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using pairwise Verlet lists of the second kind
+# Using pseudo-Verlet lists
 # Sources for bulk_pseudoverlet
 bulk_pseudoverlet_SOURCES = bulk.c
 bulk_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)

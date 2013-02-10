@@ -25,6 +25,8 @@
 #define space_err_pthread               -4
 #define space_err_range                 -5
 #define space_err_maxpairs              -6
+#define space_err_nrtasks               -7
+#define space_err_task                  -8
 
 
 /* some constants */
@@ -90,41 +92,21 @@ struct space {
     /** Array of cells spanning the space. */
     struct cell *cells;
     
-    /** The total number of cell pairs. */
-    int nr_pairs;
+    /** The total number of tasks. */
+    int nr_tasks, tasks_size;
     
-    /** Array of cell pairs. */
-    struct cellpair *pairs;
+    /** Array of tasks. */
+    struct task *tasks;
     
-    /** Id of the next unprocessed pair (for #space_getpair) */
-    int next_pair;
-    
-    /** Array of cell tuples. */
-    struct celltuple *tuples;
-    
-    /** The number of tuples. */
-    int nr_tuples;
-    
-    /** The ID of the next free tuple or cell. */
-    int next_tuple, next_cell;
-    
-    /** Mutex for accessing the cell pairs. */
-    pthread_mutex_t cellpairs_mutex;
-    
-    /** Spin-lock for accessing the cell pairs. */
-    lock_type cellpairs_spinlock;
-    
-    /** Condition to wait for free cells on. */
-    pthread_cond_t cellpairs_avail;
+    /** Condition/mutex to signal task availability. */
+    pthread_mutex_t tasks_mutex;
+    pthread_cond_t tasks_avail;
     
     /** Taboo-list for collision avoidance */
     char *cells_taboo;
     
     /** Id of #runner owning each cell. */
     char *cells_owner;
-    
-    /** Output fifo for dispatch mode. */
-    struct fifo dispatch_out;
     
     /** Counter for the number of swaps in every step. */
     int nr_swaps, nr_stalls;
@@ -138,13 +120,11 @@ struct space {
     /** Number of parts in this space and size of the buffers partlist and celllist. */
     int nr_parts, size_parts;
     
-    /** Data for the verlet list. */
-    struct verlet_entry *verlet_list;
-    FPTYPE *verlet_oldx, verlet_maxdx;
-    int *verlet_nrpairs;
-    int verlet_size, verlet_next;
+    /** Trigger re-building the cells/sorts. */
     int verlet_rebuild;
-    pthread_mutex_t verlet_force_mutex;
+    
+    /** The maximum particle displacement over all cells. */
+    FPTYPE maxdx;
     
     /** Potential energy collected by the space itself. */
     double epot;
@@ -162,78 +142,14 @@ struct space {
     };
     
     
-/** Struct for each cellpair (see #space_getpair). */
-struct cellpair {
-
-    /** Indices of the cells involved. */
-    int i, j;
-    
-    /** Relative shift between cell centres. */
-    FPTYPE shift[3];
-    
-    /** Pairwise Verlet stuff. */
-    int size, count;
-    short int *pairs;
-    short int *nr_pairs;
-    
-    /** Pointer to chain pairs together. */
-    struct cellpair *next;
-    
-    };
-    
-    
-/** Struct for groups of cellpairs. */
-struct celltuple {
-
-    /** IDs of the cells in this tuple. */
-    int cellid[ space_maxtuples ];
-    
-    /** Nr. of cells in this tuple. */
-    int n;
-    
-    /** Ids of the underlying pairs. */
-    int pairid[ space_maxtuples * (space_maxtuples + 1) / 2 ];
-    
-    /* Buffer value to keep the size at 64 bytes for space_maxtuples==4. */
-    int buff;
-    
-    };
-    
-    
-/** Struct for Verlet list entries. */
-struct verlet_entry {
-
-    /** The particle. */
-    struct part *p;
-    
-    /** The interaction potential. */
-    struct potential *pot;
-    
-    /** The integer shift relative to this particle. */
-    signed char shift[3];
-    
-    };
-
-
 /* associated functions */
 int space_init ( struct space *s , const double *origin , const double *dim , double *L , double cutoff , unsigned int period );
-struct cellpair *space_getpair ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
-struct cellpair *space_getpair_spin ( struct space *s , int owner , int count , struct cellpair *old , int *err , int wait );
-int space_releasepair ( struct space *s , int ci , int cj );
-int space_releasepair_spin ( struct space *s , int ci , int cj );
 int space_shuffle ( struct space *s );
 int space_shuffle_local ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
-int space_pairs_sort ( struct space *s );
 int space_prepare ( struct space *s );
-int space_maketuples ( struct space *s );
-int space_gettuple ( struct space *s , struct celltuple **out , int wait );
-int space_gettuple_spin ( struct space *s , struct celltuple **out , int wait );
 int space_getpos ( struct space *s , int id , double *x );
 int space_setpos ( struct space *s , int id , double *x );
 int space_flush ( struct space *s );
-int space_verlet_init ( struct space *s , int list_global );
-int space_verlet_get ( struct space *s , int maxcount , int *from );
-int space_verlet_force ( struct space *s , FPTYPE *f , double epot );
 int space_flush_ghosts ( struct space *s );
-int space_getcell ( struct space *s , struct cell **out );
+struct task *space_addtask ( struct space *s , int type , int subtype , int i , int j );

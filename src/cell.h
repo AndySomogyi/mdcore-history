@@ -96,9 +96,11 @@ struct cell {
     /* ID of the node this cell belongs to. */
     int nodeID;
     
-    /* Pointer to sorted cell data for pseudo-Verlet lists. */
+    /* Pointer to sorted cell data. */
     unsigned int *sortlist;
-    char sorted[13];
+    
+    /* Sorting task for this cell. */
+    struct task *sort;
     
     };
     

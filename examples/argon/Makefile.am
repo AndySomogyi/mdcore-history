@@ -22,30 +22,16 @@ AUTOMAKE_OPTIONS=gnu
 AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS)
+AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = argon argon_verlet argon_pwverlet argon_pseudoverlet
+bin_PROGRAMS = argon argon_pseudoverlet
 
 # Plain old tests
 # Sources for test
 argon_SOURCES = argon.c
 argon_CFLAGS = -DENGINE_FLAGS="engine_flag_none" -DFPTYPE_SINGLE $(AM_CFLAGS)
 argon_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using Verlet lists
-# Sources for argon_verlet
-argon_verlet_SOURCES = argon.c
-argon_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-argon_verlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using pairwise Verlet lists
-# Sources for argon_pwverlet
-argon_pwverlet_SOURCES = argon.c
-argon_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-argon_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind

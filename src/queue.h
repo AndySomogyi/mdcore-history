@@ -25,11 +25,6 @@
 #define queue_err_lock                  -4
 
 
-/* some constants */
-#define queue_flag_pairs                1
-#define queue_flag_tuples               2
-
-
 /** ID of the last error */
 extern int queue_err;
 
@@ -37,17 +32,11 @@ extern int queue_err;
 /** The queue structure */
 struct queue {
 
-    /* Queue flags. */
-    unsigned int flags;
-    
     /* Allocated size. */
     int size;
     
     /* The queue data. */
-    union {
-        struct cellpair *pairs;
-        struct celltuple *tuples;
-        } data;
+    struct task *tasks;
         
     /* The space in which this queue lives. */
     struct space *space;
@@ -68,8 +57,7 @@ struct queue {
 
 
 /* Associated functions */
-int queue_pairs_init ( struct queue *q , int size , struct space *s , struct cellpair *pairs );
-int queue_tuples_init ( struct queue *q , int size , struct space *s , struct celltuple *tuples );
+int queue_init ( struct queue *q , int size , struct space *s , struct task *tasks );
 void queue_reset ( struct queue *q );
-int queue_insert ( struct queue *q , void *thing );
-void *queue_get ( struct queue *q , int rid , int keep );
+int queue_insert ( struct queue *q , struct task *t );
+struct task *queue_get ( struct queue *q , int rid , int keep );

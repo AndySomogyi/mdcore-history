@@ -35,6 +35,12 @@
     #include <mpi.h>
 #endif
 
+/* FFTW3 headers. */
+#ifdef HAVE_FFTW3
+    #include <complex.h>
+    #include <fftw3.h>
+#endif
+
 /* OpenMP headers. */
 #include <omp.h>
 
@@ -82,7 +88,6 @@ int main ( int argc , char *argv[] ) {
     /* Local variables. */
     int res = 0, myrank = 0, prov;
     int step, incr, i, j, k, cid, w_min, w_max;
-    FPTYPE ee, eff;
     double temp, v[3];
     FILE *dump, *fpdb;
     int psf, pdb, cpf;
@@ -92,7 +97,6 @@ int main ( int argc , char *argv[] ) {
     double itpms = 1000.0 / CPU_TPS;
     int nr_nodes = 1;
     int verbose = 0;
-    double A, B, q;
     int maxpekin_id;
     
     
@@ -104,6 +108,10 @@ int main ( int argc , char *argv[] ) {
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
     double L[] = { cutoff , cutoff , cutoff };
+    
+    struct spme spme;
+    int dim_spme[3] = { 6*spme_gpc , 6*spme_gpc , 6*spme_gpc };
+    float h_spme[3] = { dim[0]/dim_spme[0] , dim[1]/dim_spme[1] , dim[2]/dim_spme[2] };
     
     
     /* Start the clock. */
@@ -162,7 +170,7 @@ int main ( int argc , char *argv[] ) {
     e.nodeID = myrank;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
-        printf( "main[%i]: space has %i pairs and %i tuples.\n" , myrank , e.s.nr_pairs , e.s.nr_tuples );
+        printf( "main[%i]: space has %i tasks.\n" , myrank , e.s.nr_tasks );
     if ( myrank == 0 )
         printf( "main[%i]: cell size is [ %e , %e , %e ] nm.\n" , myrank , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     if ( myrank == 0 )
@@ -175,6 +183,20 @@ int main ( int argc , char *argv[] ) {
             errs_dump(stdout);
             abort();
             }
+    #endif
+    
+    #ifdef NO_HAVE_FFTW3
+        if ( spme_init( &spme , dim_spme , h_spme , 3.0f ) != 0 ) {
+            printf( "main[%i]: spme_init failed with engine_err=%i.\n" , myrank , engine_err );
+            errs_dump(stdout);
+            abort();
+            }
+        // printf( "main[%i]: spme.theta is\n" , myrank );
+        // for ( j = 0 ; j < spme.dim[1] ; j++ ) {
+        //     for ( k = 0 ; k < spme.dim[2] ; k++ )
+        //         printf( " %e" , spme.theta[ k + spme.dim[2]*j ] );
+        //     printf( "\n" );
+        //     }
     #endif
     
     
@@ -375,6 +397,8 @@ int main ( int argc , char *argv[] ) {
                 pot = e.p[ j*e.max_type + k ];
         }
     k = 26; j = 26;
+    double A, B, q;
+    FPTYPE ee, eff;
     A = 4.184 * 0.046000 * pow(2*0.0224500,12);
     B = 2 * 4.184 * 0.046000 * pow(2*0.0224500,6);
     q = e.types[k].charge * e.types[j].charge;
@@ -465,7 +489,6 @@ int main ( int argc , char *argv[] ) {
     /* Dump the engine flags. */
     if ( myrank == 0 ) {
         printf( "main[%i]: engine flags:" , myrank );
-        if ( e.flags & engine_flag_tuples ) printf( " engine_flag_tuples" );
         if ( e.flags & engine_flag_static ) printf( " engine_flag_static" );
         if ( e.flags & engine_flag_localparts ) printf( " engine_flag_localparts" );
         if ( e.flags & engine_flag_cuda ) printf( " engine_flag_cuda" );
@@ -505,6 +528,24 @@ int main ( int argc , char *argv[] ) {
             errs_dump(stdout);
             abort();
             }
+            
+            
+        #ifdef NO_HAVE_FFTW3
+            tic = getticks();
+            for ( k = 0 ; k < e.s.nr_tasks ; k++ ) {
+                struct task *t = &e.s.tasks[k];
+                if ( t->type == task_type_self )
+                    spme_iact( &spme , &e.s.cells[ t->i ] , &e.s.cells[ t->i ] );
+                else if ( t->type == task_type_pair ) {
+                    spme_iact( &spme , &e.s.cells[ t->i ] , &e.s.cells[ t->j ] );
+                    spme_iact( &spme , &e.s.cells[ t->j ] , &e.s.cells[ t->i ] );
+                    }
+                }
+            printf( "main[%i]: spme_iacts took %.3f ms.\n" , myrank , (double)(getticks()-tic) * itpms );
+            tic = getticks();
+            spme_doconv( &spme );
+            printf( "main[%i]: spme_conv took %.3f ms.\n" , myrank , (double)(getticks()-tic) * itpms );
+        #endif
             
                     
         /* Compute the system temperature. */

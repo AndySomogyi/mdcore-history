@@ -49,23 +49,21 @@
 
 /* some constants */
 #define engine_flag_none                 0
-#define engine_flag_tuples               1
-#define engine_flag_static               2
-#define engine_flag_localparts           4
-#define engine_flag_cuda                 8
-#define engine_flag_explepot             16
-#define engine_flag_verlet               32
-#define engine_flag_verlet_pairwise      64
-#define engine_flag_affinity             128
-#define engine_flag_prefetch             256
-#define engine_flag_verlet_pseudo        512
-#define engine_flag_unsorted             2048
-#define engine_flag_mpi                  4096
-#define engine_flag_parbonded            8192
-#define engine_flag_async                16384
-#define engine_flag_sets                 32768
-#define engine_flag_nullpart             65536
-#define engine_flag_dispatch             131072
+#define engine_flag_static               1
+#define engine_flag_localparts           2
+#define engine_flag_cuda                 4
+#define engine_flag_explepot             8
+#define engine_flag_verlet               16
+#define engine_flag_verlet_pairwise      32
+#define engine_flag_affinity             64
+#define engine_flag_prefetch             128
+#define engine_flag_verlet_pseudo        256
+#define engine_flag_unsorted             512
+#define engine_flag_mpi                  2048
+#define engine_flag_parbonded            4096
+#define engine_flag_async                8192
+#define engine_flag_sets                 16384
+#define engine_flag_nullpart             32768
 
 #define engine_bonds_chunk               100
 #define engine_angles_chunk              100

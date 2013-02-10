@@ -32,6 +32,17 @@
 /* MPI headers. */
 #include <mpi.h>
 
+/* FFTW3 headers. */
+#ifdef HAVE_FFTW3
+    #include <complex.h>
+    #include <fftw3.h>
+#endif
+
+/* OpenMP headers. */
+#ifdef HAVE_OPENMP
+    #include <omp.h>
+#endif
+
 /* Include mdcore. */
 #include "mdcore.h"
 
@@ -42,12 +53,7 @@
 
 /* Engine flags? */
 #ifndef ENGINE_FLAGS
-    #define ENGINE_FLAGS engine_flag_tuples
-#endif
-
-/* OpenMP headers. */
-#ifdef HAVE_OPENMP
-    #include <omp.h>
+    #define ENGINE_FLAGS engine_flag_none
 #endif
 
 
@@ -213,7 +219,7 @@ int main ( int argc , char *argv[] ) {
     e.time = 0;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
-        printf( "main[%i]: space has %i pairs and %i tuples.\n" , myrank , e.s.nr_pairs , e.s.nr_tuples );
+        printf( "main[%i]: space has %i tasks.\n" , myrank , e.s.nr_tasks );
     if ( myrank == 0 )
         printf( "main[%i]: cell size is [ %e , %e , %e ] nm.\n" , myrank , e.s.h[0] , e.s.h[1] , e.s.h[2] );
     if ( myrank == 0 )

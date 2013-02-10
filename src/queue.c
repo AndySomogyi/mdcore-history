@@ -41,8 +41,8 @@
 #include "fptype.h"
 #include "lock.h"
 #include "part.h"
-#include "fifo.h"
 #include "cell.h"
+#include "task.h"
 #include "space.h"
 #include "potential.h"
 #include "engine.h"
@@ -75,15 +75,14 @@ char *queue_err_msg[5] = {
  * @param rid #runner ID for ownership issues.
  * @param keep If true, remove the returned index from the queue.
  *
- * @return A task (pair or tuple) with no unresolved conflicts
+ * @return A #task with no unresolved dependencies or conflicts
  *      or @c NULL if none could be found.
  */
  
-void *queue_get ( struct queue *q , int rid , int keep ) {
+struct task *queue_get ( struct queue *q , int rid , int keep ) {
 
-    int j, k, tid = -1, ind_best = -1, score, score_best = -1, qflags = q->flags;
-    struct cellpair *p;
-    struct celltuple *t;
+    int j, k, tid = -1, ind_best = -1, score, score_best = -1;
+    struct task *t;
     struct space *s = q->space;
     char *cells_taboo = s->cells_taboo, *cells_owner = s->cells_owner;
 
@@ -100,95 +99,85 @@ void *queue_get ( struct queue *q , int rid , int keep ) {
     /* Loop over the entries. */
     for ( k = q->next ; k < q->count ; k++ ) {
     
-        /* Pairs or tuples? */
-        if ( qflags & queue_flag_pairs ) {
-        
-            /* Put a finger on the kth pair. */
-            p = &q->data.pairs[ q->ind[k] ];
-            
-            /* Get this pair's score. */
-            score = ( cells_owner[ p->i ] == rid ) + ( cells_owner[ p->j ] == rid );
-            
-            /* Is this better than what we've seen so far? */
-            if ( score <= score_best )
-                continue;
-            
-            /* Is this pair ok? */
+        /* Put a finger on the kth pair. */
+        t = &q->tasks[ q->ind[k] ];
+
+        /* Is this task ready yet? */
+        if ( t->wait )
+            continue;
+
+        /* Get this pair's score. */
+        if ( t->type == task_type_sort || t->type == task_type_self )
+            score = 2 * ( cells_owner[ t->i ] == rid );
+        else if ( t->type == task_type_pair )
+            score = ( cells_owner[ t->i ] == rid ) + ( cells_owner[ t->j ] == rid );
+        else
+            score = 0;
+
+        /* Is this better than what we've seen so far? */
+        if ( score <= score_best )
+            continue;
+
+        /* Is this pair ok? */
+        if ( t->type == task_type_pair ) {
             if ( rid & 1 ) {
-                if ( __sync_val_compare_and_swap( &cells_taboo[ p->i ] , 0 , 1 ) == 0 ) {
-                    if ( p->i == p->j || __sync_val_compare_and_swap( &cells_taboo[ p->j ] , 0 , 1 ) == 0 ) {
+                if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
+                    if ( __sync_val_compare_and_swap( &cells_taboo[ t->j ] , 0 , 1 ) == 0 ) {
                         if ( ind_best >= 0 ) {
-                            p = &q->data.pairs[ q->ind[ ind_best ] ];
-                            cells_taboo[ p->i ] = 0;
-                            cells_taboo[ p->j ] = 0;
+                            t = &q->tasks[ q->ind[ ind_best ] ];
+                            if ( t->type == task_type_self || t->type == task_type_sort )
+                                cells_taboo[ t->i ] = 0;
+                            else if ( t->type == task_type_pair ) {
+                                cells_taboo[ t->i ] = 0;
+                                cells_taboo[ t->j ] = 0;
+                                }
                             }
                         score_best = score;
                         ind_best = k;
                         }
                     else
-                        cells_taboo[ p->i ] = 0;
+                        cells_taboo[ t->i ] = 0;
                     }
                 }
             else {
-                if ( __sync_val_compare_and_swap( &cells_taboo[ p->j ] , 0 , 1 ) == 0 ) {
-                    if ( p->i == p->j || __sync_val_compare_and_swap( &cells_taboo[ p->i ] , 0 , 1 ) == 0 ) {
+                if ( __sync_val_compare_and_swap( &cells_taboo[ t->j ] , 0 , 1 ) == 0 ) {
+                    if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
                         if ( ind_best >= 0 ) {
-                            p = &q->data.pairs[ q->ind[ ind_best ] ];
-                            cells_taboo[ p->i ] = 0;
-                            cells_taboo[ p->j ] = 0;
+                            t = &q->tasks[ q->ind[ ind_best ] ];
+                            if ( t->type == task_type_self || t->type == task_type_sort )
+                                cells_taboo[ t->i ] = 0;
+                            else if ( t->type == task_type_pair ) {
+                                cells_taboo[ t->i ] = 0;
+                                cells_taboo[ t->j ] = 0;
+                                }
                             }
                         score_best = score;
                         ind_best = k;
                         }
                     else
-                        cells_taboo[ p->j ] = 0;
+                        cells_taboo[ t->j ] = 0;
                     }
                 }
-        
             }
-            
-        else {
-        
-            /* Put a finger on the kth tuple. */
-            t = &q->data.tuples[ q->ind[k] ];
-            
-            /* Get this tuple's score. */
-            score = 0;
-            for ( j = 0 ; j < t->n ; j++ )
-                score += ( cells_owner[ t->cellid[j] ] == rid );
-            
-            /* Is this better than what we've seen so far? */
-            if ( score <= score_best )
-                continue;
-            
-            /* Is this tuple ok? */
-            for ( j = 0 ; j < t->n ; j++ )
-                if ( __sync_val_compare_and_swap( &cells_taboo[ t->cellid[ j ] ] , 0 , 1 ) != 0 )
-                    break;
-            if ( j == t->n ) {
+        else if ( t->type == task_type_sort || t->type == task_type_self ) {
+            if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
                 if ( ind_best >= 0 ) {
-                    t = &q->data.tuples[ q->ind[ ind_best ] ];
-                    for ( j = 0 ; j < t->n ; j++ )
-                        cells_taboo[ t->cellid[ j ] ] = 0;
+                    t = &q->tasks[ q->ind[ ind_best ] ];
+                    if ( t->type == task_type_self || t->type == task_type_sort )
+                        cells_taboo[ t->i ] = 0;
+                    else if ( t->type == task_type_pair ) {
+                        cells_taboo[ t->i ] = 0;
+                        cells_taboo[ t->j ] = 0;
+                        }
                     }
                 score_best = score;
                 ind_best = k;
                 }
-            else
-                while ( j >= 0 )
-                    cells_taboo[ t->cellid[ j-- ] ] = 0;
-            
             }
-            
+        
         /* If we have the maximum score, break. */
-        if ( qflags & queue_flag_pairs ) {
-            if ( score_best == 2 )
-                break;
-            }
-        else {
-            if ( score_best == space_maxtuples )
-                break;
-            }
+        if ( score_best == 2 )
+            break;
     
         } /* loop over the entries. */
         
@@ -198,16 +187,14 @@ void *queue_get ( struct queue *q , int rid , int keep ) {
         /* Keep an eye on this index. */
         tid = q->ind[ ind_best ];
         
-        /* Own this pair/tuple. */
-        if ( qflags & queue_flag_pairs ) {
-            p = &q->data.pairs[ tid ];
-            cells_owner[ p->i ] = rid;
-            cells_owner[ p->j ] = rid;
-            }
-        else {
-            t = &q->data.tuples[ tid ];
-            for ( j = 0 ; j < t->n ; j++ )
-                cells_owner[ t->cellid[ j ] ] = rid;
+        /* Own this task's cells. */
+        t = &q->tasks[ tid ];
+        if ( t->type == task_type_sort ||
+             t->type == task_type_self )
+            cells_owner[ t->i ] = rid;
+        else if ( t->type == task_type_pair ) {
+            cells_owner[ t->i ] = rid;
+            cells_owner[ t->j ] = rid;
             }
     
         /* Remove this entry from the queue? */
@@ -247,10 +234,7 @@ void *queue_get ( struct queue *q , int rid , int keep ) {
     if ( tid == -1 )
         return NULL;
     else {
-        if ( qflags & queue_flag_pairs )
-            return &q->data.pairs[ tid ];
-        else
-            return &q->data.tuples[ tid ];
+        return &q->tasks[ tid ];
         }
         
     }
@@ -283,7 +267,7 @@ void queue_reset ( struct queue *q ) {
  * @return 1 on success, 0 if the queue is full and <0 on error (see #queue_err).
  */
  
-int queue_insert ( struct queue *q , void *thing ) {
+int queue_insert ( struct queue *q , struct task *t ) {
 
     int k;
 
@@ -305,10 +289,7 @@ int queue_insert ( struct queue *q , void *thing ) {
     /* Add the new index to the end of the queue. */
     for ( k = q->count ; k > q->next ; k-- )
         q->ind[ k ] = q->ind[ k-1 ];
-    if ( q->flags & queue_flag_pairs )
-        q->ind[ q->next ] = (struct cellpair *)thing - q->data.pairs;
-    else
-        q->ind[ q->next ] = (struct celltuple *)thing - q->data.tuples;
+    q->ind[ q->next ] = t - q->tasks;
     q->count += 1;
     q->next += 1;
         
@@ -323,12 +304,12 @@ int queue_insert ( struct queue *q , void *thing ) {
 
 
 /**
- * @brief Initialize a task queue with pairs.
+ * @brief Initialize a task queue.
  *
  * @param q The #queue to initialize.
  * @param size The maximum number of cellpairs in this queue.
  * @param s The space with which this queue is associated.
- * @param pairs An array containing the pairs to which the queue
+ * @param tasks An array containing the #task to which the queue
  *        indices will refer to.
  *
  * @return #queue_err_ok or <0 on error (see #queue_err).
@@ -339,10 +320,10 @@ int queue_insert ( struct queue *q , void *thing ) {
  * @sa #queue_tuples_init
  */
  
-int queue_pairs_init ( struct queue *q , int size , struct space *s , struct cellpair *pairs ) {
+int queue_init ( struct queue *q , int size , struct space *s , struct task *tasks ) {
 
     /* Sanity check. */
-    if ( q == NULL || s == NULL || pairs == NULL )
+    if ( q == NULL || s == NULL || tasks == NULL )
         return error(queue_err_null);
         
     /* Allocate the indices. */
@@ -350,57 +331,11 @@ int queue_pairs_init ( struct queue *q , int size , struct space *s , struct cel
         return error(queue_err_malloc);
         
     /* Init the queue data. */
-    q->flags = queue_flag_pairs;
     q->space = s;
     q->size = size;
     q->next = 0;
     q->count = 0;
-    q->data.pairs = pairs;
-    
-    /* Init the lock. */
-    if ( lock_init( &q->lock ) != 0 )
-        return error(queue_err_lock);
-
-    /* Nothing to see here. */
-    return queue_err_ok;
-
-    }
-    
-    
-/**
- * @brief Initialize a task queue with tuples.
- *
- * @param q The #queue to initialize.
- * @param size The maximum number of cellpairs in this queue.
- * @param s The space with which this queue is associated.
- * @param tuples An array containing the tuples to which the queue
- *        indices will refer to.
- *
- * @return #queue_err_ok or <0 on error (see #queue_err).
- *
- * Initializes a queue of the maximum given size. The initial queue
- * is empty and can be filled with tuple ids.
- *
- * @sa #queue_tuples_init
- */
- 
-int queue_tuples_init ( struct queue *q , int size , struct space *s , struct celltuple *tuples ) {
-
-    /* Sanity check. */
-    if ( q == NULL || s == NULL || tuples == NULL )
-        return error(queue_err_null);
-        
-    /* Allocate the indices. */
-    if ( ( q->ind = malloc( sizeof(int) * size ) ) == NULL )
-        return error(queue_err_malloc);
-        
-    /* Init the queue data. */
-    q->flags = queue_flag_tuples;
-    q->space = s;
-    q->size = size;
-    q->next = 0;
-    q->count = 0;
-    q->data.tuples = tuples;
+    q->tasks = tasks;
 
     /* Init the lock. */
     if ( lock_init( &q->lock ) != 0 )
