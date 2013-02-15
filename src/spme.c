@@ -79,6 +79,7 @@ float spme_coeffs[12] = { 2.0f/3.0f , 0.0f , -1.0f , 0.5f ,
  
 int spme_doconv ( struct spme *s ) {
 
+#ifdef HAVE_FFTW3
     int k, N = s->dim[0]*s->dim[1]*s->dim[2];
     float scale = 1.0f / N;
     fftwf_complex *T = s->T;
@@ -102,6 +103,10 @@ int spme_doconv ( struct spme *s ) {
 
     return spme_err_ok;
     
+#else
+    return error(smpe_err_nofftw3);
+#endif
+
     }
 
 
@@ -117,6 +122,7 @@ int spme_doconv ( struct spme *s ) {
  
 void spme_iact ( struct spme *restrict s , struct cell *restrict cp , struct cell *restrict cg ) {
 
+#ifdef HAVE_FFTW3
     int j, k, pid, ind[3], dim[3];
     struct part *restrict p, *restrict parts = cp->parts;
     FPTYPE shift[3], px[3], ih[3];
@@ -194,6 +200,8 @@ void spme_iact ( struct spme *restrict s , struct cell *restrict cp , struct cel
     
         } /* loop over parts in cp. */
 
+#endif
+
     }
 
 
@@ -240,6 +248,7 @@ void spme_bspline ( float *x , int N , float *b , float *dbdx ) {
  
 float spme_M ( int k , float x ) {
 
+#ifdef HAVE_FFTW3
     /* Lowest order? */
     if ( k == 1 ) {
     
@@ -254,6 +263,9 @@ float spme_M ( int k , float x ) {
     /* Otherwise, recurse. */
     else
         return x / (k - 1) * spme_M( k-1 , x ) + (k - x) / (k - 1) * spme_M( k-1 , x - 1.0f );
+#else
+    return error(smpe_err_nofftw3);
+#endif
 
     }
     

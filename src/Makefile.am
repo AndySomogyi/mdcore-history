@@ -25,7 +25,7 @@ AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 # List required headers
 include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
     errs.h bond.h angle.h reader.h rigid.h dihedral.h exclusion.h potential_eval.h \
-    fifo.h queue.h spme.h
+    queue.h spme.h
     
 # Both precisions have the same sources.
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
@@ -53,12 +53,15 @@ lib_LTLIBRARIES = libmdcore.la libmdcore_single.la
 
 # Build a CUDA-enabled version too?
 if HAVECUDA
-    lib_LTLIBRARIES += libmdcore_single_cuda.la
+lib_LTLIBRARIES += libmdcore_single_cuda.la
+if HAVEMPI
+lib_LTLIBRARIES += libmdcore_single_cuda_mpi.la
+endif
 endif
 
 # Build a MPI-enabled version too?
 if HAVEMPI
-    lib_LTLIBRARIES += libmdcore_mpi.la libmdcore_single_mpi.la
+lib_LTLIBRARIES += libmdcore_mpi.la libmdcore_single_mpi.la
 endif
 
 
@@ -84,6 +87,11 @@ libmdcore_single_mpi_la_CFLAGS = -DFPTYPE_SINGLE -DWITH_MPI $(AM_CFLAGS)
 libmdcore_single_cuda_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
 libmdcore_single_cuda_la_SHORTNAME = cu
 libmdcore_single_cuda_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS) -DWITH_CUDA $(CUDA_CFLAGS)
+
+# Set-up for single-precision case with CUDA and MPI
+libmdcore_single_cuda_mpi_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
+libmdcore_single_cuda_mpi_la_SHORTNAME = cumpi
+libmdcore_single_cuda_mpi_la_CFLAGS = -DFPTYPE_SINGLE $(AM_CFLAGS) -DWITH_CUDA -DWITH_MPI $(CUDA_CFLAGS)
 
 
 # Dummy target to make the Cell/BE version

@@ -771,7 +771,7 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_8single ( struct 
     _mm256_store_ps( e , ee.v );
     _mm256_store_ps( f , _mm256_mul_ps( eff.v , _mm256_div_ps( hi.v , r.v ) ) );
     
-#elifif defined(__SSE__) && defined(FPTYPE_SINGLE)
+#elif defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j;
     union {
         __v4sf v;
@@ -965,7 +965,7 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_8single_r ( struc
     _mm256_store_ps( e , ee.v );
     _mm256_store_ps( f , _mm256_mul_ps( eff.v , hi.v ) );
     
-#elifif defined(__SSE__) && defined(FPTYPE_SINGLE)
+#elif defined(__SSE__) && defined(FPTYPE_SINGLE)
     int j;
     union {
         __v4sf v;

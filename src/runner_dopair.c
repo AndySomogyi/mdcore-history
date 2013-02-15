@@ -90,13 +90,13 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     int pid, count_i, count_j;
     double epot = 0.0;
 #if defined(VECTORIZE)
-    struct potential *potq[4];
+    struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[4], *effj[4];
-    FPTYPE r2q[4] __attribute__ ((aligned (16)));
-    FPTYPE e[4] __attribute__ ((aligned (16)));
-    FPTYPE f[4] __attribute__ ((aligned (16)));
-    FPTYPE dxq[12];
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE dxq[3*VEC_SIZE];
 #else
     FPTYPE e, f;
 #endif

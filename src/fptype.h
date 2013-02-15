@@ -75,18 +75,8 @@
 
 
 /* Get headers for intrinsic functions. */
-#ifdef __SSE__
-    #include <xmmintrin.h>
-#endif
-#ifdef __SSE2__
-    #include <emmintrin.h>
-#endif
-#ifdef __SSE3__
-    #include <pmmintrin.h>
-#endif
-#ifdef __SSE4_1__
-    #include <smmintrin.h>
-#endif
+#include <immintrin.h>
+
 
 /** Macro to easily define vector types. */
 #define vector(elcount, type)  __attribute__((vector_size((elcount)*sizeof(type)))) type
