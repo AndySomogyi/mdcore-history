@@ -80,10 +80,8 @@ extern unsigned int runner_rcount;
  *        if needed and compute the interactions.
  * 
  * @param r The #runner computing the pair.
- * @param c The first cell.
- * @param cell_j The second cell.
- * @param pshift A pointer to an array of three floating point values containing
- *      the vector separating the centers of @c c and @c cell_j.
+ * @param c The cell.
+ * @param flags Bitmask for the sorting directions.
  *
  * @return #runner_err_ok or <0 on error (see #runner_err)
  *
@@ -96,7 +94,7 @@ extern unsigned int runner_rcount;
  *
  */
  
-__attribute__ ((flatten)) int runner_dosort ( struct runner *r , struct cell *c ) {
+__attribute__ ((flatten)) int runner_dosort ( struct runner *r , struct cell *c , int flags ) {
 
     struct part *p;
     struct space *s;
@@ -132,6 +130,10 @@ __attribute__ ((flatten)) int runner_dosort ( struct runner *r , struct cell *c 
 
     /* Loop over the sort directions. */
     for ( sid = 0 ; sid < 13 ; sid++ ) {
+    
+        /* In the mask? */
+        if ( !( flags & ( 1 << sid ) ) )
+            continue;
 
         /* Get the normalized shift. */
         for ( k = 0 ; k < 3 ; k++ )

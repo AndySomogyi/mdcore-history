@@ -48,6 +48,7 @@
 #include "lock.h"
 #include "part.h"
 #include "cell.h"
+#include "task.h"
 #include "space.h"
 #include "potential.h"
 #include "runner.h"

@@ -67,6 +67,53 @@ char *space_err_msg[9] = {
 	};
     
     
+/** 
+ * @brief Get the sort-ID and flip the cells if necessary.
+ *
+ * @param s The #space.
+ * @param ci Double pointer to the first #cell.
+ * @param cj Double pointer to the second #cell.
+ * 
+ * @return The sort ID of both cells, which may be swapped.
+ */
+ 
+int space_getsid ( struct space *s , struct cell **ci , struct cell **cj , FPTYPE *shift ) {
+
+    int k, sid;
+    struct cell *temp;
+    FPTYPE lshift[3];
+    
+    /* Shift vector provided? */
+    if ( shift == NULL )
+        shift = lshift;
+    
+    /* Compute the shift. */
+    for ( k = 0 ; k < 3 ; k++ ) {
+        shift[k] = (*cj)->origin[k] - (*ci)->origin[k];
+        if ( shift[k] * 2 > s->dim[k] )
+            shift[k] -= s->dim[k];
+        else if ( shift[k] * 2 < -s->dim[k] )
+            shift[k] += s->dim[k];
+        }
+
+    /* Get the ID of the sortlist for this shift. */
+    for ( sid = 0 , k = 0 ; k < 3 ; k++ )
+        sid = 3*sid + ( (shift[k] < 0) ? 0 : ( (shift[k] > 0) ? 2 : 1 ) );
+        
+    /* Flip the cells around? */
+    if ( cell_flip[sid] ) {
+        temp = *ci; *ci = *cj; *cj = temp;
+        shift[0] = -shift[0];
+        shift[1] = -shift[1];
+        shift[2] = -shift[2];
+        }
+    
+    /* Return the flipped sort ID. */
+    return cell_sortlistID[sid];
+
+    }
+
+
 /**
  * @brief Clear all particles from the ghost cells in this #space.
  *
@@ -418,13 +465,14 @@ int space_getpos ( struct space *s , int id , double *x ) {
  * @param s The #space.
  * @param type The task type.
  * @param subtype The task subtype.
+ * @param flags The task flags.
  * @param i Index of the first cell/domain.
  * @param j Index of the second cell/domain.
  *
  * @return A pointer to the newly added #task or @c NULL if anything went wrong.
  */
  
-struct task *space_addtask ( struct space *s , int type , int subtype , int i , int j ) {
+struct task *space_addtask ( struct space *s , int type , int subtype , int flags , int i , int j ) {
 
     struct task *t = &s->tasks[ s->nr_tasks ];
 
@@ -437,6 +485,7 @@ struct task *space_addtask ( struct space *s , int type , int subtype , int i , 
     /* Fill in the task data. */
     t->type = type;
     t->subtype = subtype;
+    t->flags = flags;
     t->i = i;
     t->j = j;
     
@@ -476,8 +525,9 @@ struct task *space_addtask ( struct space *s , int type , int subtype , int i , 
 int space_init ( struct space *s , const double *origin , const double *dim , double *L , double cutoff , unsigned int period ) {
 
     int i, j, k, l[3], ii, jj, kk;
-    int span[3], id1, id2;
+    int span[3], id1, id2, sid;
     double o[3], lh[3];
+    struct cell *ci, *cj;
 
     /* check inputs */
     if ( s == NULL || origin == NULL || dim == NULL || L == NULL )
@@ -658,11 +708,16 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                             /* get the neighbour's id */
                             id2 = space_cellid(s,ii,jj,kk);
                             
+                            /* Get the pair sortID. */
+                            ci = &s->cells[id1];
+                            cj = &s->cells[id2];
+                            sid = space_getsid( s , &ci , &cj , NULL );
+                            
                             /* store this pair? */
                             if ( id1 < id2 ||
                                  ( id1 == id2 && l[0] == 0 && l[1] == 0 && l[2] == 0 ) ||
                                  (s->cells[id2].flags & cell_flag_ghost ) ) {
-                                if ( space_addtask( s , ( id1 == id2 ) ? task_type_self : task_type_pair , task_subtype_none , id1 , id2 ) == NULL )
+                                if ( space_addtask( s , ( id1 == id2 ) ? task_type_self : task_type_pair , task_subtype_none , sid , ci - s->cells , cj - s->cells ) == NULL )
                                     return error(space_err);
                                 }
 
@@ -676,15 +731,19 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         
     /* Run through the cells and add a sort task to each one. */
     for ( k = 0 ; k < s->nr_cells ; k++ )
-        if ( ( s->cells[k].sort = space_addtask( s , task_type_sort , task_subtype_none , k , -1 ) ) == NULL )
+        if ( ( s->cells[k].sort = space_addtask( s , task_type_sort , task_subtype_none , 0 , k , -1 ) ) == NULL )
             return error(space_err);
             
-    /* Run through the tasks and make each pair depend on the sorts. */
+    /* Run through the tasks and make each pair depend on the sorts. 
+       Also set the flags for each sort. */
     for ( k = 0 ; k < s->nr_tasks ; k++ )
-        if ( s->tasks[k].type == task_type_pair )
+        if ( s->tasks[k].type == task_type_pair ) {
             if ( task_addunlock( s->cells[ s->tasks[k].i ].sort , &s->tasks[k] ) != 0 ||
                  task_addunlock( s->cells[ s->tasks[k].j ].sort , &s->tasks[k] ) != 0 )
                 return error(space_err_task);
+            s->cells[ s->tasks[k].i ].sort->flags |= 1 << s->tasks[k].flags;
+            s->cells[ s->tasks[k].j ].sort->flags |= 1 << s->tasks[k].flags;
+            }
         
     /* allocate and init the taboo-list */
     if ( (s->cells_taboo = (char *)malloc( sizeof(char) * s->nr_cells )) == NULL )

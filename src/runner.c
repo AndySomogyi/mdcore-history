@@ -764,7 +764,7 @@ int runner_run ( struct runner *r ) {
             switch ( t->type ) {
                 case task_type_sort:
                     if ( s->verlet_rebuild )
-                        if ( runner_dosort( r , &s->cells[ t->i ] ) < 0 )
+                        if ( runner_dosort( r , &s->cells[ t->i ] , t->flags ) < 0 )
                             return error(runner_err);
                     s->cells_taboo[ t->i ] = 0;
                     break;
@@ -774,7 +774,7 @@ int runner_run ( struct runner *r ) {
                     s->cells_taboo[ t->i ] = 0;
                     break;
                 case task_type_pair:
-                    if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] ) < 0 )
+                    if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
                         return error(runner_err);
                     s->cells_taboo[ t->i ] = 0;
                     s->cells_taboo[ t->j ] = 0;

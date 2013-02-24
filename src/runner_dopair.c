@@ -72,13 +72,29 @@ extern char *runner_err_msg[];
 extern unsigned int runner_rcount;
 
 
-__attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j ) {
+/**
+ * @brief Compute the pairwise interactions for the given pair.
+ *
+ * @param r The #runner computing the pair.
+ * @param cell_i The first cell.
+ * @param cell_j The second cell.
+ * @param shift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err)
+ *
+ * Computes the interactions between all the particles in @c cell_i and all
+ * the paritcles in @c cell_j. @c cell_i and @c cell_j may be the same cell.
+ *
+ * @sa #runner_sortedpair.
+ */
+
+__attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , int sid ) {
 
     struct part *part_i, *part_j;
     struct space *s;
-    int i, j, k, sid, lsid;
+    int i, j, k;
     struct part *parts_i, *parts_j;
-    void *temp;
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff, dmaxdist, dnshift;
@@ -102,9 +118,7 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
 #endif
     
     /* break early if one of the cells is empty */
-    count_i = cell_i->count;
-    count_j = cell_j->count;
-    if ( count_i == 0 || count_j == 0 || ( cell_i == cell_j && count_i < 2 ) )
+    if ( cell_i->count == 0 || cell_j->count == 0 )
         return runner_err_ok;
     
     /* get the space and cutoff */
@@ -119,6 +133,13 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     dmaxdist = 2 + dscale * (cutoff + 2*s->maxdx);
     pix[3] = FPTYPE_ZERO;
     
+    /* Get the sort ID. */
+    sid = space_getsid( s , &cell_i , &cell_j , shift );
+    
+    /* Get the counts. */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
         parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
@@ -131,35 +152,13 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
         parts_j = cell_j->parts;
         }
         
-    /* Compute the pshift. */
-    for ( k = 0 ; k < 3 ; k++ ) {
-        shift[k] = cell_j->origin[k] - cell_i->origin[k];
-        if ( shift[k] * 2 > s->dim[k] )
-            shift[k] -= s->dim[k];
-        else if ( shift[k] * 2 < -s->dim[k] )
-            shift[k] += s->dim[k];
-        }
-
-    /* Get the ID of the sortlist for this shift. */
-    for ( sid = 0 , k = 0 ; k < 3 ; k++ )
-        sid = 3*sid + ( (shift[k] < 0) ? 0 : ( (shift[k] > 0) ? 2 : 1 ) );
-    lsid = cell_sortlistID[sid];
-
-    /* Flip cells around? */
-    if ( cell_flip[sid] ) {
-        temp = cell_i; cell_i = cell_j; cell_j = temp;
-        temp = parts_i; parts_i = parts_j; parts_j = temp;
-        count_i = cell_i->count; count_j = cell_j->count;
-        shift[0] = -shift[0]; shift[1] = -shift[1]; shift[2] = -shift[2];
-        }
-
     /* Get the discretized shift norm. */
     nshift = sqrt( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
     dnshift = dscale * nshift;
 
     /* Get the pointers to the left and right particle data. */
-    iparts = &cell_i->sortlist[ count_i * lsid ];
-    jparts = &cell_j->sortlist[ count_j * lsid ];
+    iparts = &cell_i->sortlist[ count_i * sid ];
+    jparts = &cell_j->sortlist[ count_j * sid ];
 
     /* loop over the sorted list of particles in i */
     for ( i = 0 ; i < count_i ; i++ ) {
@@ -329,6 +328,15 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     }
     
     
+/**
+ * @brief Compute the self-interactions for the given cell.
+ *
+ * @param r The #runner computing the pair.
+ * @param cell_i The first cell.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err)
+ */
+
 __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c ) {
 
     struct part *part_i, *part_j;

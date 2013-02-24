@@ -60,6 +60,9 @@ struct task {
     
     /** Wait counters. */
     int wait;
+    
+    /** Task flags. */
+    int flags;
 
     /** Indices of the cells/domain involved. */
     int i, j;

@@ -445,6 +445,27 @@ int engine_split ( struct engine *e ) {
             
         }
         
+    /* Clear all task dependencies and re-link each sort task with its cell. */
+    for ( i = 0 ; i < s->nr_tasks ; i++ ) {
+        s->tasks[i].nr_unlock = 0;
+        if ( s->tasks[i].type == task_type_sort ) {
+            s->cells[ s->tasks[i].i ].sort = &s->tasks[i];
+            s->tasks[i].flags = 0;
+            }
+        }
+        
+    /* Run through the tasks and make each pair depend on the sorts. 
+       Also set the flags for each sort. */
+    for ( k = 0 ; k < s->nr_tasks ; k++ )
+        if ( s->tasks[k].type == task_type_pair ) {
+            if ( task_addunlock( s->cells[ s->tasks[k].i ].sort , &s->tasks[k] ) != 0 ||
+                 task_addunlock( s->cells[ s->tasks[k].j ].sort , &s->tasks[k] ) != 0 )
+                return error(space_err_task);
+            s->cells[ s->tasks[k].i ].sort->flags |= 1 << s->tasks[k].flags;
+            s->cells[ s->tasks[k].j ].sort->flags |= 1 << s->tasks[k].flags;
+            }
+            
+            
     /* Empty unmarked cells. */
     for ( k = 0 ; k < s->nr_cells ; k++ )
         if ( !( s->cells[k].flags & cell_flag_marked ) )

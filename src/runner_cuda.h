@@ -96,14 +96,26 @@ struct queue_cuda {
     };
 
 
-/** Struct for each cellpair (compact). */
-struct cellpair_cuda {
+/** Struct for each task. */
+struct task_cuda {
+
+    /** Task type and subtype. */
+    short int type, subtype;
+
+    /** Wait counters. */
+    volatile int wait;
+    
+    /** Task flags. */
+    int flags;
 
     /** Indices of the cells involved. */
     int i, j;
     
-    /** Relative shift between cell centres. */
-    float shift[3];
+    /** Nr of task that this task unlocks. */
+    int nr_unlock;
+    
+    /** List of task that this task unlocks (dependencies). */
+    int unlock[ task_max_unlock ];
     
     };
     

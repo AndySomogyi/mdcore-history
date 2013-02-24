@@ -53,8 +53,8 @@
 #include "lock.h"
 #include "part.h"
 #include "cell.h"
-#include "fifo.h"
 #include "space.h"
+#include "task.h"
 #include "potential.h"
 #include "engine.h"
 #include "runner.h"
@@ -70,9 +70,6 @@
 __constant__ struct potential *potential_null_cuda = NULL;
 
 /* The number of cells and pairs. */
-__constant__ int cuda_nr_pairs = 0;
-__device__ int cuda_pairs_done = 0;
-__constant__ int cuda_nr_tuples = 0;
 __constant__ int cuda_nr_cells = 0;
 
 /* The parts (non-texture access). */
@@ -86,12 +83,16 @@ __constant__ unsigned int *cuda_pind;
 __device__ int cuda_cell_mutex = 0;
 __device__ int cuda_barrier = 0;
 
+/* The index of the next free cell pair. */
+__device__ int cuda_pair_next = 0;
+
 /* The list of cell pairs. */
 __constant__ struct cellpair_cuda *cuda_pairs;
 __device__ int *cuda_taboo;
 
-/* The index of the next free cell pair. */
-__device__ int cuda_pair_next = 0;
+/* The list of tasks. */
+__constant__ struct task_cuda *cuda_tasks;
+__constant__ int cuda_nr_tasks = 0;
 
 /* The per-SM task queues. */
 __device__ struct queue_cuda cuda_queues[ cuda_maxqueues ];
@@ -109,7 +110,6 @@ __constant__ struct potential *cuda_pots;
 
 /* Sortlists for the Verlet algorithm. */
 __device__ unsigned int *cuda_sortlists = NULL;
-__device__ int *cuda_sortlists_ind;
 
 /* The potential coefficients, as a texture. */
 texture< float4 , cudaTextureType2D > tex_coeffs;
@@ -137,7 +137,27 @@ __device__ float cuda_epot = 0.0f, cuda_epot_out;
 /* Timers. */
 __device__ float cuda_timers[ tid_count ];
 
-
+/* Map sid to shift vector. */
+__constant__ float cuda_shift[13*3] = {
+     5.773502691896258e-01 ,  5.773502691896258e-01 ,  5.773502691896258e-01 ,
+     7.071067811865475e-01 ,  7.071067811865475e-01 ,  0.0                   ,
+     5.773502691896258e-01 ,  5.773502691896258e-01 , -5.773502691896258e-01 ,
+     7.071067811865475e-01 ,  0.0                   ,  7.071067811865475e-01 ,
+     1.0                   ,  0.0                   ,  0.0                   ,
+     7.071067811865475e-01 ,  0.0                   , -7.071067811865475e-01 ,
+     5.773502691896258e-01 , -5.773502691896258e-01 ,  5.773502691896258e-01 ,
+     7.071067811865475e-01 , -7.071067811865475e-01 ,  0.0                   ,
+     5.773502691896258e-01 , -5.773502691896258e-01 , -5.773502691896258e-01 ,
+     0.0                   ,  7.071067811865475e-01 ,  7.071067811865475e-01 ,
+     0.0                   ,  1.0                   ,  0.0                   ,
+     0.0                   ,  7.071067811865475e-01 , -7.071067811865475e-01 ,
+     0.0                   ,  0.0                   ,  1.0                   ,
+    };
+    
+/* The cell edge lengths. */
+__constant__ float cuda_h[3];
+    
+    
 /**
  * @brief Lock a device mutex.
  *
@@ -299,16 +319,42 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
     /* Main loop. */
     while ( ( tid = cuda_queue_gettask( q ) ) >= 0 ) {
     
-        /* Decode this task. */
-        cid = cuda_pairs[tid].i;
-        cjd = cuda_pairs[tid].j;
+        /* If this task is not even free, don't even bother. */
+        if ( !cuda_tasks[tid].wait ) {
     
-        /* Lock down this task? */
-        if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
-            if ( cid == cjd || cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
+            /* Dfferent options for different tasks. */
+            if ( cuda_tasks[tid].type == task_type_sort ) {
+            
+                /* No locking needed. */
                 break;
-            else
-                cuda_mutex_unlock( &cuda_taboo[ cid ] );
+            
+                }
+            else if ( cuda_tasks[tid].type == task_type_self ) {
+            
+                /* Decode this task. */
+                cid = cuda_tasks[tid].i;
+
+                /* Lock down this task? */
+                if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+                    break;
+                        
+                }
+            else if ( cuda_tasks[tid].type == task_type_pair ) {
+            
+                /* Decode this task. */
+                cid = cuda_tasks[tid].i;
+                cjd = cuda_tasks[tid].j;
+
+                /* Lock down this task? */
+                if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+                    if ( cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
+                        break;
+                    else
+                        cuda_mutex_unlock( &cuda_taboo[ cid ] );
+                        
+                }
+
+            }
                 
         /* Put this task back into the queue. */
         cuda_queue_puttask( q , tid );
@@ -807,9 +853,9 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
  */
 
 #ifdef PARTS_TEX 
-__device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , float *pshift , float *epot_global ) {
+__device__ void runner_dopair_unsorted_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , int sid , float *epot_global ) {
 #else
-__device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , float *pshift , float *epot_global ) {
+__device__ void runner_dopair_unsorted_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , int sid , float *epot_global ) {
 #endif
 
     int k, pid, pjd, ind, wrap_i, threadID;
@@ -824,20 +870,10 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x;
     
-    /* Swap cells? cell_j loops in steps of frame... */
-    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        #ifdef PARTS_TEX
-            k = cid; cid = cjd; cjd = k;
-        #else
-            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
-        #endif
-        k = count_i; count_i = count_j; count_j = k;
-        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
-        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
-        }
-    else */ {
-        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
-        }
+    /* Get the shift vector from the sid. */
+    shift[0] = cuda_shift[ 3*sid + 0 ] * cuda_h[0];
+    shift[1] = cuda_shift[ 3*sid + 1 ] * cuda_h[1];
+    shift[2] = cuda_shift[ 3*sid + 2 ] * cuda_h[2];
 
     /* Get the wraps. */
     wrap_i = (count_i < cuda_frame) ? cuda_frame : count_i;
@@ -937,9 +973,9 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
  */
 
 #ifdef PARTS_TEX 
-__device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , float *pshift , float *epot_global ) {
+__device__ void runner_dopair4_unsorted_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , int sid , float *epot_global ) {
 #else
-__device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , float *pshift , float *epot_global ) {
+__device__ void runner_dopair4_unsorted_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , int sid , float *epot_global ) {
 #endif
 
     int k, pjd, ind, wrap_i, threadID;
@@ -955,20 +991,10 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x;
     
-    /* Swap cells? cell_j loops in steps of frame... */
-    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i < ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        #ifdef PARTS_TEX
-            k = cid; cid = cjd; cjd = k;
-        #else
-            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
-        #endif
-        k = count_i; count_i = count_j; count_j = k;
-        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
-        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
-        }
-    else */ {
-        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
-        }
+    /* Get the shift vector from the sid. */
+    shift[0] = cuda_shift[ 3*sid + 0 ] * cuda_h[0];
+    shift[1] = cuda_shift[ 3*sid + 1 ] * cuda_h[1];
+    shift[2] = cuda_shift[ 3*sid + 2 ] * cuda_h[2];
 
     /* Get the wraps. */
     wrap_i = (count_i < cuda_frame) ? cuda_frame : count_i;
@@ -1119,9 +1145,90 @@ __device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *pa
  */
  
 #ifdef PARTS_TEX
-__device__ void runner_dopair_verlet_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist , float *epot_global ) {
+__device__ void runner_dosort_cuda ( int cid , int count_i , unsigned int *sort_i , int sid ) {
 #else
-__device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist , float *epot_global ) {
+__device__ void runner_dosort_cuda ( float4 *parts_i , int count_i , unsigned int *sort_i , int sid ) {
+#endif
+
+    int k, threadID = threadIdx.x;
+    float4 pi[4];
+    int4 spid;
+    float nshift, shift[3], shiftn[3];
+    
+    TIMER_TIC
+    
+    /* Get the shift vector from the sid. */
+    shiftn[0] = cuda_shift[ 3*sid + 0 ];
+    shiftn[1] = cuda_shift[ 3*sid + 1 ];
+    shiftn[2] = cuda_shift[ 3*sid + 2 ];
+    shift[0] = shiftn[0] * cuda_h[0];
+    shift[1] = shiftn[1] * cuda_h[1];
+    shift[2] = shiftn[2] * cuda_h[2];
+
+    /* Pre-compute the inverse norm of the shift. */
+    nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
+
+    /* Pack the parts of i into the sort arrays. */
+    for ( k = threadID ; k < count_i ; k += 4*cuda_frame ) {
+        #ifdef PARTS_TEX
+            pi[0] = tex2D( tex_parts , k + 0*cuda_frame , cid );
+            pi[1] = tex2D( tex_parts , k + 1*cuda_frame , cid );
+            pi[2] = tex2D( tex_parts , k + 2*cuda_frame , cid );
+            pi[3] = tex2D( tex_parts , k + 3*cuda_frame , cid );
+        #else
+            pi[0] = parts_i[ k + 0*cuda_frame ];
+            if ( k + 1*cuda_frame < count_i ) pi[1] = parts_i[ k + 1*cuda_frame ];
+            if ( k + 2*cuda_frame < count_i ) pi[2] = parts_i[ k + 2*cuda_frame ];
+            if ( k + 3*cuda_frame < count_i ) pi[3] = parts_i[ k + 3*cuda_frame ];
+        #endif
+        spid.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[0].x*shiftn[0] + pi[0].y*shiftn[1] + pi[0].z*shiftn[2]) );
+        spid.y = ( (k + 1*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[1].x*shiftn[0] + pi[1].y*shiftn[1] + pi[1].z*shiftn[2]) );
+        spid.z = ( (k + 2*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[2].x*shiftn[0] + pi[2].y*shiftn[1] + pi[2].z*shiftn[2]) );
+        spid.w = ( (k + 3*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[3].x*shiftn[0] + pi[3].y*shiftn[1] + pi[3].z*shiftn[2]) );
+        sort_i[k] = spid.x;
+        if ( k + 1*cuda_frame < count_i ) sort_i[ k + 1*cuda_frame ] = spid.y;
+        if ( k + 2*cuda_frame < count_i ) sort_i[ k + 2*cuda_frame ] = spid.z;
+        if ( k + 3*cuda_frame < count_i ) sort_i[ k + 3*cuda_frame ] = spid.w;
+        }
+
+    /* Pack the parts into the sort arrays. */
+    /* for ( k = threadID ; k < count_i ; k += cuda_frame ) {
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , k , cid );
+        #else
+            pi = parts_i[ k ];
+        #endif
+        sort_i[k] = ( k << 16 ) |
+            (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
+        } */
+
+    /* Sort using normalized bitonic sort. */
+    cuda_sort_descending( sort_i , count_i );
+
+    TIMER_TOC(tid_sort)
+        
+    }
+    
+    
+/**
+ * @brief Compute the pairwise interactions for the given pair on a CUDA device.
+ *
+ * @param icid Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param icjd Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param cid Part buffer in local memory.
+ * @param cjd Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+#ifdef PARTS_TEX
+__device__ void runner_dopair_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , int sid , float *epot_global ) {
+#else
+__device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , int sid , float *epot_global ) {
 #endif
 
     int k, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
@@ -1129,90 +1236,29 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
     unsigned int dmaxdist;
     float4 pi, pj;
     int pot;
-    float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f, nshift, inshift;
-    float dx[3], pif[3], shift[3], shiftn[3];
+    float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f;
+    float dx[3], pif[3], shift[3];
     
     TIMER_TIC
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x;
     
-    /* Swap cells? cell_j loops in steps of frame... */
-    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        #ifdef PARTS_TEX
-            k = cid; cid = cjd; cjd = k;
-        #else
-            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
-        #endif
-        k = count_i; count_i = count_j; count_j = k;
-        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
-        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
-        }
-    else */ {
-        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
-        }
-
+    /* Get the shift vector from the sid. */
+    shift[0] = cuda_shift[ 3*sid + 0 ] * cuda_h[0];
+    shift[1] = cuda_shift[ 3*sid + 1 ] * cuda_h[1];
+    shift[2] = cuda_shift[ 3*sid + 2 ] * cuda_h[2];
         
     /* Pre-compute the inverse norm of the shift. */
-    nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
-    inshift = 1.0f / nshift;
-    shiftn[0] = inshift*shift[0]; shiftn[1] = inshift*shift[1]; shiftn[2] = inshift*shift[2];
     dmaxdist = 2 + cuda_dscale * cuda_maxdist;
        
-    TIMER_TIC2
-        
-    /* Re-build sorted pairs list? */
-    if ( verlet_rebuild ) {
-    
-        /* Pack the parts of i and j into the sort arrays. */
-        for ( k = threadID ; k < count_i ; k += cuda_frame ) {
-            #ifdef PARTS_TEX
-                pi = tex2D( tex_parts , k , cid );
-            #else
-                pi = parts_i[ k ];
-            #endif
-            sort_i[k] = ( k << 16 ) |
-                (unsigned int)( cuda_dscale * (nshift + pi.x*shiftn[0] + pi.y*shiftn[1] + pi.z*shiftn[2]) );
-            }
-        for ( k = threadID ; k < count_j ; k += cuda_frame ) {
-            #ifdef PARTS_TEX
-                pj = tex2D( tex_parts , k , cjd );
-            #else
-                pj = parts_j[ k ];
-            #endif
-            sort_j[k] = ( k << 16 ) | 
-                (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj.x)*shiftn[0] + (shift[1]+pj.y)*shiftn[1] + (shift[2]+pj.z)*shiftn[2]) );
-            }
-            
-        /* Make sure all the memory is in the right place. */
-        // __threadfence_block();
-        
-        /* Sort using normalized bitonic sort. */
-        cuda_sort_descending( sort_i , count_i );
-        cuda_sort_ascending( sort_j , count_j );
 
-        /* Store the sorted list back to global memory. */
-        cuda_memcpy( sortlist , sort_i , sizeof(int) * count_i );
-        cuda_memcpy( &sortlist[count_i] , sort_j , sizeof(int) * count_j );
-            
-        } /* re-build sorted pairs list. */
-        
-    /* Otherwise, just read it from memory. */
-    else {
-        cuda_memcpy( sort_i , sortlist , sizeof(int) * count_i );
-        cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(int) * count_j );
-        // __threadfence_block();
-        }
-        
-    TIMER_TOC2(tid_sort)
-        
-        
     /* Loop over the particles in cell_j, frame-wise. */
     cj = count_j;
     for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
     
         /* Get the wrap. */
-        while ( cj > 0 && ( sort_j[cj-1] & 0xffff ) - ( sort_i[pid & ~(cuda_frame - 1)] & 0xffff ) > dmaxdist )
+        while ( cj > 0 && ( sort_j[count_j-cj] & 0xffff ) - ( sort_i[pid & ~(cuda_frame - 1)] & 0xffff ) > dmaxdist )
             cj -= 1;
         if ( cj == 0 )
             break;
@@ -1243,7 +1289,7 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
             if ( pjd < cj ) {
             
                 /* Get a handle on the wrapped particle pid in cell_i. */
-                spjd = sort_j[pjd] >> 16;
+                spjd = sort_j[count_j-1-pjd] >> 16;
                 #ifdef PARTS_TEX
                     pj = tex2D( tex_parts , spjd , cjd );
                 #else
@@ -1317,9 +1363,9 @@ __device__ void runner_dopair_verlet_cuda ( float4 *parts_i , int count_i , floa
  */
  
 #ifdef PARTS_TEX
-__device__ void runner_dopair4_verlet_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist , float *epot_global ) {
+__device__ void runner_dopair4_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , int sid , float *epot_global ) {
 #else
-__device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *pshift , int verlet_rebuild , unsigned int *sortlist , float *epot_global ) {
+__device__ void runner_dopair4_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , int sid , float *epot_global ) {
 #endif
 
     int k, pid, spid, pjdid, threadID, wrap, cj;
@@ -1329,113 +1375,29 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
     int4 pot, pjd, spjd;
     char4 valid;
     float4 ee, eff, r2;
-    float epot = 0.0f, w, nshift, inshift;
-    float dx[12], pif[3], shift[3], shiftn[3];
+    float epot = 0.0f, w;
+    float dx[12], pif[3], shift[3];
     
     TIMER_TIC
     
     /* Get the size of the frame, i.e. the number of threads in this block. */
     threadID = threadIdx.x;
     
-    /* Swap cells? cell_j loops in steps of frame... */
-    /* if ( ( ( count_i + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_i > ( ( count_j + (cuda_frame-1) ) & ~(cuda_frame-1) ) - count_j ) {
-        #ifdef PARTS_TEX
-            k = cid; cid = cjd; cjd = k;
-        #else
-            float4 *temp4 = parts_i; parts_i = parts_j; parts_j = temp4;
-        #endif
-        k = count_i; count_i = count_j; count_j = k;
-        float *temp = forces_i; forces_i = forces_j; forces_j = temp;
-        shift[0] = -pshift[0]; shift[1] = -pshift[1]; shift[2] = -pshift[2];
-        }
-    else */ {
-        shift[0] = pshift[0]; shift[1] = pshift[1]; shift[2] = pshift[2];
-        }
+    /* Get the shift vector from the sid. */
+    shift[0] = cuda_shift[ 3*sid + 0 ] * cuda_h[0];
+    shift[1] = cuda_shift[ 3*sid + 1 ] * cuda_h[1];
+    shift[2] = cuda_shift[ 3*sid + 2 ] * cuda_h[2];
         
     /* Pre-compute the inverse norm of the shift. */
-    nshift = sqrtf( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
-    inshift = 1.0f / nshift;
-    shiftn[0] = inshift*shift[0]; shiftn[1] = inshift*shift[1]; shiftn[2] = inshift*shift[2];
     dmaxdist = 2 + cuda_dscale * cuda_maxdist;
-       
-    /* Re-build sorted pairs list? */
-    if ( verlet_rebuild ) {
-    
-        TIMER_TIC2
-        
-        /* Pack the parts of i and j into the sort arrays. */
-        for ( k = threadID ; k < count_i ; k += 4*cuda_frame ) {
-            #ifdef PARTS_TEX
-                pj[0] = tex2D( tex_parts , k + 0*cuda_frame , cid );
-                pj[1] = tex2D( tex_parts , k + 1*cuda_frame , cid );
-                pj[2] = tex2D( tex_parts , k + 2*cuda_frame , cid );
-                pj[3] = tex2D( tex_parts , k + 3*cuda_frame , cid );
-            #else
-                pj[0] = parts_i[ k + 0*cuda_frame ];
-                if ( k + 1*cuda_frame < count_i ) pj[1] = parts_i[ k + 1*cuda_frame ];
-                if ( k + 2*cuda_frame < count_i ) pj[2] = parts_i[ k + 2*cuda_frame ];
-                if ( k + 3*cuda_frame < count_i ) pj[3] = parts_i[ k + 3*cuda_frame ];
-            #endif
-            spjd.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[0].x*shiftn[0] + pj[0].y*shiftn[1] + pj[0].z*shiftn[2]) );
-            spjd.y = ( (k + 1*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[1].x*shiftn[0] + pj[1].y*shiftn[1] + pj[1].z*shiftn[2]) );
-            spjd.z = ( (k + 2*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[2].x*shiftn[0] + pj[2].y*shiftn[1] + pj[2].z*shiftn[2]) );
-            spjd.w = ( (k + 3*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pj[3].x*shiftn[0] + pj[3].y*shiftn[1] + pj[3].z*shiftn[2]) );
-            sort_i[k] = spjd.x;
-            if ( k + 1*cuda_frame < count_i ) sort_i[ k + 1*cuda_frame ] = spjd.y;
-            if ( k + 2*cuda_frame < count_i ) sort_i[ k + 2*cuda_frame ] = spjd.z;
-            if ( k + 3*cuda_frame < count_i ) sort_i[ k + 3*cuda_frame ] = spjd.w;
-            }
-        for ( k = threadID ; k < count_j ; k += 4*cuda_frame ) {
-            #ifdef PARTS_TEX
-                pj[0] = tex2D( tex_parts , k + 0*cuda_frame , cjd );
-                pj[1] = tex2D( tex_parts , k + 1*cuda_frame , cjd );
-                pj[2] = tex2D( tex_parts , k + 2*cuda_frame , cjd );
-                pj[3] = tex2D( tex_parts , k + 3*cuda_frame , cjd );
-            #else
-                pj[0] = parts_j[ k + 0*cuda_frame ];
-                if ( k + 1*cuda_frame < count_j ) pj[1] = parts_j[ k + 1*cuda_frame ];
-                if ( k + 2*cuda_frame < count_j ) pj[2] = parts_j[ k + 2*cuda_frame ];
-                if ( k + 3*cuda_frame < count_j ) pj[3] = parts_j[ k + 3*cuda_frame ];
-            #endif
-            spjd.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[0].x)*shiftn[0] + (shift[1]+pj[0].y)*shiftn[1] + (shift[2]+pj[0].z)*shiftn[2]) );
-            spjd.y = ( k + 1*cuda_frame << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[1].x)*shiftn[0] + (shift[1]+pj[1].y)*shiftn[1] + (shift[2]+pj[1].z)*shiftn[2]) );
-            spjd.z = ( k + 2*cuda_frame << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[2].x)*shiftn[0] + (shift[1]+pj[2].y)*shiftn[1] + (shift[2]+pj[2].z)*shiftn[2]) );
-            spjd.w = ( k + 3*cuda_frame << 16 ) | (unsigned int)( cuda_dscale * (nshift + (shift[0]+pj[3].x)*shiftn[0] + (shift[1]+pj[3].y)*shiftn[1] + (shift[2]+pj[3].z)*shiftn[2]) );
-            sort_j[k] = spjd.x;
-            if ( k + 1*cuda_frame < count_j ) sort_j[ k + 1*cuda_frame ] = spjd.y;
-            if ( k + 2*cuda_frame < count_j ) sort_j[ k + 2*cuda_frame ] = spjd.z;
-            if ( k + 3*cuda_frame < count_j ) sort_j[ k + 3*cuda_frame ] = spjd.w;
-            }
-        
-        TIMER_TOC2(tid_pack)
-            
-        /* Make sure all the memory is in the right place. */
-        // __threadfence_block();
-        
-        /* Sort using normalized bitonic sort. */
-        cuda_sort_descending( sort_i , count_i );
-        cuda_sort_ascending( sort_j , count_j );
-
-        /* Store the sorted list back to global memory. */
-        cuda_memcpy( sortlist , sort_i , sizeof(int) * count_i );
-        cuda_memcpy( &sortlist[count_i] , sort_j , sizeof(int) * count_j );
-            
-        } /* re-build sorted pairs list. */
-        
-    /* Otherwise, just read it from memory. */
-    else {
-        cuda_memcpy( sort_i , sortlist , sizeof(int) * count_i );
-        cuda_memcpy( sort_j , &sortlist[count_i] , sizeof(int) * count_j );
-        // __threadfence_block();
-        }
-        
+               
         
     /* Loop over the particles in cell_j, frame-wise. */
     cj = count_j;
     for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
     
         /* Get the wrap. */
-        while ( cj > 0 && ( sort_j[cj-1] & 0xffff ) - ( sort_i[pid & ~(cuda_frame - 1)] & 0xffff ) > dmaxdist )
+        while ( cj > 0 && ( sort_j[count_j-cj] & 0xffff ) - ( sort_i[pid & ~(cuda_frame - 1)] & 0xffff ) > dmaxdist )
             cj -= 1;
         if ( cj == 0 )
             break;
@@ -1469,7 +1431,7 @@ __device__ void runner_dopair4_verlet_cuda ( float4 *parts_i , int count_i , flo
                 pjd.w -= wrap;
                 
             /* Get the particle pointers. */
-            spjd.x = sort_j[pjd.x] >> 16; spjd.y = sort_j[pjd.y] >> 16; spjd.z = sort_j[pjd.z] >> 16; spjd.w = sort_j[pjd.w] >> 16; 
+            spjd.x = sort_j[count_j-1-pjd.x] >> 16; spjd.y = sort_j[count_j-1-pjd.y] >> 16; spjd.z = sort_j[count_j-1-pjd.z] >> 16; spjd.w = sort_j[count_j-1-pjd.w] >> 16; 
             #ifdef PARTS_TEX
                 pj[0] = ( valid.x = ( pjd.x < cj ) ) ? tex2D( tex_parts , spjd.x , cjd ) : pi;
                 pj[1] = ( valid.y = ( pjd.y < cj ) && ( pjdid + 1 < wrap ) ) ? tex2D( tex_parts , spjd.y , cjd ) : pi;
@@ -3749,112 +3711,58 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     
     /* Start the appropriate kernel. */
     tic = getticks();
-    if ( e->flags & engine_flag_verlet )
-        switch ( (maxcount + 31) / 32 ) {
-            case 1:
-                runner_run_verlet_cuda_32 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 2:
-                runner_run_verlet_cuda_64 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 3:
-                runner_run_verlet_cuda_96 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 4:
-                runner_run_verlet_cuda_128 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 5:
-                runner_run_verlet_cuda_160 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 6:
-                runner_run_verlet_cuda_192 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 7:
-                runner_run_verlet_cuda_224 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 8:
-                runner_run_verlet_cuda_256 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 9:
-                runner_run_verlet_cuda_288 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 10:
-                runner_run_verlet_cuda_320 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 11:
-                runner_run_verlet_cuda_352 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 12:
-                runner_run_verlet_cuda_384 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 13:
-                runner_run_verlet_cuda_416 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 14:
-                runner_run_verlet_cuda_448 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            case 15:
-                runner_run_verlet_cuda_480 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-                break;
-            // case 16:
-            //     runner_run_verlet_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
-            //     break;
-            default:
-                return error(engine_err_maxparts);
-            }
-    else
-        switch ( (maxcount + 31) / 32 ) {
-            case 1:
-                runner_run_cuda_32 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 2:
-                runner_run_cuda_64 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 3:
-                runner_run_cuda_96 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 4:
-                runner_run_cuda_128 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 5:
-                runner_run_cuda_160 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 6:
-                runner_run_cuda_192 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 7:
-                runner_run_cuda_224 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 8:
-                runner_run_cuda_256 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 9:
-                runner_run_cuda_288 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 10:
-                runner_run_cuda_320 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 11:
-                runner_run_cuda_352 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 12:
-                runner_run_cuda_384 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 13:
-                runner_run_cuda_416 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 14:
-                runner_run_cuda_448 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            case 15:
-                runner_run_cuda_480 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-                break;
-            // case 16:
-            //     runner_run_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda );
-            //     break;
-            default:
-                return error(engine_err_maxparts);
-            }
+    switch ( (maxcount + 31) / 32 ) {
+        case 1:
+            runner_run_cuda_32 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 2:
+            runner_run_cuda_64 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 3:
+            runner_run_cuda_96 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 4:
+            runner_run_cuda_128 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 5:
+            runner_run_cuda_160 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 6:
+            runner_run_cuda_192 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 7:
+            runner_run_cuda_224 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 8:
+            runner_run_cuda_256 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 9:
+            runner_run_cuda_288 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 10:
+            runner_run_cuda_320 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 11:
+            runner_run_cuda_352 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 12:
+            runner_run_cuda_384 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 13:
+            runner_run_cuda_416 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 14:
+            runner_run_cuda_448 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        case 15:
+            runner_run_cuda_480 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+            break;
+        // case 16:
+        //     runner_run_verlet_cuda_512 <<<nr_blocks,nr_threads>>> ( e->s.forces_cuda , e->s.counts_cuda , e->s.ind_cuda , e->s.verlet_rebuild );
+        //     break;
+        default:
+            return error(engine_err_maxparts);
+        }
     if ( cudaDeviceSynchronize() != cudaSuccess )
         return cuda_error(engine_err_cuda);
     e->timers[ engine_timer_cuda_dopairs ] += getticks() - tic;
@@ -3930,9 +3838,7 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     struct part *p;
     float4 *parts_cuda, *buff;
     struct space *s = &e->s;
-    int *sortlists_ind, sortlists_count;
-    struct cellpair_cuda *cellpairs;
-    FPTYPE maxdist = s->cutoff + 2*s->verlet_maxdx;
+    FPTYPE maxdist = s->cutoff + 2*s->maxdx;
     cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     
     /* Clear the counts array. */
@@ -3952,51 +3858,9 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     for ( k = 1 ; k < s->nr_cells ; k++ )
         s->ind_cuda_local[k] = s->ind_cuda_local[k-1] + s->counts_cuda_local[k-1];
         
-    /* Are we using verlet lists? */
-    if ( e->flags & engine_flag_verlet ) {
-    
-        /* Start by setting the maxdist on the device. */
-        if ( cudaMemcpyToSymbol( cuda_maxdist , &maxdist , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
-    
-        /* Do we need to re-build the list? */
-        if ( s->verlet_rebuild ) {
-        
-            /* Get a copy of the cellpairs from the device. */
-            if ( ( cellpairs = (struct cellpair_cuda *)alloca( sizeof(struct cellpair_cuda) * s->nr_pairs ) ) == NULL )
-                return engine_err_malloc;
-            if ( cudaMemcpy( cellpairs , s->pairs_cuda , sizeof(struct cellpair_cuda) * s->nr_pairs , cudaMemcpyDeviceToHost ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
-        
-            /* Allocate and fill the sortlist. */
-            if ( ( sortlists_ind = (int *)alloca( sizeof(int) * (s->nr_pairs + 1) ) ) == NULL )
-                return error(engine_err_malloc);
-            sortlists_ind[0] = 0;
-            for ( k = 1 ; k <= s->nr_pairs ; k++ )
-                if ( cellpairs[k-1].i != cellpairs[k-1].j )
-                    sortlists_ind[k] = sortlists_ind[k-1] + s->counts_cuda_local[cellpairs[k-1].i] + s->counts_cuda_local[cellpairs[k-1].j];
-                else
-                    sortlists_ind[k] = sortlists_ind[k-1];
-            sortlists_count = sortlists_ind[s->nr_pairs];
-            
-            /* Do we need to re-allocate the sortlists? */
-            if ( e->sortlists_cuda == NULL || e->sortlists_size < sortlists_count ) {
-                e->sortlists_size = sortlists_count * 1.2;
-                if ( e->sortlists_cuda != NULL && cudaFree( e->sortlists_cuda ) != cudaSuccess )
-                    return cuda_error(engine_err_cuda);
-                if ( cudaMalloc( &e->sortlists_cuda , sizeof(int) * e->sortlists_size ) != cudaSuccess )
-                    return cuda_error(engine_err_cuda);
-                if ( cudaMemcpyToSymbol( cuda_sortlists , &e->sortlists_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-                    return cuda_error(engine_err_cuda);
-                }
-        
-            /* Copy the indices over to the device. */
-            if ( cudaMemcpy( e->sortlists_ind_cuda , sortlists_ind , sizeof(int) * s->nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
-        
-            }
-    
-        } /* are we using verlet lists? */
+    /* Start by setting the maxdist on the device. */
+    if ( cudaMemcpyToSymbol( cuda_maxdist , &maxdist , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     
     /* Allocate the particle buffer. */
     #ifdef PARTS_TEX
@@ -4145,7 +4009,7 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
  
 int engine_cuda_queues_load ( struct engine *e ) {
     
-    int did, nr_queues, qid, k, qsize, nr_pairs = e->s.nr_pairs;
+    int did, nr_queues, qid, k, qsize, nr_tasks = e->s.nr_tasks;
     struct cudaDeviceProp prop;
     int *data;
     struct queue_cuda queues[ cuda_maxqueues ];
@@ -4160,7 +4024,7 @@ int engine_cuda_queues_load ( struct engine *e ) {
     nr_queues = prop.multiProcessorCount;
     
     /* Set the size of each queue. */
-    qsize = 3 * nr_pairs / min( nr_queues , e->nr_runners );
+    qsize = 3 * nr_tasks / min( nr_queues , e->nr_runners );
     if ( cudaMemcpyToSymbol( cuda_queue_size , &qsize , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
@@ -4176,7 +4040,7 @@ int engine_cuda_queues_load ( struct engine *e ) {
     
         /* Fill the data for this queue. */
         queues[qid].count = 0;
-        for ( k = qid ; k < nr_pairs ; k += nr_queues )
+        for ( k = qid ; k < nr_tasks ; k += nr_queues )
             data[ queues[qid].count++ ] = k;
         for ( k = queues[qid].count ; k < qsize ; k++ )
             data[k] = -1;
@@ -4224,8 +4088,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
 
     int i, j, k, nr_pots, nr_coeffs, max_coeffs = 0;
     int pind[ e->max_type * e->max_type ], *pind_cuda;
+    struct space *s = &e->s;
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
-    struct cellpair_cuda *pairs_cuda;
+    struct task_cuda *tasks_cuda;
     float *finger, *coeffs_cuda;
     float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, dscale; //, buff[ e->nr_types ];
     cudaArray *cuArray_coeffs, *cuArray_pind, *cuArray_diags;
@@ -4233,6 +4098,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     unsigned int *taboo_cuda, *diags, *diags_cuda;
+    float h[3];
     
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -4311,6 +4177,11 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     free( coeffs_cuda );
     
+    /* Copy the cell edge lengths to the device. */
+    h[0] = s->h[0]; h[1] = s->h[1]; h[2] = s->h[2];
+    if ( cudaMemcpyToSymbol( cuda_h , h , sizeof(float) * 3 , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    
     /* Pack the diagonal offsets into a newly allocated array and 
        copy to the device. */
     if ( ( diags = (unsigned int *)alloca( sizeof(unsigned int) * cuda_ndiags ) ) == NULL )
@@ -4360,58 +4231,59 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( cuda_maxtype , &(e->max_type) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    dscale = ((float)SHRT_MAX) / ( 3.0 * sqrt( e->s.h[0]*e->s.h[0] + e->s.h[1]*e->s.h[1] + e->s.h[2]*e->s.h[2] ) );
+    dscale = ((float)SHRT_MAX) / ( 3.0 * sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] ) );
     if ( cudaMemcpyToSymbol( cuda_dscale , &dscale , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
-    /* Allocate and fill the compact list of pairs. */
-    if ( ( pairs_cuda = (struct cellpair_cuda *)alloca( sizeof(struct cellpair_cuda) * e->s.nr_pairs ) ) == NULL )
+    /* Allocate and fill the task list. */
+    if ( ( tasks_cuda = (struct task_cuda *)alloca( sizeof(struct task_cuda) * s->nr_tasks ) ) == NULL )
         return error(engine_err_malloc);
-    for ( i = 0 ; i < e->s.nr_pairs ; i++ ) {
-        pairs_cuda[i].i = e->s.pairs[i].i;
-        pairs_cuda[i].j = e->s.pairs[i].j;
-        pairs_cuda[i].shift[0] = e->s.pairs[i].shift[0];
-        pairs_cuda[i].shift[1] = e->s.pairs[i].shift[1];
-        pairs_cuda[i].shift[2] = e->s.pairs[i].shift[2];
+    for ( i = 0 ; i < s->nr_tasks ; i++ ) {
+        tasks_cuda[i].type = s->tasks[i].type;
+        tasks_cuda[i].subtype = s->tasks[i].subtype;
+        tasks_cuda[i].wait = 0;
+        tasks_cuda[i].flags = s->tasks[i].flags;
+        tasks_cuda[i].i = s->tasks[i].i;
+        tasks_cuda[i].j = s->tasks[i].j;
+        tasks_cuda[i].nr_unlock = s->tasks[i].nr_unlock;
+        for ( k = 0 ; k < tasks_cuda[i].nr_unlock ; k++ )
+            tasks_cuda[i].unlock[k] = s->tasks[i].unlock[k] - s->tasks;
         }
         
     /* Allocate and fill the pairs list on the device. */
-    if ( cudaMalloc( &e->s.pairs_cuda , sizeof(struct cellpair_cuda) * e->s.nr_pairs ) != cudaSuccess )
+    if ( cudaMalloc( &s->tasks_cuda , sizeof(struct task_cuda) * s->nr_tasks ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpy( e->s.pairs_cuda , pairs_cuda , sizeof(struct cellpair_cuda) * e->s.nr_pairs , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpy( s->tasks_cuda , tasks_cuda , sizeof(struct task_cuda) * s->nr_tasks , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_pairs , &(e->s.pairs_cuda) , sizeof(struct cellpair_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToSymbol( cuda_tasks , &(s->tasks_cuda) , sizeof(struct task_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
 
         
     /* Allocate the sortlists locally and on the device if needed. */
-    if ( e->flags & engine_flag_verlet ) {
-        e->sortlists_cuda = NULL;
-        if ( cudaMalloc( &e->sortlists_ind_cuda , sizeof(int) * e->s.nr_pairs ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
-        if ( cudaMemcpyToSymbol( cuda_sortlists_ind , &e->sortlists_ind_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
-        }
-
-    /* Set the number of pairs and cells. */
-    if ( cudaMemcpyToSymbol( cuda_nr_pairs , &(e->s.nr_pairs) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMalloc( &e->sortlists_cuda , sizeof(int) * s->nr_parts * 13 ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyToSymbol( cuda_nr_cells , &(e->s.nr_cells) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+    if ( cudaMemcpyToSymbol( cuda_sortlists , &e->sortlists_cuda , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+
+    /* Set the number of cells and tasks. */
+    if ( cudaMemcpyToSymbol( cuda_nr_tasks , &(s->nr_tasks) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    if ( cudaMemcpyToSymbol( cuda_nr_cells , &(s->nr_cells) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Allocate the cell counts and offsets. */
-    if ( ( e->s.counts_cuda_local = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL ||
-         ( e->s.ind_cuda_local = (int *)malloc( sizeof(int) * e->s.nr_cells ) ) == NULL )
+    if ( ( s->counts_cuda_local = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL ||
+         ( s->ind_cuda_local = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL )
         return error(engine_err_malloc);
-    if ( cudaMalloc( &e->s.counts_cuda , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+    if ( cudaMalloc( &s->counts_cuda , sizeof(int) * s->nr_cells ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMalloc( &e->s.ind_cuda , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+    if ( cudaMalloc( &s->ind_cuda , sizeof(int) * s->nr_cells ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Allocate and init the taboo list on the device. */
-    if ( cudaMalloc( &taboo_cuda , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+    if ( cudaMalloc( &taboo_cuda , sizeof(int) * s->nr_cells ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    if ( cudaMemset( taboo_cuda , 0 , sizeof(int) * e->s.nr_cells ) != cudaSuccess )
+    if ( cudaMemset( taboo_cuda , 0 , sizeof(int) * s->nr_cells ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     if ( cudaMemcpyToSymbol( cuda_taboo , &taboo_cuda , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda);

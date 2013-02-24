@@ -134,8 +134,7 @@ struct space {
         float *forces_cuda;
         void *cuArray_parts, *parts_cuda;
         int *counts_cuda, *counts_cuda_local, *ind_cuda, *ind_cuda_local;
-        struct cellpair_cuda *pairs_cuda;
-        struct celltuple_cuda *tuples_cuda;
+        struct task_cuda *tasks_cuda;
         int *taboo_cuda;
     #endif
     
@@ -144,6 +143,7 @@ struct space {
     
 /* associated functions */
 int space_init ( struct space *s , const double *origin , const double *dim , double *L , double cutoff , unsigned int period );
+int space_getsid ( struct space *s , struct cell **ci , struct cell **cj , FPTYPE *shift );
 int space_shuffle ( struct space *s );
 int space_shuffle_local ( struct space *s );
 int space_addpart ( struct space *s , struct part *p , double *x );
@@ -152,4 +152,4 @@ int space_getpos ( struct space *s , int id , double *x );
 int space_setpos ( struct space *s , int id , double *x );
 int space_flush ( struct space *s );
 int space_flush_ghosts ( struct space *s );
-struct task *space_addtask ( struct space *s , int type , int subtype , int i , int j );
+struct task *space_addtask ( struct space *s , int type , int subtype , int flags , int i , int j );

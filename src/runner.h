@@ -125,6 +125,6 @@ void runner_sort_ascending ( unsigned int *parts , int N );
 void runner_sort_descending ( unsigned int *parts , int N );
 int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out );
 int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
-int runner_dosort ( struct runner *r , struct cell *c );
-int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j );
+int runner_dosort ( struct runner *r , struct cell *c , int flags );
+int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , int sid );
 int runner_doself ( struct runner *r , struct cell *cell_i );

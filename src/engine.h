@@ -208,8 +208,7 @@ struct engine {
     
     /** Pointers to device data for CUDA. */
     #ifdef HAVE_CUDA
-        void *sortlists_cuda, *sortlists_ind_cuda;
-        int sortlists_size;
+        void *sortlists_cuda;
         int nrpots_cuda, *pind_cuda, *offsets_cuda;
     #endif
     
