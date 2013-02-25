@@ -78,11 +78,13 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     /* Init the list of queues. */
     #ifndef FORCES_LOCAL
     if ( threadID == 0 ) {
-        myq = &cuda_queues[ get_smid() ];
-        for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
-            queues[qid] = &cuda_queues[qid];
-        naq = cuda_nrqueues - 1;
-        queues[ get_smid() ] = queues[ naq ];
+        // myq = &cuda_queues[ get_smid() ];
+        // for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
+        //     queues[qid] = &cuda_queues[qid];
+        // naq = cuda_nrqueues - 1;
+        // queues[ get_smid() ] = queues[ naq ];
+        myq = &cuda_queues[ 0 ];
+        naq = 0;
         }
     #endif
         
@@ -146,6 +148,10 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                     forces_j[k] = 0.0f;
                 // __threadfence_block();
                 
+                /* Load the sorted indices. */
+                cuda_memcpy( sort_i , cuda_sortlists[ 13*ind[cid] + count[cid]*cuda_tasks[tid].flags , sizeof(int)*count[cid] );
+                cuda_memcpy( sort_j , cuda_sortlists[ 13*ind[cjd] + count[cjd]*cuda_tasks[tid].flags , sizeof(int)*count[cjd] );
+                
                 /* Copy the particle data into the local buffers. */
                 #ifndef PARTS_TEX
                     #ifdef PARTS_LOCAL
@@ -203,6 +209,10 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 forces_i = &forces[ 3*ind[cid] ];
                 forces_j = &forces[ 3*ind[cjd] ];
                 
+                /* Load the sorted indices. */
+                cuda_memcpy( sort_i , &cuda_sortlists[ 13*ind[cid] + counts[cid]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cid] );
+                cuda_memcpy( sort_j , &cuda_sortlists[ 13*ind[cjd] + counts[cjd]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cjd] );
+                
                 /* Copy the particle data into the local buffers. */
                 #ifndef PARTS_TEX
                     #ifdef PARTS_LOCAL
@@ -217,7 +227,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 
                 /* Compute the cell pair interactions. */
                 #ifdef PARTS_TEX
-                    runner_dopair4_cuda(
+                    runner_dopair_cuda(
                         cid , counts[cid] ,
                         cjd , counts[cjd] ,
                         forces_i , forces_j , 
@@ -225,7 +235,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         cuda_tasks[tid].flags ,
                         &epot );
                 #else
-                    runner_dopair4_cuda(
+                    runner_dopair_cuda(
                         parts_i , counts[cid] ,
                         parts_j , counts[cjd] ,
                         forces_i , forces_j , 
@@ -265,9 +275,9 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 
                 /* Compute the cell self interactions. */
                 #ifdef PARTS_TEX
-                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i , &epot );
+                    runner_doself_cuda( cid , counts[cid] , forces_i , &epot );
                 #else
-                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i , &epot );
+                    runner_doself_cuda( parts_j , counts[cid] , forces_i , &epot );
                 #endif
                     
                 /* Write the particle forces back to cell_i. */
@@ -287,15 +297,18 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 
                 /* Copy the particle data into the local buffers. */
                 #ifndef PARTS_TEX
-                    parts_j = (float4 *)forces_j;
-                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    #ifdef PARTS_LOCAL
+                        cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                    #else
+                        parts_j = &cuda_parts[ ind[cid] ];
+                    #endif
                 #endif
                 
                 /* Compute the cell self interactions. */
                 #ifdef PARTS_TEX
-                    runner_doself4_diag_cuda( cid , counts[cid] , forces_i , &epot );
+                    runner_doself_cuda( cid , counts[cid] , forces_i , &epot );
                 #else
-                    runner_doself4_diag_cuda( parts_j , counts[cid] , forces_i , &epot );
+                    runner_doself_cuda( parts_j , counts[cid] , forces_i , &epot );
                 #endif
                 
                 /* Unlock this cell's mutex. */
@@ -310,6 +323,18 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             /* Get a hold of the cell id. */
             cid = cuda_tasks[tid].i;
             
+            /* Copy the particle data into the local buffers. */
+            #ifndef PARTS_TEX
+                #ifdef PARTS_LOCAL
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                #elif FORCES_LOCAL
+                    parts_j = forces_i;
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                #else
+                    parts_j = &cuda_parts[ ind[cid] ];
+                #endif
+            #endif
+                
             /* Loop over the different sort IDs. */
             for ( sid = 0 ; sid < 13 ; sid++ ) {
             
@@ -325,7 +350,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 #endif
                 
                 /* Copy the local shared memory back to the global memory. */
-                cuda_memcpy( &cuda_sortlists[ 13*ind[cid] + counts[cid]*sid ] , sort_i , sizeof(unsigned int) * counts[cid] );
+                cuda_memcpy( &cuda_sortlists[ 13*ind[cid] + sid*counts[cid] ] , sort_i , sizeof(unsigned int) * counts[cid] );
             
                 }
         
