@@ -37,20 +37,19 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     int cid, cjd, sid;
     float epot = 0.0f;
     volatile __shared__ int tid;
+    unsigned int seed = 6178 + blockIdx.x;
+    struct queue_cuda *myq , *queues[ cuda_maxqueues ];
+    int naq = cuda_nrqueues, qid;
     #ifdef FORCES_LOCAL
-        int k;
         __shared__ __align__(16) int buff[ 8*cuda_nrparts ];
         float *forces_i = (float *)&buff[ 0 ];
         float *forces_j = (float *)&buff[ 3*cuda_nrparts ];
         unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nrparts ];
         unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nrparts ];
     #else
-        unsigned int seed = 6178 + blockIdx.x;
         float *forces_i, *forces_j;
         __shared__ unsigned int sort_i[ cuda_nrparts ];
         __shared__ unsigned int sort_j[ cuda_nrparts ];
-        struct queue_cuda *myq , *queues[ cuda_maxqueues ];
-        int naq = cuda_nrqueues, qid;
     #endif
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
@@ -76,7 +75,6 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         
 
     /* Init the list of queues. */
-    #ifndef FORCES_LOCAL
     if ( threadID == 0 ) {
         // myq = &cuda_queues[ get_smid() ];
         // for ( qid = 0 ; qid < cuda_nrqueues ; qid++ )
@@ -86,7 +84,6 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         myq = &cuda_queues[ 0 ];
         naq = 0;
         }
-    #endif
         
 
     /* Main loop... */
@@ -94,38 +91,33 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     
         /* Let the first thread grab a task. */
         if ( threadID == 0 ) {
-            #ifdef FORCES_LOCAL
-                if ( ( tid = atomicAdd( &cuda_task_next , 1 ) ) >= cuda_nr_tasks )
-                    tid = -1;
-            #else
-                TIMER_TIC
-                while ( 1 ) {
-                    if ( myq->rec_count >= myq->count || ( tid = runner_cuda_gettask( myq , 0 ) ) < 0 ) {
-                        for ( qid = 0 ; qid < naq ; qid++ )
-                            if ( queues[qid]->rec_count >= queues[qid]->count )
-                                queues[ qid-- ] = queues[ --naq ];
-                        if ( naq == 0 ) {
-                            tid = -1;
-                            break;
-                            }
-                        seed = 1103515245 * seed + 12345;
-                        qid = seed % naq;
-                        if ( ( tid = runner_cuda_gettask( queues[qid] , 1 ) ) >= 0 ) {
-                            if ( atomicAdd( (int *)&myq->count , 1 ) < cuda_queue_size )
-                                myq->rec_data[ atomicAdd( (int *)&myq->rec_count , 1 ) ] = tid;
-                            else {
-                                atomicSub( (int *)&myq->count , 1 );
-                                atomicAdd( (int *)&queues[qid]->count , 1 );
-                                queues[qid]->rec_data[ atomicAdd( (int *)&queues[qid]->rec_count , 1 ) ] = tid;
-                                }
-                            break;
-                            }
-                        }
-                    else
+            TIMER_TIC
+            while ( 1 ) {
+                if ( myq->rec_count >= myq->count || ( tid = runner_cuda_gettask( myq , 0 ) ) < 0 ) {
+                    for ( qid = 0 ; qid < naq ; qid++ )
+                        if ( queues[qid]->rec_count >= queues[qid]->count )
+                            queues[ qid-- ] = queues[ --naq ];
+                    if ( naq == 0 ) {
+                        tid = -1;
                         break;
+                        }
+                    seed = 1103515245 * seed + 12345;
+                    qid = seed % naq;
+                    if ( ( tid = runner_cuda_gettask( queues[qid] , 1 ) ) >= 0 ) {
+                        if ( atomicAdd( (int *)&myq->count , 1 ) < cuda_queue_size )
+                            myq->rec_data[ atomicAdd( (int *)&myq->rec_count , 1 ) ] = tid;
+                        else {
+                            atomicSub( (int *)&myq->count , 1 );
+                            atomicAdd( (int *)&queues[qid]->count , 1 );
+                            queues[qid]->rec_data[ atomicAdd( (int *)&queues[qid]->rec_count , 1 ) ] = tid;
+                            }
+                        break;
+                        }
                     }
-                TIMER_TOC(tid_gettask)
-            #endif
+                else
+                    break;
+                }
+            TIMER_TOC(tid_gettask)
             }
             
         /* Exit if we didn't get a valid task. */
@@ -149,8 +141,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                 // __threadfence_block();
                 
                 /* Load the sorted indices. */
-                cuda_memcpy( sort_i , cuda_sortlists[ 13*ind[cid] + count[cid]*cuda_tasks[tid].flags , sizeof(int)*count[cid] );
-                cuda_memcpy( sort_j , cuda_sortlists[ 13*ind[cjd] + count[cjd]*cuda_tasks[tid].flags , sizeof(int)*count[cjd] );
+                cuda_memcpy( sort_i , &cuda_sortlists[ 13*ind[cid] + counts[cid]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cid] );
+                cuda_memcpy( sort_j , &cuda_sortlists[ 13*ind[cjd] + counts[cjd]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cjd] );
                 
                 /* Copy the particle data into the local buffers. */
                 #ifndef PARTS_TEX
@@ -318,7 +310,9 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             #endif
         
             }
-        else if ( cuda_tasks[tid].type == task_type_sort ) {
+            
+        /* Only do sorts if we have to re-build the pseudo-verlet lists. */
+        else if ( cuda_tasks[tid].type == task_type_sort && verlet_rebuild ) {
         
             /* Get a hold of the cell id. */
             cid = cuda_tasks[tid].i;
@@ -327,8 +321,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             #ifndef PARTS_TEX
                 #ifdef PARTS_LOCAL
                     cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                #elif FORCES_LOCAL
-                    parts_j = forces_i;
+                #elif defined(FORCES_LOCAL)
+                    parts_j = (float4 *)forces_i;
                     cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
                 #else
                     parts_j = &cuda_parts[ ind[cid] ];
@@ -371,19 +365,15 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         cuda_barrier = 0;
         cuda_epot_out = cuda_epot;
         cuda_epot = 0.0f;
-        #ifdef FORCES_LOCAL
-            cuda_pair_next = 0;
-        #else
-            for ( qid = 0 ; qid < cuda_nrqueues ; qid++ ) {
-                volatile int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
-                cuda_queues[qid].first = 0;
-                cuda_queues[qid].last = cuda_queues[qid].count;
-                cuda_queues[qid].rec_count = 0;
-                }
-            for ( tid = 0 ; tid < cuda_nr_tasks ; tid++ )
-                for ( k = 0 ; k < cuda_tasks[tid].nr_unlock ; k++ )
-                    cuda_tasks[ cuda_tasks[tid].unlock[k] ].wait += 1;
-        #endif
+        for ( qid = 0 ; qid < cuda_nrqueues ; qid++ ) {
+            volatile int *temp = cuda_queues[qid].data; cuda_queues[qid].data = cuda_queues[qid].rec_data; cuda_queues[qid].rec_data = temp;
+            cuda_queues[qid].first = 0;
+            cuda_queues[qid].last = cuda_queues[qid].count;
+            cuda_queues[qid].rec_count = 0;
+            }
+        for ( tid = 0 ; tid < cuda_nr_tasks ; tid++ )
+            for ( k = 0 ; k < cuda_tasks[tid].nr_unlock ; k++ )
+                cuda_tasks[ cuda_tasks[tid].unlock[k] ].wait += 1;
         }
     
     TIMER_TOC2(tid_total)

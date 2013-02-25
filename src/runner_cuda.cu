@@ -310,7 +310,10 @@ __noinline__ __device__ uint get_smid ( void ) {
  
 __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
 
-    int tid = -1, cid, cjd;
+    int tid = -1;
+    #ifndef FORCES_LOCAL
+        int cid, cjd;
+    #endif
     
     TIMER_TIC
     
@@ -320,37 +323,41 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
         /* If this task is not even free, don't even bother. */
         if ( !cuda_tasks[tid].wait ) {
     
-            /* Dfferent options for different tasks. */
-            if ( cuda_tasks[tid].type == task_type_sort ) {
-            
-                /* No locking needed. */
+            #ifdef FORCES_LOCAL
                 break;
-            
-                }
-            else if ( cuda_tasks[tid].type == task_type_self ) {
-            
-                /* Decode this task. */
-                cid = cuda_tasks[tid].i;
-
-                /* Lock down this task? */
-                if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+            #else
+                /* Dfferent options for different tasks. */
+                if ( cuda_tasks[tid].type == task_type_sort ) {
+                
+                    /* No locking needed. */
                     break;
-                        
-                }
-            else if ( cuda_tasks[tid].type == task_type_pair ) {
-            
-                /* Decode this task. */
-                cid = cuda_tasks[tid].i;
-                cjd = cuda_tasks[tid].j;
+                
+                    }
+                else if ( cuda_tasks[tid].type == task_type_self ) {
+                
+                    /* Decode this task. */
+                    cid = cuda_tasks[tid].i;
 
-                /* Lock down this task? */
-                if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
-                    if ( cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
+                    /* Lock down this task? */
+                    if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
                         break;
-                    else
-                        cuda_mutex_unlock( &cuda_taboo[ cid ] );
-                        
-                }
+                            
+                    }
+                else if ( cuda_tasks[tid].type == task_type_pair ) {
+                
+                    /* Decode this task. */
+                    cid = cuda_tasks[tid].i;
+                    cjd = cuda_tasks[tid].j;
+
+                    /* Lock down this task? */
+                    if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+                        if ( cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
+                            break;
+                        else
+                            cuda_mutex_unlock( &cuda_taboo[ cid ] );
+                            
+                    }
+            #endif
 
             }
                 
