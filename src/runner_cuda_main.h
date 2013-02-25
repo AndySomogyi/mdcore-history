@@ -37,6 +37,8 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     int cid, cjd, sid;
     float epot = 0.0f;
     volatile __shared__ int tid;
+    __shared__ float shift[3];
+    __shared__ unsigned int dshift;
     unsigned int seed = 6178 + blockIdx.x;
     struct queue_cuda *myq , *queues[ cuda_maxqueues ];
     int naq = cuda_nrqueues, qid;
@@ -130,6 +132,20 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
             /* Get a hold of the pair cells. */
             cid = cuda_tasks[tid].i;
             cjd = cuda_tasks[tid].j;
+            
+            /* Get the shift and dshift vector for this pair. */
+            if ( threadID == 0 ) {
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    shift[k] = cuda_corig[ 3*cjd + k ] - cuda_corig[ 3*cid + k ];
+                    if ( 2*shift[k] > cuda_dim[k] )
+                        shift[k] -= cuda_dim[k];
+                    else if ( 2*shift[k] < -cuda_dim[k] )
+                        shift[k] += cuda_dim[k];
+                    }
+                dshift = cuda_dscale * ( shift[0]*cuda_shiftn[ 3*cuda_tasks[tid].flags + 0 ] +
+                                         shift[1]*cuda_shiftn[ 3*cuda_tasks[tid].flags + 1 ] +
+                                         shift[2]*cuda_shiftn[ 3*cuda_tasks[tid].flags + 2 ] );
+                }
     
             #ifdef FORCES_LOCAL
         
@@ -163,7 +179,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         cjd , counts[cjd] ,
                         forces_i , forces_j , 
                         sort_i , sort_j ,
-                        cuda_tasks[tid].flags ,
+                        shift , dshift ,
                         &epot );
                 #else
                     runner_dopair4_cuda(
@@ -171,7 +187,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         parts_j , counts[cjd] ,
                         forces_i , forces_j , 
                         sort_i , sort_j ,
-                        cuda_tasks[tid].flags ,
+                        shift , dshift ,
                         &epot );
                 #endif
                     
@@ -224,7 +240,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         cjd , counts[cjd] ,
                         forces_i , forces_j , 
                         sort_i , sort_j ,
-                        cuda_tasks[tid].flags ,
+                        shift , dshift ,
                         &epot );
                 #else
                     runner_dopair_cuda(
@@ -232,7 +248,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
                         parts_j , counts[cjd] ,
                         forces_i , forces_j , 
                         sort_i , sort_j ,
-                        cuda_tasks[tid].flags ,
+                        shift , dshift ,
                         &epot );
                 #endif
                     

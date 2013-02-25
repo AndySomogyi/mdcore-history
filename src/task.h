@@ -25,7 +25,7 @@
 
 
 /* some constants */
-#define task_max_unlock                27
+#define task_max_unlock                124
 
 
 /** Task types. */

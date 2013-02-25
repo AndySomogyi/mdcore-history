@@ -73,6 +73,9 @@ struct space {
     /** Space dimension in cells. */
     int cdim[3];
     
+    /** Number of cells within cutoff in each dimension. */
+    int span[3];
+    
     /** Cell edge lengths and their inverse. */
     double h[3], ih[3];
     

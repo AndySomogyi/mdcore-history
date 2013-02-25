@@ -525,7 +525,7 @@ struct task *space_addtask ( struct space *s , int type , int subtype , int flag
 int space_init ( struct space *s , const double *origin , const double *dim , double *L , double cutoff , unsigned int period ) {
 
     int i, j, k, l[3], ii, jj, kk;
-    int span[3], id1, id2, sid;
+    int id1, id2, sid;
     double o[3], lh[3];
     struct cell *ci, *cj;
 
@@ -617,10 +617,10 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         
     /* Get the span of the cells we will search for pairs. */
     for ( k = 0 ; k < 3 ; k++ )
-        span[k] = ceil( cutoff * s->ih[k] );
+        s->span[k] = ceil( cutoff * s->ih[k] );
         
     /* allocate the tasks array (pessimistic guess) */
-    s->tasks_size = s->nr_cells * ( (2*span[0] + 1) * (2*span[1] + 1) * (2*span[2] + 1) + 1 );
+    s->tasks_size = s->nr_cells * ( (2*s->span[0] + 1) * (2*s->span[1] + 1) * (2*s->span[2] + 1) + 1 );
     if ( ( s->tasks = (struct task *)malloc( sizeof(struct task) * s->tasks_size ) ) == NULL )
         return error(space_err_malloc);
     
@@ -639,7 +639,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                     continue;
             
                 /* for every neighbouring cell in the x-axis... */
-                for ( l[0] = -span[0] ; l[0] <= span[0] ; l[0]++ ) {
+                for ( l[0] = -s->span[0] ; l[0] <= s->span[0] ; l[0]++ ) {
                 
                     /* get coords of neighbour */
                     ii = i + l[0];
@@ -659,7 +659,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                         }
                         
                     /* for every neighbouring cell in the y-axis... */
-                    for ( l[1] = -span[1] ; l[1] <= span[1] ; l[1]++ ) {
+                    for ( l[1] = -s->span[1] ; l[1] <= s->span[1] ; l[1]++ ) {
                     
                         /* get coords of neighbour */
                         jj = j + l[1];
@@ -679,7 +679,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
                             }
                             
                         /* for every neighbouring cell in the z-axis... */
-                        for ( l[2] = -span[2] ; l[2] <= span[2] ; l[2]++ ) {
+                        for ( l[2] = -s->span[2] ; l[2] <= s->span[2] ; l[2]++ ) {
                         
                             /* Are these cells within the cutoff of each other? */
                             lh[0] = s->h[0]*fmax( abs(l[0])-1 , 0 );
