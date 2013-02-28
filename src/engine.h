@@ -45,6 +45,7 @@
 #define engine_err_cudasp                -23
 #define engine_err_maxparts              -24
 #define engine_err_queue                 -25
+#define engine_err_rigid                 -26
 
 
 /* some constants */

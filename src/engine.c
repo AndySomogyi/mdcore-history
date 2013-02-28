@@ -67,7 +67,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[26] = {
+char *engine_err_msg[27] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -94,6 +94,7 @@ char *engine_err_msg[26] = {
     "CUDA support is only available in single-precision.", 
     "Max. number of parts per cell exceeded.",
     "An error occured when calling a queue funtion.", 
+    "An error occured when evaluating a rigid constraint.", 
 	};
 
 
@@ -1286,8 +1287,8 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
     if ( e->flags & engine_flag_verlet ) {
     
         /* Shuffle the domain. */
-        if ( space_shuffle( s ) < 0 )
-            return error(space_err);
+        if ( engine_shuffle( e ) < 0 )
+            return error(engine_err);
             
         /* Store the current positions as a reference. */
         #pragma omp parallel for schedule(static), private(cid,c,pid,p,k)
