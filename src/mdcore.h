@@ -27,6 +27,7 @@
 #include "task.h"
 #include "queue.h"
 #include "space.h"
+#include "runner.h"
 #include "engine.h"
 #include "bond.h"
 #include "rigid.h"

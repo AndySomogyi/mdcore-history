@@ -24,6 +24,9 @@
 #define queue_err_full                  -3
 #define queue_err_lock                  -4
 
+/* Some constants. */
+#define queue_maxhit                    10
+
 
 /** ID of the last error */
 extern int queue_err;

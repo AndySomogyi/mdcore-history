@@ -81,7 +81,7 @@ char *queue_err_msg[5] = {
  
 struct task *queue_get ( struct queue *q , int rid , int keep ) {
 
-    int j, k, tid = -1, ind_best = -1, score, score_best = -1;
+    int j, k, tid = -1, ind_best = -1, score, score_best = -1, hit = 0;
     struct task *t;
     struct space *s = q->space;
     char *cells_taboo = s->cells_taboo, *cells_owner = s->cells_owner;
@@ -97,7 +97,11 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
         }
         
     /* Loop over the entries. */
-    for ( k = q->next ; k < q->count ; k++ ) {
+    for ( k = q->next ; k < q->count && hit < queue_maxhit ; k++ ) {
+    
+        /* Increase the hit counter if we've got a potential solution. */
+        if ( ind_best >= 0 )
+            hit += 1;
     
         /* Put a finger on the kth pair. */
         t = &q->tasks[ q->ind[k] ];
@@ -174,7 +178,7 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
                 ind_best = k;
                 }
             }
-        
+            
         /* If we have the maximum score, break. */
         if ( score_best == 2 )
             break;

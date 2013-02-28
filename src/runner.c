@@ -73,6 +73,9 @@
 int runner_err = runner_err_ok;
 unsigned int runner_rcount = 0;
 
+/** Timers. */
+ticks runner_timers[runner_timer_count];
+
 /* the error macro. */
 #define error(id)				( runner_err = errs_register( id , runner_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
@@ -691,6 +694,7 @@ int runner_run ( struct runner *r ) {
         while ( myq->next < myq->count || naq > 0 ) {
         
             /* Try to get a pair from my own queue. */
+            TIMER_TIC
             if ( myq->next == myq->count || ( t = queue_get( myq , r->id , 0 ) ) == NULL ) {
             
                 /* Clean up the list of queues. */
@@ -759,25 +763,32 @@ int runner_run ( struct runner *r ) {
                     continue;
                 
                 }
+            TIMER_TOC(runner_timer_queue);
                 
             /* Check task type... */
             switch ( t->type ) {
                 case task_type_sort:
+                    TIMER_TIC_ND
                     if ( s->verlet_rebuild )
                         if ( runner_dosort( r , &s->cells[ t->i ] , t->flags ) < 0 )
                             return error(runner_err);
                     s->cells_taboo[ t->i ] = 0;
+                    TIMER_TOC(runner_timer_sort);
                     break;
                 case task_type_self:
+                    TIMER_TIC_ND
                     if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
                         return error(runner_err);
                     s->cells_taboo[ t->i ] = 0;
+                    TIMER_TOC(runner_timer_self);
                     break;
                 case task_type_pair:
+                    TIMER_TIC_ND
                     if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
                         return error(runner_err);
                     s->cells_taboo[ t->i ] = 0;
                     s->cells_taboo[ t->j ] = 0;
+                    TIMER_TOC(runner_timer_pair);
                     break;
                 default:
                     return error(runner_err_tasktype);

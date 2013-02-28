@@ -51,6 +51,42 @@
 #define runner_dispatch_lookahead        20
 
 
+/** Timers. */
+enum {
+    runner_timer_queue = 0,
+    runner_timer_pair,
+    runner_timer_self,
+    runner_timer_sort,
+    runner_timer_count
+    };
+extern ticks runner_timers[];
+#ifdef TIMER
+    #define TIMER_TIC_ND tic = getticks();
+    #define TIMER_TIC2_ND ticks tic2 = getticks();
+    #define TIMER_TIC ticks tic = getticks();
+    #define TIMER_TOC(t) timers_toc( t , tic )
+    #define TIMER_TIC2 ticks tic2 = getticks();
+    #define TIMER_TOC2(t) timers_toc( t , tic2 )
+    #ifndef INLINE
+    # if __GNUC__ && !__GNUC_STDC_INLINE__
+    #  define INLINE extern inline
+    # else
+    #  define INLINE inline
+    # endif
+    #endif
+    INLINE static ticks timers_toc ( int t , ticks tic ) {
+        ticks d = (getticks() - tic);
+        __sync_add_and_fetch( &runner_timers[t] , d );
+        return d;
+        }
+#else
+    #define TIMER_TIC
+    #define TIMER_TOC(t)
+    #define TIMER_TIC2
+    #define TIMER_TOC2(t)
+#endif
+
+    
 /* the last error */
 extern int runner_err;
 
