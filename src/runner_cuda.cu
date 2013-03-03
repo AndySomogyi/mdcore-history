@@ -1856,7 +1856,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     dim3 nr_threads( cuda_frame , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
     int did, maxcount;
-    ticks tic;
+    // ticks tic;
     // int zero = 0;
     // int cuda_io[32];
     // float cuda_fio[32];
@@ -1864,12 +1864,26 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         float timers[ tid_count ];
         double icpms = 1000.0 / 1.4e9; 
     #endif
+    cudaStream_t stream;
+    cudaEvent_t tic, toc_load, toc_run, toc_unload;
+    float ms_load, ms_run, ms_unload;
+    
+    /* Create the events. */
+    if ( cudaEventCreate( &tic ) != cudaSuccess ||
+         cudaEventCreate( &toc_load ) != cudaSuccess ||
+         cudaEventCreate( &toc_run ) != cudaSuccess ||
+         cudaEventCreate( &toc_unload ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    
+    /* Start the clock on the first stream. */
+    if ( cudaEventRecord( tic , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+        cuda_error(engine_err_cuda);
     
     /* Load the particle data onto the device. */
-    tic = getticks();
+    // tic = getticks();
     if ( ( maxcount = engine_cuda_load_parts( e ) ) < 0 )
         return error(engine_err);
-    e->timers[ engine_timer_cuda_load ] += getticks() - tic;
+    // e->timers[ engine_timer_cuda_load ] += getticks() - tic;
 
     /* Re-set timers */
     #ifdef TIMERS
@@ -1880,57 +1894,68 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #endif
     
     /* Start the clock. */
-    tic = getticks();
+    // tic = getticks();
+    
+    /* Lap the clock on the last stream. */
+    if ( cudaEventRecord( toc_load , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     
     /* Loop over the devices. */
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
+        /* Set the device ID. */
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Get the stream. */
+        stream = (cudaStream_t)e->streams[did];
+        
         /* Start the appropriate kernel. */
         switch ( (maxcount + 31) / 32 ) {
             case 1:
-                runner_run_cuda_32 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_32 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 2:
-                runner_run_cuda_64 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_64 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 3:
-                runner_run_cuda_96 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_96 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 4:
-                runner_run_cuda_128 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_128 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 5:
-                runner_run_cuda_160 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_160 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 6:
-                runner_run_cuda_192 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_192 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 7:
-                runner_run_cuda_224 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_224 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 8:
-                runner_run_cuda_256 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_256 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 9:
-                runner_run_cuda_288 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_288 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 10:
-                runner_run_cuda_320 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_320 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 11:
-                runner_run_cuda_352 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_352 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 12:
-                runner_run_cuda_384 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_384 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 13:
-                runner_run_cuda_416 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_416 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 14:
-                runner_run_cuda_448 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_448 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             case 15:
-                runner_run_cuda_480 <<<nr_blocks,nr_threads,0,(cudaStream_t)e->streams[did]>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
+                runner_run_cuda_480 <<<nr_blocks,nr_threads,0,stream>>> ( e->forces_cuda[did] , e->counts_cuda[did] , e->ind_cuda[did] , e->s.verlet_rebuild );
                 break;
             // case 16:
             //     runner_run_verlet_cuda_512 <<<nr_blocks,nr_threads>>> ( e->forces_cuda , e->counts_cuda , e->ind_cuda , e->s.verlet_rebuild );
@@ -1941,7 +1966,11 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         
         }
         
-    e->timers[ engine_timer_cuda_dopairs ] += getticks() - tic;
+    // e->timers[ engine_timer_cuda_dopairs ] += getticks() - tic;
+    
+    /* Lap the clock on the last stream. */
+    if ( cudaEventRecord( toc_run , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     
     /* Get and dump timers. */
     #ifdef TIMERS
@@ -1983,12 +2012,24 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     printf( "engine_nonbond_cuda: computed %i pairs.\n" , zero ); */
 
     /* Unload the particle data from the device. */
-    tic = getticks();
+    // tic = getticks();
     if ( engine_cuda_unload_parts( e ) < 0 )
         return error(engine_err);
-    e->timers[ engine_timer_cuda_unload ] += getticks() - tic;
+    // e->timers[ engine_timer_cuda_unload ] += getticks() - tic;
 
-    /* Check for CUDA errors. */
+    /* Stop the clock on the last stream. */
+    if ( cudaEventRecord( toc_unload , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
+    /* Store the timers. */
+    cudaEventElapsedTime( &ms_load , tic , toc_load );
+    cudaEventElapsedTime( &ms_run , toc_load , toc_run );
+    cudaEventElapsedTime( &ms_unload , toc_run , toc_unload );
+    e->timers[ engine_timer_cuda_load ] += ms_load / 1000 * CPU_TPS;
+    e->timers[ engine_timer_cuda_dopairs ] += ms_run / 1000 * CPU_TPS;
+    e->timers[ engine_timer_cuda_unload ] += ms_unload / 1000 * CPU_TPS;        
+    
+    /* Check for any missed CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
@@ -2071,9 +2112,13 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     /* Loop over the devices. */
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
+        /* Set the device ID. */
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
-    
+        
         /* Start by setting the maxdist on the device. */
         if ( cudaMemcpyToSymbolAsync( cuda_maxdist , &maxdist , sizeof(float) , 0 , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
@@ -2137,6 +2182,10 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
     /* Loop over the devices. */
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
+        /* Set the device ID. */
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
     
@@ -2153,12 +2202,19 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
         
         }
 
-    /* Wait for the chickens to come home to roost. */
-    if ( cudaDeviceSynchronize() != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    
     /* Loop over the devices. */
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
+    
+        /* Get the stream. */
+        stream = (cudaStream_t)e->streams[did];
+    
+        /* Set the device ID. */
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Wait for the chickens to come home to roost. */
+        if ( cudaStreamSynchronize( stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
     
         /* Loop over the marked cells. */
         for ( k = 0 ; k < s->nr_marked ; k++ ) {
@@ -2179,7 +2235,7 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
 
         /* Deallocate the parts array and counts array. */
         free( forces_cuda[did] );
-        if ( cudaFree( e->forces_cuda ) != cudaSuccess )
+        if ( cudaFree( e->forces_cuda[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
 
         /* Unbind and free the parts data. */
