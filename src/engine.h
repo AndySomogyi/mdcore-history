@@ -72,6 +72,7 @@
 #define engine_dihedrals_chunk           100
 #define engine_exclusions_chunk          100
 #define engine_readbuff                  16384
+#define engine_maxgpu                    10
 
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
@@ -209,8 +210,18 @@ struct engine {
     
     /** Pointers to device data for CUDA. */
     #ifdef HAVE_CUDA
-        void *sortlists_cuda;
-        int nrpots_cuda, *pind_cuda, *offsets_cuda;
+        void *sortlists_cuda[ engine_maxgpu ];
+        int nrpots_cuda, *pind_cuda[ engine_maxgpu ], *offsets_cuda[ engine_maxgpu ];
+        int nr_devices, devices[ engine_maxgpu ];
+        float *forces_cuda[ engine_maxgpu ];
+        void *cuArray_parts[ engine_maxgpu ], *parts_cuda[ engine_maxgpu ];
+        void *parts_cuda_local;
+        int *counts_cuda[ engine_maxgpu ], *counts_cuda_local;
+        int *ind_cuda[ engine_maxgpu ], *ind_cuda_local;
+        struct task_cuda *tasks_cuda[ engine_maxgpu ];
+        int *taboo_cuda[ engine_maxgpu ];
+        int nrtasks_cuda[ engine_maxgpu ];
+        void *streams[ engine_maxgpu ];
     #endif
     
     /** Timers. */
@@ -326,12 +337,14 @@ int engine_verlet_update ( struct engine *e );
         extern "C" int engine_cuda_load ( struct engine *e );
         extern "C" int engine_cuda_load_parts ( struct engine *e );
         extern "C" int engine_cuda_unload_parts ( struct engine *e );
-        extern "C" int engine_cuda_setdevice ( int id );
+        extern "C" int engine_cuda_setdevice ( struct engine *e , int id );
+        extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
     #else
         int engine_nonbond_cuda ( struct engine *e );
         int engine_cuda_load ( struct engine *e );
         int engine_cuda_load_parts ( struct engine *e );
         int engine_cuda_unload_parts ( struct engine *e );
-        int engine_cuda_setdevice ( int id );
+        int engine_cuda_setdevice ( struct engine *e , int id );
+        int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
     #endif
 #endif

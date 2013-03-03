@@ -51,7 +51,6 @@
 #include "task.h"
 #include "space.h"
 #include "potential.h"
-#include "runner.h"
 #include "bond.h"
 #include "rigid.h"
 #include "angle.h"
@@ -119,12 +118,54 @@ int runner_parts_unbind ( );
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
-extern "C" int engine_cuda_setdevice ( int id ) {
+extern "C" int engine_cuda_setdevice ( struct engine *e , int id ) {
 
-    if ( cudaSetDevice( id ) != cudaSuccess )
+    /* Store the single device ID in the engine. */
+    e->nr_devices = 1;
+    e->devices[0] = id;
+
+    /* Make sure the device works, init a stream on it. */
+    if ( cudaSetDevice( id ) != cudaSuccess ||
+         cudaStreamCreate( (cudaStream_t *)&e->streams[0] ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     else
         return engine_err_ok;
+        
+    }
+    
+
+/**
+ * @brief Set the number of CUDA devices to use, as well as their IDs.
+ *
+ * @param id The CUDA device ID.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids ) {
+
+    int k;
+    
+    /* Sanity check. */
+    if ( nr_devices > engine_maxgpu )
+        return error(engine_err_range);
+
+    /* Store the single device ID in the engine. */
+    e->nr_devices = nr_devices;
+    for ( k = 0 ; k < nr_devices ; k++ ) {
+    
+        /* Store the device ID. */
+        e->devices[k] = ids[k];
+
+        /* Make sure the device works, init a stream on it. */
+        if ( cudaSetDevice( ids[k] ) != cudaSuccess ||
+             cudaStreamCreate( (cudaStream_t *)&e->streams[k] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+            
+        }
+        
+    /* That's it. */
+    return engine_err_ok;
         
     }
     

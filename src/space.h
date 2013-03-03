@@ -132,15 +132,6 @@ struct space {
     /** Potential energy collected by the space itself. */
     double epot;
 
-    /** Pointers to device data for CUDA. */
-    #ifdef HAVE_CUDA
-        float *forces_cuda;
-        void *cuArray_parts, *parts_cuda;
-        int *counts_cuda, *counts_cuda_local, *ind_cuda, *ind_cuda_local;
-        struct task_cuda *tasks_cuda;
-        int *taboo_cuda;
-    #endif
-    
     };
     
     
