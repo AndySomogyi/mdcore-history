@@ -51,7 +51,7 @@
 
 /* Ticks Per Second. */
 #ifndef CPU_TPS
-    #define CPU_TPS 2.67e+9
+    #define CPU_TPS 3.1e+9
 #endif
 
 /* Engine flags? */
@@ -68,13 +68,6 @@ enum {
     tid_exchange,
     tid_temp
     };
-
-
-extern double potential_create_harmonic_dihedral_K;
-extern int potential_create_harmonic_dihedral_n;
-extern double potential_create_harmonic_dihedral_delta;
-double potential_create_harmonic_dihedral_dfdr ( double r );
-double potential_create_harmonic_dihedral_f ( double r );
 
 
 /* The main routine -- this is where it all happens. */
@@ -120,46 +113,10 @@ int main ( int argc , char *argv[] ) {
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
     double L[] = { cutoff , cutoff , cutoff };
+    int devices[] = { 0 , 2 };
     
     /* Choke on FP-exceptions. */
     feenableexcept( FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW );
-    
-    potential_create_harmonic_dihedral_K = 4.184*0.2;
-    potential_create_harmonic_dihedral_n = 1;
-    potential_create_harmonic_dihedral_delta = M_PI/180*120.0;
-    /* for ( k = 0 ; k <= 1000 ; k++ )
-        printf( " %e %e %e\n" , (2.0*k)/1000 - 1.0 ,
-            potential_create_harmonic_dihedral_f( (2.0*k)/1000 - 1.0 ) ,
-            potential_create_harmonic_dihedral_dfdr( (2.0*k)/1000 - 1.0 ) ); */
-    /* if ( ( pot = potential_create_harmonic_dihedral( 4.184*0.2 , 1 , M_PI/180*120.0 , 1.0e-2 ) ) == NULL ) {
-        errs_dump( stdout );
-        abort();
-        }
-    for ( i = 0 ; i <= 10000 ; i++ ) {
-        temp = pot->a + (double)i/10000 * (pot->b - pot->a);
-        potential_eval_r( pot , temp , &ee , &eff );
-        printf("%23.16e %23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
-            potential_create_harmonic_dihedral_f( temp ), 
-            potential_create_harmonic_dihedral_dfdr( 0.999*temp ), 
-            pot->alpha[0] + temp*(pot->alpha[1] + temp*(pot->alpha[2] + temp*pot->alpha[3])) );
-        }
-    return 0; */
-    /* A = 4.184 * 0.0460 * pow(0.2*0.224500,12);
-    B = 2 * 4.184 * 0.0460 * pow(0.2*0.224500,6);
-    q = 0.46 * 0.46;
-    if ( ( pot = potential_create_LJ126_Coulomb( 0.0376 , 1.2 , A , B , q , 1.0e-2 ) ) == NULL ) {
-        errs_dump( stdout );
-        abort();
-        }
-    for ( i = 0 ; i <= 10000 ; i++ ) {
-        temp = 0.9*pot->a + (double)i/10000 * (0*pot->b + 0.2*pot->a);
-        potential_eval_r( pot , temp , &ee , &eff );
-        printf("%23.16e %23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
-            potential_LJ126(temp,A,B) + q*potential_escale/temp, 
-            potential_LJ126_p(temp,A,B) - q*potential_escale/(temp*temp) ,
-            pot->alpha[0] + temp*(pot->alpha[1] + temp*(pot->alpha[2] + temp*pot->alpha[3])) );
-        }
-    return 0; */
     
     /* Start the clock. */
     for ( k = 0 ; k < 10 ; k++ )
@@ -220,7 +177,7 @@ int main ( int argc , char *argv[] ) {
     fflush(stdout);
     
     #ifdef WITH_CUDA
-        if ( engine_cuda_setdevice( 0 ) != 0 ) {
+        if ( engine_cuda_setdevices( &e , 2 , devices ) != 0 ) {
             printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
             errs_dump(stdout);
             abort();
@@ -472,7 +429,8 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Set the number of OpenMP threads to the number of runners. */
-    omp_set_num_threads( nr_runners );
+    if ( !( e.flags & engine_flag_cuda ) )
+        omp_set_num_threads( nr_runners );
         
         
     /* Dump the engine flags. */

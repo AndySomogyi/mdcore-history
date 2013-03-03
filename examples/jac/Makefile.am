@@ -27,14 +27,16 @@ AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 # Set-up the library
 bin_PROGRAMS = jac_noverlet jac_pseudoverlet
 
-# Build a CUDA-enabled version too?
+# Build a CUDA/MPI-enabled version too?
 if HAVECUDA
-    bin_PROGRAMS += jac_cuda_noverlet jac_cuda_verlet
-endif
-
-# Build a MPI-enabled version too?
+bin_PROGRAMS += jac_cuda_noverlet jac_cuda_verlet
 if HAVEMPI
-    bin_PROGRAMS += jac_mpi_noverlet jac_mpi_pseudoverlet
+bin_PROGRAMS += jac_mpi_cuda_noverlet
+endif
+else
+if HAVEMPI
+bin_PROGRAMS += jac_mpi_noverlet jac_mpi_pseudoverlet
+endif
 endif
 
 # Sources for jac
@@ -69,6 +71,11 @@ jac_cuda_noverlet_LDADD = ../../src/.libs/libmdcore_single_cuda.a $(CUDA_LIBS)
 jac_mpi_noverlet_SOURCES = jac.c
 jac_mpi_noverlet_CFLAGS =  -DFPTYPE_SINGLE -DWITH_MPI $(AM_CFLAGS)
 jac_mpi_noverlet_LDADD = ../../src/.libs/libmdcore_single_mpi.a
+
+# Sources for jac_cuda
+jac_mpi_cuda_noverlet_SOURCES = jac.c
+jac_mpi_cuda_noverlet_CFLAGS =  -DFPTYPE_SINGLE -DWITH_MPI -DWITH_CUDA $(AM_CFLAGS)
+jac_mpi_cuda_noverlet_LDADD = ../../src/.libs/libmdcore_single_cuda_mpi.a $(CUDA_LIBS)
 
 # Sources for jac_pseudoverlet
 jac_mpi_pseudoverlet_SOURCES = jac.c

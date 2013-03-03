@@ -108,6 +108,7 @@ int main ( int argc , char *argv[] ) {
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
     double L[] = { cutoff , cutoff , cutoff };
+    int devices[] = { 0 , 2 };
     
     struct spme spme;
     int dim_spme[3] = { 6*spme_gpc , 6*spme_gpc , 6*spme_gpc };
@@ -178,7 +179,7 @@ int main ( int argc , char *argv[] ) {
     fflush(stdout);
     
     #ifdef WITH_CUDA
-        if ( engine_cuda_setdevice( 0 ) != 0 ) {
+        if ( engine_cuda_setdevices( &e , 2 , devices ) != 0 ) {
             printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
             errs_dump(stdout);
             abort();
