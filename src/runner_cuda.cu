@@ -73,6 +73,7 @@ __constant__ int cuda_nr_cells = 0;
 
 /* The parts (non-texture access). */
 __constant__ float4 *cuda_parts;
+__constant__ int cuda_nr_parts;
 
 /* Diagonal entries and potential index lookup table. */
 __constant__ unsigned int *cuda_pind;
@@ -1778,67 +1779,67 @@ __device__ void runner_doself4_cuda ( float4 *parts , int count , float *forces 
  *  of 32 particles up to 512 cuda_maxparts.
  */
  
-#define cuda_nrparts 32
+#define cuda_nparts 32
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 64
+#define cuda_nparts 64
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 96
+#define cuda_nparts 96
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 128
+#define cuda_nparts 128
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 160
+#define cuda_nparts 160
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 192
+#define cuda_nparts 192
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 224
+#define cuda_nparts 224
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 256
+#define cuda_nparts 256
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 288
+#define cuda_nparts 288
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 320
+#define cuda_nparts 320
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 352
+#define cuda_nparts 352
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 384
+#define cuda_nparts 384
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 416
+#define cuda_nparts 416
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 448
+#define cuda_nparts 448
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-#define cuda_nrparts 480
+#define cuda_nparts 480
     #include "runner_cuda_main.h"
-#undef cuda_nrparts
+#undef cuda_nparts
 
-// #define cuda_nrparts 512
+// #define cuda_nparts 512
 //     #include "runner_cuda_main.h"
 
 
@@ -1889,8 +1890,9 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #ifdef TIMERS
         for ( int k = 0 ; k < tid_count ; k++ )
             timers[k] = 0.0f;
-        if ( cudaMemcpyToSymbol( cuda_timers , timers , sizeof(float) * tid_count , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
+        for ( did = 0 ; did < e->nr_devices ; did++ )
+            if ( cudaMemcpyToSymbolAsync( cuda_timers , timers , sizeof(float) * tid_count , 0 , cudaMemcpyHostToDevice , (cudaStream_t)e->stream[did] ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
     #endif
     
     /* Start the clock. */
@@ -2057,7 +2059,6 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     struct space *s = &e->s;
     FPTYPE maxdist = s->cutoff + 2*s->maxdx;
     int *counts = e->counts_cuda_local, *inds = e->ind_cuda_local;
-    cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     cudaStream_t stream;
     
     /* Clear the counts array. */
@@ -2133,24 +2134,13 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
 
         /* Bind the particle positions to a texture. */
         #ifdef PARTS_TEX
-            if ( cudaMallocArray( (cudaArray **)&s->cuArray_parts , &channelDesc_float4 , maxcount , s->nr_cells ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
             if ( cudaMemcpyToArrayAsync( (cudaArray *)s->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
-            if ( cudaBindTextureToArray( tex_parts , (cudaArray *)s->cuArray_parts ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
         #else
-            if ( cudaMalloc( &e->parts_cuda[did] , sizeof( float4 ) * s->nr_parts ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
             if ( cudaMemcpyAsync( e->parts_cuda[did] , parts_cuda , sizeof(float4) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
-            if ( cudaMemcpyToSymbolAsync( cuda_parts , &e->parts_cuda[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
         #endif
 
-        /* Finally, init the forces on the device. */
-        if ( cudaMalloc( &e->forces_cuda[did] , sizeof( float ) * 3 * s->nr_parts ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
         if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
             
@@ -2235,19 +2225,6 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
 
         /* Deallocate the parts array and counts array. */
         free( forces_cuda[did] );
-        if ( cudaFree( e->forces_cuda[did] ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
-
-        /* Unbind and free the parts data. */
-        #ifdef PARTS_TEX
-            if ( cudaUnbindTexture( tex_parts ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
-            if ( cudaFreeArray( (cudaArray *)e->cuArray_parts[did] ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
-        #else
-            if ( cudaFree( e->parts_cuda[did] ) != cudaSuccess )
-                return cuda_error(engine_err_cuda);
-        #endif
         
         }
         
@@ -2679,6 +2656,27 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         if ( ( e->parts_cuda_local = (float4 *)malloc( sizeof( float4 ) * s->nr_parts ) ) == NULL )
             return error(engine_err_malloc);
     #endif
+
+    /* Allocate the particle and force data. */
+    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_nr_parts , &s->nr_parts , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        #ifdef PARTS_TEX
+            if ( cudaMallocArray( (cudaArray **)&s->cuArray_parts , &channelDesc_float4 , maxcount , s->nr_cells ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+            if ( cudaBindTextureToArray( tex_parts , (cudaArray *)s->cuArray_parts ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+        #else
+            if ( cudaMalloc( &e->parts_cuda[did] , sizeof( float4 ) * s->nr_parts ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+            if ( cudaMemcpyToSymbol( cuda_parts , &e->parts_cuda[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+        #endif
+        if ( cudaMalloc( &e->forces_cuda[did] , sizeof( float ) * 3 * s->nr_parts ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
 
     /* Init the pair queue on the device. */
     if ( engine_cuda_queues_load( e ) < 0 )

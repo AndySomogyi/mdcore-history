@@ -18,7 +18,7 @@
  ******************************************************************************/
 
 
-/* Set the kernel names depending on cuda_nrparts. */
+/* Set the kernel names depending on cuda_nparts. */
 #define PASTE(x,y) x ## _ ## y
 #define runner_run_verlet_cuda(N) PASTE(runner_run_verlet_cuda,N)
 #define runner_run_cuda(N) PASTE(runner_run_cuda,N)
@@ -31,7 +31,7 @@
  *
  */
  
-__global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , int *ind , int verlet_rebuild ) {
+__global__ void runner_run_cuda(cuda_nparts) ( float *forces , int *counts , int *ind , int verlet_rebuild ) {
 
     int k, threadID;
     int cid, cjd, sid;
@@ -43,20 +43,20 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
     struct queue_cuda *myq , *queues[ cuda_maxqueues ];
     int naq = cuda_nrqueues, qid;
     #ifdef FORCES_LOCAL
-        __shared__ __align__(16) int buff[ 8*cuda_nrparts ];
+        __shared__ __align__(16) int buff[ 8*cuda_nparts ];
         float *forces_i = (float *)&buff[ 0 ];
-        float *forces_j = (float *)&buff[ 3*cuda_nrparts ];
-        unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nrparts ];
-        unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nrparts ];
+        float *forces_j = (float *)&buff[ 3*cuda_nparts ];
+        unsigned int *sort_i = (unsigned int *)&buff[ 6*cuda_nparts ];
+        unsigned int *sort_j = (unsigned int *)&buff[ 7*cuda_nparts ];
     #else
         float *forces_i, *forces_j;
-        __shared__ unsigned int sort_i[ cuda_nrparts ];
-        __shared__ unsigned int sort_j[ cuda_nrparts ];
+        __shared__ unsigned int sort_i[ cuda_nparts ];
+        __shared__ unsigned int sort_j[ cuda_nparts ];
     #endif
     #if !defined(PARTS_TEX)
         #ifdef PARTS_LOCAL
             float4 *parts_i;
-            __shared__ float4 parts_j[ cuda_nrparts ];
+            __shared__ float4 parts_j[ cuda_nparts ];
         #else
             float4 *parts_i, *parts_j;
         #endif
@@ -75,7 +75,7 @@ __global__ void runner_run_cuda(cuda_nrparts) ( float *forces , int *counts , in
         return;
         } */
         
-
+        
     /* Init the list of queues. */
     if ( threadID == 0 ) {
         // myq = &cuda_queues[ get_smid() ];
