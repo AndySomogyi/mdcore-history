@@ -1775,6 +1775,23 @@ __device__ void runner_doself4_cuda ( float4 *parts , int count , float *forces 
     }
 
 
+/**
+ * @brief Our very own memset for the particle forces as cudaMemsetAsync requires
+ *        a device switch when using streams on different devices.
+ *
+ */
+ 
+__global__ void cuda_memset_float ( float *data , float val , int N ) {
+
+    int k, tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int stride = gridDim.x * blockDim.x;
+    
+    for ( k = tid ; k < N ; k += stride )
+        data[k] = val;
+
+    }
+
+
 /** This set of defines and includes produces kernels with buffers for multiples
  *  of 32 particles up to 512 cuda_maxparts.
  */
@@ -1906,8 +1923,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
         /* Set the device ID. */
-        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
+        // if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+        //     return cuda_error(engine_err_cuda);
 
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
@@ -2119,8 +2136,8 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
         /* Set the device ID. */
-        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
+        // if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+        //     return cuda_error(engine_err_cuda);
 
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
@@ -2146,8 +2163,9 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
                 return cuda_error(engine_err_cuda);
         #endif
 
-        if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
+        // if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
+        //     return cuda_error(engine_err_cuda);
+        cuda_memset_float <<<8,512,0,stream>>> ( e->forces_cuda[did] , 0.0f , 3 * s->nr_parts );
             
         }
     
@@ -2204,8 +2222,8 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
         stream = (cudaStream_t)e->streams[did];
     
         /* Set the device ID. */
-        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
+        // if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+        //     return cuda_error(engine_err_cuda);
 
         /* Wait for the chickens to come home to roost. */
         if ( cudaStreamSynchronize( stream ) != cudaSuccess )
