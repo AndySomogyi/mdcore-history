@@ -1887,7 +1887,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     float ms_load, ms_run, ms_unload;
     
     /* Create the events. */
-    if ( cudaEventCreate( &tic ) != cudaSuccess ||
+    if ( cudaSetDevice( e->devices[e->nr_devices-1] ) ||
+         cudaEventCreate( &tic ) != cudaSuccess ||
          cudaEventCreate( &toc_load ) != cudaSuccess ||
          cudaEventCreate( &toc_run ) != cudaSuccess ||
          cudaEventCreate( &toc_unload ) != cudaSuccess )
@@ -1923,8 +1924,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
         /* Set the device ID. */
-        // if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
-        //     return cuda_error(engine_err_cuda);
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
 
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
@@ -1993,7 +1994,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     
     /* Get and dump timers. */
     #ifdef TIMERS
-        if ( cudaMemcpyFromSymbol( timers , cuda_timers , sizeof(float) * tid_count , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
+        if ( cudaMemcpyFromSymbolAsync( timers , cuda_timers , sizeof(float) * tid_count , 0 , cudaMemcpyDeviceToHost , (cudaStream_t)e->streams[0] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         printf( "engine_nonbond_cuda: timers = [ %.2f " , icpms * timers[0] );
         for ( int k = 1 ; k < tid_count ; k++ )
@@ -2029,21 +2030,30 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     /* if ( cudaMemcpyFromSymbol( &zero , cuda_rcount , sizeof(int) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     printf( "engine_nonbond_cuda: computed %i pairs.\n" , zero ); */
-
+    
+    /* Check for any missed CUDA errors. */
+    if ( cudaPeekAtLastError() != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
     /* Unload the particle data from the device. */
     // tic = getticks();
     if ( engine_cuda_unload_parts( e ) < 0 )
         return error(engine_err);
     // e->timers[ engine_timer_cuda_unload ] += getticks() - tic;
 
-    /* Stop the clock on the last stream. */
-    if ( cudaEventRecord( toc_unload , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+    /* Check for any missed CUDA errors. */
+    if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
-    /* Wait for the chickens to come home to roost. */
-    if ( cudaStreamSynchronize( (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+    /* Stop the clock on the last stream. */
+    if ( cudaEventRecord( toc_unload , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess ||
+         cudaStreamSynchronize( (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
+    /* Check for any missed CUDA errors. */
+    if ( cudaPeekAtLastError() != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+        
     /* Store the timers. */
     if ( cudaEventElapsedTime( &ms_load , tic , toc_load ) != cudaSuccess ||
          cudaEventElapsedTime( &ms_run , toc_load , toc_run ) != cudaSuccess ||
@@ -2051,12 +2061,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         return cuda_error(engine_err_cuda);
     e->timers[ engine_timer_cuda_load ] += ms_load / 1000 * CPU_TPS;
     e->timers[ engine_timer_cuda_dopairs ] += ms_run / 1000 * CPU_TPS;
-    e->timers[ engine_timer_cuda_unload ] += ms_unload / 1000 * CPU_TPS;        
+    e->timers[ engine_timer_cuda_unload ] += ms_unload / 1000 * CPU_TPS;
     
-    /* Check for any missed CUDA errors. */
-    if ( cudaPeekAtLastError() != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-        
     /* Go away. */
     return engine_err_ok;
     
@@ -2136,8 +2142,8 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
         /* Set the device ID. */
-        // if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
-        //     return cuda_error(engine_err_cuda);
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
 
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
@@ -2163,9 +2169,10 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
                 return cuda_error(engine_err_cuda);
         #endif
 
-        // if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
-        //     return cuda_error(engine_err_cuda);
-        cuda_memset_float <<<8,512,0,stream>>> ( e->forces_cuda[did] , 0.0f , 3 * s->nr_parts );
+        /* Clear the force array. */
+        if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        // cuda_memset_float <<<8,512,0,stream>>> ( e->forces_cuda[did] , 0.0f , 3 * s->nr_parts );
             
         }
     
@@ -2211,7 +2218,6 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
         /* Get the potential energy. */
         if ( cudaMemcpyFromSymbolAsync( &epot[did] , cuda_epot_out , sizeof(float) , 0 , cudaMemcpyDeviceToHost , stream ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
-        e->s.epot += epot[did];
         
         }
 
@@ -2229,6 +2235,9 @@ extern "C" int engine_cuda_unload_parts ( struct engine *e ) {
         if ( cudaStreamSynchronize( stream ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
     
+        /* Get the potential energy. */
+        e->s.epot += epot[did];
+        
         /* Loop over the marked cells. */
         for ( k = 0 ; k < s->nr_marked ; k++ ) {
 
