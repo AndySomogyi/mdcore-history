@@ -2023,10 +2023,15 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     if ( cudaEventRecord( toc_unload , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
+    /* Wait for the chickens to come home to roost. */
+    if ( cudaStreamSynchronize( (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
+    
     /* Store the timers. */
-    cudaEventElapsedTime( &ms_load , tic , toc_load );
-    cudaEventElapsedTime( &ms_run , toc_load , toc_run );
-    cudaEventElapsedTime( &ms_unload , toc_run , toc_unload );
+    if ( cudaEventElapsedTime( &ms_load , tic , toc_load ) != cudaSuccess ||
+         cudaEventElapsedTime( &ms_run , toc_load , toc_run ) != cudaSuccess ||
+         cudaEventElapsedTime( &ms_unload , toc_run , toc_unload ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
     e->timers[ engine_timer_cuda_load ] += ms_load / 1000 * CPU_TPS;
     e->timers[ engine_timer_cuda_dopairs ] += ms_run / 1000 * CPU_TPS;
     e->timers[ engine_timer_cuda_unload ] += ms_unload / 1000 * CPU_TPS;        
@@ -2435,7 +2440,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         memcpy( finger , pots[i]->c , sizeof(float) * potential_chunk * (pots[i]->n + 1) );
         finger = &finger[ (pots[i]->n + 1) * potential_chunk ];
         } */
-    printf( "engine_cuda_load: packed %i potentials with %i coefficient chunks (%i kB).\n" , nr_pots , max_coeffs , (sizeof(float4)*(2*max_coeffs+2)*nr_pots)/1024 ); fflush(stdout);
+    printf( "engine_cuda_load: packed %i potentials with %i coefficient chunks (%i kB).\n" , nr_pots , max_coeffs , (int)(sizeof(float4)*(2*max_coeffs+2)*nr_pots)/1024 ); fflush(stdout);
         
     /* Bind the potential coefficients to a texture. */
     for ( did = 0 ;did < e->nr_devices ; did++ ) {
