@@ -1873,19 +1873,22 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
     dim3 nr_threads( cuda_frame , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
-    int did, maxcount;
-    // ticks tic;
-    // int zero = 0;
-    // int cuda_io[32];
-    // float cuda_fio[32];
+    int k, cid, did, pid, maxcount = 0;
+    cudaStream_t stream;
+    cudaEvent_t tic, toc_load, toc_run, toc_unload;
+    float ms_load, ms_run, ms_unload;
+    struct part *p;
+    float4 *parts_cuda = (float4 *)e->parts_cuda_local, *buff4;
+    struct space *s = &e->s;
+    FPTYPE maxdist = s->cutoff + 2*s->maxdx;
+    int *counts = e->counts_cuda_local, *inds = e->ind_cuda_local;
+    float *forces_cuda[ engine_maxgpu ], epot[ engine_maxgpu ], *buff;
     #ifdef TIMERS
         float timers[ tid_count ];
         double icpms = 1000.0 / 1.4e9; 
     #endif
-    cudaStream_t stream;
-    cudaEvent_t tic, toc_load, toc_run, toc_unload;
-    float ms_load, ms_run, ms_unload;
     
+   
     /* Create the events. */
     if ( cudaSetDevice( e->devices[e->nr_devices-1] ) ||
          cudaEventCreate( &tic ) != cudaSuccess ||
@@ -1898,12 +1901,6 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     if ( cudaEventRecord( tic , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
         cuda_error(engine_err_cuda);
     
-    /* Load the particle data onto the device. */
-    // tic = getticks();
-    if ( ( maxcount = engine_cuda_load_parts( e ) ) < 0 )
-        return error(engine_err);
-    // e->timers[ engine_timer_cuda_load ] += getticks() - tic;
-
     /* Re-set timers */
     #ifdef TIMERS
         for ( int k = 0 ; k < tid_count ; k++ )
@@ -1913,6 +1910,59 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
                 return cuda_error(engine_err_cuda);
     #endif
     
+    /* Load the particle data onto the device. */
+    // tic = getticks();
+    // if ( ( maxcount = engine_cuda_load_parts( e ) ) < 0 )
+    //     return error(engine_err);
+    // e->timers[ engine_timer_cuda_load ] += getticks() - tic;
+
+    /* Clear the counts array. */
+    bzero( counts , sizeof(int) * s->nr_cells );
+
+    /* Load the counts. */
+    for ( maxcount = 0 , k = 0 ; k < s->nr_marked ; k++ )
+        if ( ( counts[ s->cid_marked[k] ] = s->cells[ s->cid_marked[k] ].count ) > maxcount )
+            maxcount = counts[ s->cid_marked[k] ];
+
+    /* Raise maxcount to the next multiple of 32. */
+    maxcount = ( maxcount + (cuda_frame - 1) ) & ~(cuda_frame - 1);
+    // printf( "engine_cuda_load_parts: maxcount=%i.\n" , maxcount );
+
+    /* Compute the indices. */
+    inds[0] = 0;
+    for ( k = 1 ; k < s->nr_cells ; k++ )
+        inds[k] = inds[k-1] + counts[k-1];
+
+    /* Loop over the marked cells. */
+    for ( k = 0 ; k < s->nr_marked ; k++ ) {
+
+        /* Get the cell id. */
+        cid = s->cid_marked[k];
+
+        /* Copy the particle data to the device. */
+        #ifdef PARTS_TEX
+            buff4 = (float4 *)&parts_cuda[ maxcount * cid ];
+        #else
+            buff4 = (float4 *)&parts_cuda[ inds[cid] ];
+        #endif
+        for ( pid = 0 ; pid < counts[cid] ; pid++ ) {
+            p = &s->cells[cid].parts[pid];
+            buff4[ pid ].x = p->x[0];
+            buff4[ pid ].y = p->x[1];
+            buff4[ pid ].z = p->x[2];
+            buff4[ pid ].w = p->type;
+            }
+
+        }
+
+    #ifdef PARTS_TEX
+        /* Set the texture properties. */
+        tex_parts.addressMode[0] = cudaAddressModeClamp;
+        tex_parts.addressMode[1] = cudaAddressModeClamp;
+        tex_parts.filterMode = cudaFilterModePoint;
+        tex_parts.normalized = false;
+    #endif
+
     /* Start the clock. */
     // tic = getticks();
     
@@ -1920,7 +1970,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     if ( cudaEventRecord( toc_load , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
-    /* Loop over the devices. */
+    /* Loop over the devices and call the different kernels on each stream. */
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
         /* Set the device ID. */
@@ -1930,6 +1980,32 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
         
+        /* Start by setting the maxdist on the device. */
+        if ( cudaMemcpyToSymbolAsync( cuda_maxdist , &maxdist , sizeof(float) , 0 , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Copy the counts onto the device. */
+        if ( cudaMemcpyAsync( e->counts_cuda[did] , counts , sizeof(int) * s->nr_cells , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Copy the inds onto the device. */
+        if ( cudaMemcpyAsync( e->ind_cuda[did] , inds , sizeof(int) * s->nr_cells , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Bind the particle positions to a texture. */
+        #ifdef PARTS_TEX
+            if ( cudaMemcpyToArrayAsync( (cudaArray *)s->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+        #else
+            if ( cudaMemcpyAsync( e->parts_cuda[did] , parts_cuda , sizeof(float4) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+                return cuda_error(engine_err_cuda);
+        #endif
+
+        /* Clear the force array. */
+        // if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
+        //     return cuda_error(engine_err_cuda);
+        cuda_memset_float <<<8,512,0,stream>>> ( e->forces_cuda[did] , 0.0f , 3 * s->nr_parts );
+            
         /* Start the appropriate kernel. */
         switch ( (maxcount + 31) / 32 ) {
             case 1:
@@ -1984,6 +2060,16 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
                 return error(engine_err_maxparts);
             }
         
+        /* Get the forces from the device. */
+        if ( ( forces_cuda[did] = (float *)malloc( sizeof(float) * 3 * s->nr_parts ) ) == NULL )
+            return error(engine_err_malloc);
+        if ( cudaMemcpyAsync( forces_cuda[did] , e->forces_cuda[did] , sizeof(float) * 3 * s->nr_parts , cudaMemcpyDeviceToHost , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Get the potential energy. */
+        if ( cudaMemcpyFromSymbolAsync( &epot[did] , cuda_epot_out , sizeof(float) , 0 , cudaMemcpyDeviceToHost , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        
         }
         
     // e->timers[ engine_timer_cuda_dopairs ] += getticks() - tic;
@@ -2002,45 +2088,55 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         printf( "] ms\n" );
     #endif
     
-    /* int queue[ e->s.nr_pairs ], queue2[ e->s.nr_pairs ];
-    void *dptr;
-    if ( cudaMemcpyFromSymbol( &dptr , cuda_queue_data , sizeof(int *) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);   
-    if ( cudaMemcpy( queue , dptr , sizeof(int) * e->s.nr_pairs , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);   
-    if ( cudaMemcpyFromSymbol( &dptr , cuda_queue2_data , sizeof(int *) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);   
-    if ( cudaMemcpy( queue2 , dptr , sizeof(int) * e->s.nr_pairs , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    for ( int k = 0 ; k < e->s.nr_pairs ; k++ )
-        printf( "\t%5i\t%5i\t%5i\n" , k , queue[k] , queue2[k] ); */
-        
-    /* Get the IO data. */
-    /*if ( cudaMemcpyFromSymbol( cuda_io , "cuda_io" , sizeof(int) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    if ( cudaMemcpyFromSymbol( cuda_fio , "cuda_fio" , sizeof(float) * 32 , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    printf( "engine_nonbond_cuda: cuda_io is [ %i , %i , %i , %i , %i , %i , %i , %i , %i , %i ].\n" , 
-        cuda_io[0] , cuda_io[1] , cuda_io[2] , cuda_io[3] , cuda_io[4] , cuda_io[5] , cuda_io[6] , cuda_io[7] , cuda_io[8] , cuda_io[9] );
-    printf( "engine_nonbond_cuda: cuda_fio is [ %f " , cuda_fio[0] );
-    for ( int k = 1 ; k < 32 ; k++ )
-        printf( ", %f " , cuda_fio[k] );
-    printf( "]\n" ); */
-    
-    /* if ( cudaMemcpyFromSymbol( &zero , cuda_rcount , sizeof(int) , 0 , cudaMemcpyDeviceToHost ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    printf( "engine_nonbond_cuda: computed %i pairs.\n" , zero ); */
-    
     /* Check for any missed CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Unload the particle data from the device. */
     // tic = getticks();
-    if ( engine_cuda_unload_parts( e ) < 0 )
-        return error(engine_err);
+    // if ( engine_cuda_unload_parts( e ) < 0 )
+    //     return error(engine_err);
     // e->timers[ engine_timer_cuda_unload ] += getticks() - tic;
 
+    /* Loop over the devices. */
+    for ( did = 0 ; did < e->nr_devices ; did++ ) {
+    
+        /* Get the stream. */
+        stream = (cudaStream_t)e->streams[did];
+    
+        /* Set the device ID. */
+        // if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+        //     return cuda_error(engine_err_cuda);
+
+        /* Wait for the chickens to come home to roost. */
+        if ( cudaStreamSynchronize( stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+    
+        /* Get the potential energy. */
+        e->s.epot += epot[did];
+        
+        /* Loop over the marked cells. */
+        for ( k = 0 ; k < s->nr_marked ; k++ ) {
+
+            /* Get the cell id. */
+            cid = s->cid_marked[k];
+
+            /* Copy the particle data from the device. */
+            buff = &forces_cuda[did][ 3*e->ind_cuda_local[cid] ];
+            for ( pid = 0 ; pid < s->cells[cid].count ; pid++ ) {
+                p = &s->cells[cid].parts[pid];
+                p->f[0] += buff[ 3*pid ];
+                p->f[1] += buff[ 3*pid + 1 ];
+                p->f[2] += buff[ 3*pid + 2 ];
+                }
+
+            }
+
+        /* Deallocate the parts array and counts array. */
+        free( forces_cuda[did] );
+        
+        }
+        
     /* Check for any missed CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
