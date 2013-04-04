@@ -2691,8 +2691,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             tc = &tasks_cuda[nr_tasks];
             
             /* Skip pairs and self with wrong cid, keep all sorts. */
-            if ( ( t->type == task_type_pair && t->i % nr_devices != did ) ||
-                 ( t->type == task_type_self && t->i % nr_devices != did ) )
+            struct cell *ci = &s->cells[ t->i ];
+            if ( ( t->type == task_type_pair && (ci->loc[0]+ci->loc[1]+ci->loc[2]) % nr_devices != did ) ||
+                 ( t->type == task_type_self && (ci->loc[0]+ci->loc[1]+ci->loc[2]) % nr_devices != did ) )
                 continue;
             
             /* Copy the data. */
