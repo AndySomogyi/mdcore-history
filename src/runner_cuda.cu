@@ -2059,6 +2059,18 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             default:
                 return error(engine_err_maxparts);
             }
+            
+        }
+        
+    /* Loop over the devices again and collect the data. */
+    for ( did = 0 ; did < e->nr_devices ; did++ ) {
+    
+        /* Set the device ID. */
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+
+        /* Get the stream. */
+        stream = (cudaStream_t)e->streams[did];
         
         /* Get the forces from the device. */
         if ( ( forces_cuda[did] = (float *)malloc( sizeof(float) * 3 * s->nr_parts ) ) == NULL )
