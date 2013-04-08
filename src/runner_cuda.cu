@@ -331,7 +331,7 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
 
     int tid = -1;
     #ifndef FORCES_LOCAL
-        int cid, cjd;
+        // int cid, cjd;
     #endif
     
     TIMER_TIC
@@ -342,41 +342,41 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
         /* If this task is not even free, don't even bother. */
         if ( !cuda_tasks[tid].wait ) {
     
-            #ifdef FORCES_LOCAL
+            // #ifdef FORCES_LOCAL
                 break;
-            #else
-                /* Dfferent options for different tasks. */
-                if ( cuda_tasks[tid].type == task_type_sort ) {
-                
-                    /* No locking needed. */
-                    break;
-                
-                    }
-                else if ( cuda_tasks[tid].type == task_type_self ) {
-                
-                    /* Decode this task. */
-                    cid = cuda_tasks[tid].i;
-
-                    /* Lock down this task? */
-                    if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
-                        break;
-                            
-                    }
-                else if ( cuda_tasks[tid].type == task_type_pair ) {
-                
-                    /* Decode this task. */
-                    cid = cuda_tasks[tid].i;
-                    cjd = cuda_tasks[tid].j;
-
-                    /* Lock down this task? */
-                    if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
-                        if ( cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
-                            break;
-                        else
-                            cuda_mutex_unlock( &cuda_taboo[ cid ] );
-                            
-                    }
-            #endif
+            // #else
+            //     /* Dfferent options for different tasks. */
+            //     if ( cuda_tasks[tid].type == task_type_sort ) {
+            //     
+            //         /* No locking needed. */
+            //         break;
+            //     
+            //         }
+            //     else if ( cuda_tasks[tid].type == task_type_self ) {
+            //     
+            //         /* Decode this task. */
+            //         cid = cuda_tasks[tid].i;
+// 
+//                     /* Lock down this task? */
+//                     if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+//                         break;
+//                             
+//                     }
+//                 else if ( cuda_tasks[tid].type == task_type_pair ) {
+//                 
+//                     /* Decode this task. */
+//                     cid = cuda_tasks[tid].i;
+//                     cjd = cuda_tasks[tid].j;
+// 
+//                     /* Lock down this task? */
+//                     if ( cuda_mutex_trylock( &cuda_taboo[ cid ] ) )
+//                         if ( cuda_mutex_trylock( &cuda_taboo[ cjd ] ) ) 
+//                             break;
+//                         else
+//                             cuda_mutex_unlock( &cuda_taboo[ cid ] );
+//                             
+//                     }
+//             #endif
 
             }
                 
@@ -409,7 +409,7 @@ __device__ int runner_cuda_gettask ( struct queue_cuda *q , int steal ) {
  * @param count Number of bytes to copy, must be a multiple of sizeof(int).
  */
  
-__device__ inline void cuda_memcpy ( void *dest , void *source , int count ) {
+__device__ inline void cuda_memcpy_32 ( void *dest , void *source , int count ) {
 
     int j, k, icount = count / sizeof(int) / cuda_frame / cuda_memcpy_chunk;
     int *idest = (int *)dest, *isource = (int *)source;
@@ -435,7 +435,7 @@ __device__ inline void cuda_memcpy ( void *dest , void *source , int count ) {
     }
     
     
-__device__ inline void cuda_memcpy_old ( void *dest , void *source , int count ) {
+__device__ inline void cuda_memcpy ( void *dest , void *source , int count ) {
 
     int k;
     volatile int *idest = (int *)dest, *isource = (int *)source;
@@ -498,8 +498,8 @@ __device__ inline void cuda_sum ( float *a , float *b , int count ) {
 __device__ void cuda_sort_descending ( unsigned int *a , int count ) {
 
     int i, j, k, threadID = threadIdx.x;
-    int hi[2], lo[2], ind[2], jnd[2];
-    unsigned int swap_i[2], swap_j[2];
+    int hi, lo, ind, jnd;
+    unsigned int swap_i, swap_j;
 
     TIMER_TIC
 
@@ -507,49 +507,35 @@ __device__ void cuda_sort_descending ( unsigned int *a , int count ) {
     for ( k = 1 ; k < count ; k *= 2 ) {
     
         /* First step. */
-        for ( i = threadID ;  i < count ; i += 2*cuda_frame ) {
-            hi[0] = i & ~(k-1); lo[0] = i & (k-1);
-            hi[1] = (i + cuda_frame) & ~(k-1); lo[1] = (i + cuda_frame) & (k-1);
-            ind[0] = i + hi[0]; jnd[0] = 2*(hi[0]+k) - lo[0] - 1;
-            ind[1] = i + cuda_frame + hi[1]; jnd[1] = 2*(hi[1]+k) - lo[1] - 1;
-            swap_i[0] = ( jnd[0] < count ) ? a[ind[0]] : 0;
-            swap_i[1] = ( jnd[1] < count ) ? a[ind[1]] : 0;
-            swap_j[0] = ( jnd[0] < count ) ? a[jnd[0]] : 0;
-            swap_j[1] = ( jnd[1] < count ) ? a[jnd[1]] : 0;
-            if  ( ( swap_i[0] & 0xffff ) < ( swap_j[0] & 0xffff ) ) {
-                a[ind[0]] = swap_j[0];
-                a[jnd[0]] = swap_i[0];
-                }
-            if  ( ( swap_i[1] & 0xffff ) < ( swap_j[1] & 0xffff ) ) {
-                a[ind[1]] = swap_j[1];
-                a[jnd[1]] = swap_i[1];
+        for ( i = threadID ;  i < count ; i += cuda_frame ) {
+            hi = i & ~(k-1); lo = i & (k-1);
+            ind = i + hi; jnd = 2*(hi+k) - lo - 1;
+            swap_i = ( jnd < count ) ? a[ind] : 0;
+            swap_j = ( jnd < count ) ? a[jnd] : 0;
+            if  ( ( swap_i & 0xffff ) < ( swap_j & 0xffff ) ) {
+                a[ind] = swap_j;
+                a[jnd] = swap_i;
                 }
             }
             
         /* Let that last step sink in. */
-        // __threadfence_block();
+        if ( cuda_frame > 32 )
+            __syncthreads();
     
         /* Second step(s). */
         for ( j = k/2 ; j > 0 ; j /= 2 ) {
-            for ( i = threadID ;  i < count ; i += 2*cuda_frame ) {
-                hi[0] = i & ~(j-1);
-                hi[1] = (i + cuda_frame) & ~(j-1);
-                ind[0] = i + hi[0]; jnd[0] = ind[0] + j;
-                ind[1] = i + cuda_frame + hi[1]; jnd[1] = ind[1] + j;
-                swap_i[0] = ( jnd[0] < count ) ? a[ind[0]] : 0;
-                swap_i[1] = ( jnd[1] < count ) ? a[ind[1]] : 0;
-                swap_j[0] = ( jnd[0] < count ) ? a[jnd[0]] : 0;
-                swap_j[1] = ( jnd[1] < count ) ? a[jnd[1]] : 0;
-                if  ( ( swap_i[0] & 0xffff ) < ( swap_j[0] & 0xffff ) ) {
-                    a[ind[0]] = swap_j[0];
-                    a[jnd[0]] = swap_i[0];
-                    }
-                if  ( ( swap_i[1] & 0xffff ) < ( swap_j[1] & 0xffff ) ) {
-                    a[ind[1]] = swap_j[1];
-                    a[jnd[1]] = swap_i[1];
+            for ( i = threadID ;  i < count ; i += cuda_frame ) {
+                hi = i & ~(j-1);
+                ind = i + hi; jnd = ind + j;
+                swap_i = ( jnd < count ) ? a[ind] : 0;
+                swap_j = ( jnd < count ) ? a[jnd] : 0;
+                if  ( ( swap_i & 0xffff ) < ( swap_j & 0xffff ) ) {
+                    a[ind] = swap_j;
+                    a[jnd] = swap_i;
                     }
                 }
-            // __threadfence_block();
+            if ( cuda_frame > 32 )
+                __syncthreads();
             }
             
         }
@@ -570,8 +556,8 @@ __device__ void cuda_sort_descending ( unsigned int *a , int count ) {
 __device__ void cuda_sort_ascending ( unsigned int *a , int count ) {
 
     int i, j, k, threadID = threadIdx.x;
-    int hi[2], lo[2], ind[2], jnd[2];
-    unsigned int swap_i[2], swap_j[2];
+    int hi, lo, ind, jnd;
+    unsigned int swap_i, swap_j;
 
     TIMER_TIC
 
@@ -580,48 +566,34 @@ __device__ void cuda_sort_ascending ( unsigned int *a , int count ) {
     
         /* First step. */
         for ( i = threadID ;  i < count ; i += 2*cuda_frame ) {
-            hi[0] = i & ~(k-1); lo[0] = i & (k-1);
-            hi[1] = (i + cuda_frame) & ~(k-1); lo[1] = (i + cuda_frame) & (k-1);
-            ind[0] = i + hi[0]; jnd[0] = 2*(hi[0]+k) - lo[0] - 1;
-            ind[1] = i + cuda_frame + hi[1]; jnd[1] = 2*(hi[1]+k) - lo[1] - 1;
-            swap_i[0] = ( jnd[0] < count ) ? a[ind[0]] : 0;
-            swap_i[1] = ( jnd[1] < count ) ? a[ind[1]] : 0;
-            swap_j[0] = ( jnd[0] < count ) ? a[jnd[0]] : 0;
-            swap_j[1] = ( jnd[1] < count ) ? a[jnd[1]] : 0;
-            if  ( ( swap_i[0] & 0xffff ) > ( swap_j[0] & 0xffff ) ) {
-                a[ind[0]] = swap_j[0];
-                a[jnd[0]] = swap_i[0];
-                }
-            if  ( ( swap_i[1] & 0xffff ) > ( swap_j[1] & 0xffff ) ) {
-                a[ind[1]] = swap_j[1];
-                a[jnd[1]] = swap_i[1];
+            hi = i & ~(k-1); lo = i & (k-1);
+            ind = i + hi; jnd = 2*(hi+k) - lo - 1;
+            swap_i = ( jnd < count ) ? a[ind] : 0;
+            swap_j = ( jnd < count ) ? a[jnd] : 0;
+            if  ( ( swap_i & 0xffff ) > ( swap_j & 0xffff ) ) {
+                a[ind] = swap_j;
+                a[jnd] = swap_i;
                 }
             }
             
         /* Let that last step sink in. */
-        // __threadfence_block();
+        if ( cuda_frame > 32 )
+            __syncthreads();
     
         /* Second step(s). */
         for ( j = k/2 ; j > 0 ; j /= 2 ) {
             for ( i = threadID ;  i < count ; i += 2*cuda_frame ) {
-                hi[0] = i & ~(j-1);
-                hi[1] = (i + cuda_frame) & ~(j-1);
-                ind[0] = i + hi[0]; jnd[0] = ind[0] + j;
-                ind[1] = i + cuda_frame + hi[1]; jnd[1] = ind[1] + j;
-                swap_i[0] = ( jnd[0] < count ) ? a[ind[0]] : 0;
-                swap_i[1] = ( jnd[1] < count ) ? a[ind[1]] : 0;
-                swap_j[0] = ( jnd[0] < count ) ? a[jnd[0]] : 0;
-                swap_j[1] = ( jnd[1] < count ) ? a[jnd[1]] : 0;
-                if  ( ( swap_i[0] & 0xffff ) > ( swap_j[0] & 0xffff ) ) {
-                    a[ind[0]] = swap_j[0];
-                    a[jnd[0]] = swap_i[0];
-                    }
-                if  ( ( swap_i[1] & 0xffff ) > ( swap_j[1] & 0xffff ) ) {
-                    a[ind[1]] = swap_j[1];
-                    a[jnd[1]] = swap_i[1];
+                hi = i & ~(j-1);
+                ind = i + hi; jnd = ind + j;
+                swap_i = ( jnd < count ) ? a[ind] : 0;
+                swap_j = ( jnd < count ) ? a[jnd] : 0;
+                if  ( ( swap_i & 0xffff ) > ( swap_j & 0xffff ) ) {
+                    a[ind] = swap_j;
+                    a[jnd] = swap_i;
                     }
                 }
-            // __threadfence_block();
+            if ( cuda_frame > 32 )
+                __syncthreads();
             }
             
         }
@@ -1182,29 +1154,6 @@ __device__ void runner_dosort_cuda ( float4 *parts_i , int count_i , unsigned in
     shiftn[1] = cuda_shiftn[ 3*sid + 1 ];
     shiftn[2] = cuda_shiftn[ 3*sid + 2 ];
 
-    /* Pack the parts of i into the sort arrays. */
-    /* for ( k = threadID ; k < count_i ; k += 4*cuda_frame ) {
-        #ifdef PARTS_TEX
-            pi[0] = tex2D( tex_parts , k + 0*cuda_frame , cid );
-            pi[1] = tex2D( tex_parts , k + 1*cuda_frame , cid );
-            pi[2] = tex2D( tex_parts , k + 2*cuda_frame , cid );
-            pi[3] = tex2D( tex_parts , k + 3*cuda_frame , cid );
-        #else
-            pi[0] = parts_i[ k + 0*cuda_frame ];
-            if ( k + 1*cuda_frame < count_i ) pi[1] = parts_i[ k + 1*cuda_frame ];
-            if ( k + 2*cuda_frame < count_i ) pi[2] = parts_i[ k + 2*cuda_frame ];
-            if ( k + 3*cuda_frame < count_i ) pi[3] = parts_i[ k + 3*cuda_frame ];
-        #endif
-        spid.x = ( k << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[0].x*shiftn[0] + pi[0].y*shiftn[1] + pi[0].z*shiftn[2]) );
-        spid.y = ( (k + 1*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[1].x*shiftn[0] + pi[1].y*shiftn[1] + pi[1].z*shiftn[2]) );
-        spid.z = ( (k + 2*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[2].x*shiftn[0] + pi[2].y*shiftn[1] + pi[2].z*shiftn[2]) );
-        spid.w = ( (k + 3*cuda_frame) << 16 ) | (unsigned int)( cuda_dscale * (nshift + pi[3].x*shiftn[0] + pi[3].y*shiftn[1] + pi[3].z*shiftn[2]) );
-        sort_i[k] = spid.x;
-        if ( k + 1*cuda_frame < count_i ) sort_i[ k + 1*cuda_frame ] = spid.y;
-        if ( k + 2*cuda_frame < count_i ) sort_i[ k + 2*cuda_frame ] = spid.z;
-        if ( k + 3*cuda_frame < count_i ) sort_i[ k + 3*cuda_frame ] = spid.w;
-        } */
-
     /* Pack the parts into the sort arrays. */
     for ( k = threadID ; k < count_i ; k += cuda_frame ) {
         #ifdef PARTS_TEX
@@ -1217,6 +1166,10 @@ __device__ void runner_dosort_cuda ( float4 *parts_i , int count_i , unsigned in
         }
 
     TIMER_TOC(tid_pack)
+    
+    /* Sync if needed. */
+    if ( cuda_frame > 32 )
+        __syncthreads();
         
     /* Sort using normalized bitonic sort. */
     cuda_sort_descending( sort_i , count_i );
@@ -1342,6 +1295,215 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
         /* Update the force on pj. */
         for ( k = 0 ; k < 3 ; k++ )
             forces_i[ 3*spid + k ] += pif[k];
+    
+        /* Sync the shared memory values. */
+        // __threadfence_block();
+        
+        } /* loop over the particles in cell_j. */
+        
+    /* Store the potential energy. */
+    *epot_global += epot;
+        
+    TIMER_TOC(tid_pair)
+    
+    }
+
+
+/**
+ * @brief Compute the pairwise interactions for the given pair on a CUDA device.
+ *
+ * @param icid Array of parts in the first cell.
+ * @param count_i Number of parts in the first cell.
+ * @param icjd Array of parts in the second cell.
+ * @param count_j Number of parts in the second cell.
+ * @param pshift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ * @param cid Part buffer in local memory.
+ * @param cjd Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+#ifdef PARTS_TEX
+__device__ void runner_dopair_onesided1_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
+#else
+__device__ void runner_dopair_onesided1_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
+#endif
+
+    int k, pid, pjd, spid, spjd, threadID;
+    int pioff, pot;
+    unsigned int dmaxdist, di;
+    float4 pi, pj;
+    float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f;
+    float dx[3], pif[3];
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x;
+    
+    /* Pre-compute the inverse norm of the shift. */
+    dmaxdist = 2 + cuda_dscale * cuda_maxdist;
+       
+
+    /* Loop over the particles in cell_j, frame-wise. */
+    for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        spid = sort_i[pid] >> 16;
+        di = sort_i[pid] & 0xffff;
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , spid , cid );
+        #else
+            pi = parts_i[ spid ];
+        #endif
+        pioff = pi.w * cuda_maxtype;
+        pi.x -= shift[0]; pi.y -= shift[1]; pi.z -= shift[2];
+        pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
+        
+        /* Loop over the particles in cell_i. */
+        for ( pjd = count_j-1 ; pjd >= 0 && (sort_j[pjd] & 0xffff) + dshift <= dmaxdist + di ; pjd-- ) {
+        
+            /* Get a handle on the wrapped particle pid in cell_i. */
+            spjd = sort_j[pjd] >> 16;
+            #ifdef PARTS_TEX
+                pj = tex2D( tex_parts , spjd , cjd );
+            #else
+                pj = parts_j[ spjd ];
+            #endif
+
+            /* Compute the radius between pi and pj. */
+            r2 = 0.0f;
+            dx[0] = pi.x - pj.x; r2 += dx[0]*dx[0];
+            dx[1] = pi.y - pj.y; r2 += dx[1]*dx[1];
+            dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
+
+            /* Set the null potential if anything is bad. */
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pioff + (int)pj.w ] ) != 0 ) {
+
+                /* printf( "runner_dopair_cuda[%i]: doing pair [%i,%i] with r=%i (d=%i).\n" ,
+                    threadID , sort_i[pid].ind , sort_j[pjd].ind , (int)(sqrtf(r2)*1000.0) , (int)((sort_j[pjd].d - sort_i[pid].d)*1000) ); */
+
+                // atomicAdd( &cuda_pairs_done , 1 );
+
+                /* Interact particles pi and pj. */
+                potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+
+                /* Store the interaction force and energy. */
+                epot += ee;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w = eff * dx[k];
+                    pif[k] -= w;
+                    }
+
+                /* Sync the shared memory values. */
+                // __threadfence_block();
+
+                } /* in range and potential. */
+
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            // forces_i[ 3*spid + k ] += pif[k];
+            atomicAdd( &forces_i[ 3*spid + k ] , pif[k] );
+    
+        /* Sync the shared memory values. */
+        // __threadfence_block();
+        
+        } /* loop over the particles in cell_j. */
+        
+    /* Store the potential energy. */
+    *epot_global += epot;
+        
+    TIMER_TOC(tid_pair)
+    
+    }
+
+
+#ifdef PARTS_TEX
+__device__ void runner_dopair_onesided2_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
+#else
+__device__ void runner_dopair_onesided2_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
+#endif
+
+    int k, pid, pjd, spid, spjd, threadID;
+    int pjoff, pot;
+    unsigned int dmaxdist, dj;
+    float4 pi, pj;
+    float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f;
+    float dx[3], pjf[3];
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x;
+    
+    /* Pre-compute the inverse norm of the shift. */
+    dmaxdist = 2 + cuda_dscale * cuda_maxdist;
+       
+
+    /* Loop over the particles in cell_j, frame-wise. */
+    for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        spjd = sort_j[pjd] >> 16;
+        dj = (sort_j[pjd] & 0xffff) + dshift;
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , spjd , cjd );
+        #else
+            pj = parts_j[ spjd ];
+        #endif
+        pjoff = pj.w * cuda_maxtype;
+        pj.x += shift[0]; pj.y += shift[1]; pj.z += shift[2];
+        pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
+        
+        /* Loop over the particles in cell_i. */
+        for ( pid = 0 ; pid < count_i && dj <= dmaxdist + (sort_i[pid] & 0xffff) ; pid++ ) {
+        
+            /* Get a handle on the wrapped particle pid in cell_i. */
+            spid = sort_i[pid] >> 16;
+            #ifdef PARTS_TEX
+                pi = tex2D( tex_parts , spid , cid );
+            #else
+                pi = parts_i[ spid ];
+            #endif
+
+            /* Compute the radius between pi and pj. */
+            r2 = 0.0f;
+            dx[0] = pi.x - pj.x; r2 += dx[0]*dx[0];
+            dx[1] = pi.y - pj.y; r2 += dx[1]*dx[1];
+            dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
+
+            /* Set the null potential if anything is bad. */
+            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + (int)pi.w ] ) != 0 ) {
+
+                /* printf( "runner_dopair_cuda[%i]: doing pair [%i,%i] with r=%i (d=%i).\n" ,
+                    threadID , sort_i[pid].ind , sort_j[pjd].ind , (int)(sqrtf(r2)*1000.0) , (int)((sort_j[pjd].d - sort_i[pid].d)*1000) ); */
+
+                // atomicAdd( &cuda_pairs_done , 1 );
+
+                /* Interact particles pi and pj. */
+                potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+
+                /* Store the interaction force and energy. */
+                epot += ee;
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w = eff * dx[k];
+                    pjf[k] += w;
+                    }
+
+                /* Sync the shared memory values. */
+                // __threadfence_block();
+
+                } /* in range and potential. */
+
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            // forces_j[ 3*spjd + k ] += pjf[k];
+            atomicAdd( &forces_j[ 3*spjd + k ] , pjf[k] );
     
         /* Sync the shared memory values. */
         // __threadfence_block();
@@ -1607,6 +1769,107 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces ,
         /* Update the force on pj. */
         for ( k = 0 ; k < 3 ; k++ )
             forces[ 3*pjd + k ] += pjf[k];
+
+        /* Sync the shared memory values. */
+        // __threadfence_block();
+
+        } /* loop over the particles in cell_j. */
+        
+    /* Store the potential energy. */
+    *epot_global += epot;
+        
+    TIMER_TOC(tid_self)
+    
+    }
+    
+    
+/**
+ * @brief Compute the self interactions for the given cell on a CUDA device.
+ *
+ * @param iparts Array of parts in this cell.
+ * @param count Number of parts in the cell.
+ * @param parts Part buffer in local memory.
+ *
+ * @sa #runner_dopair.
+ */
+ 
+#ifdef PARTS_TEX
+__device__ void runner_doself_onesided_cuda ( int cid , int count , float *forces , float *epot_global ) {
+#else
+__device__ void runner_doself_onesided_cuda ( float4 *parts , int count , float *forces , float *epot_global ) {
+#endif
+
+    int k, pid, pjd, threadID;
+    int pjoff;
+    float4 pi, pj;
+    int pot;
+    float epot = 0.0f, dx[3], pjf[3], r2, w, ee, eff;
+    
+    TIMER_TIC
+    
+    /* Get the size of the frame, i.e. the number of threads in this block. */
+    threadID = threadIdx.x;
+    
+    /* Make sure everybody is in the same place. */
+    // __threadfence_block();
+
+    /* Loop over the particles in the cell, frame-wise. */
+    for ( pjd = threadID ; pjd < count ; pjd += cuda_frame ) {
+    
+        /* Get a direct pointer on the pjdth part in cell_j. */
+        #ifdef PARTS_TEX
+            pj = tex2D( tex_parts , pjd , cid );
+        #else
+            pj = parts[ pjd ];
+        #endif
+        pjoff = pj.w * cuda_maxtype;
+        pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
+            
+        /* Loop over the particles in cell_i. */
+        for ( pid = 0 ; pid < count ; pid++ ) {
+        
+            /* Skip self-interaction. */
+            if ( pid != pjd ) {
+        
+                /* Get a handle on the wrapped particle pid in cell_i. */
+                #ifdef PARTS_TEX
+                    pi = tex2D( tex_parts , pid , cid );
+                #else
+                    pi = parts[ pid ];
+                #endif
+
+                /* Compute the radius between pi and pj. */
+                r2 = 0.0f;
+                dx[0] = pi.x - pj.x; r2 += dx[0]*dx[0];
+                dx[1] = pi.y - pj.y; r2 += dx[1]*dx[1];
+                dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
+
+                /* Set the null potential if anything is bad. */
+                if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + (int)pi.w ] ) != 0 ) {
+
+                    /* Interact particles pi and pj. */
+                    potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+
+                    /* Store the interaction force and energy. */
+                    epot += ee;
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff * dx[k];
+                        pjf[k] += w;
+                        }
+
+                    /* Sync the shared memory values. */
+                    // __threadfence_block();
+                
+                    } /* in range and potential. */
+                    
+                }
+
+            } /* loop over parts in cell_i. */
+            
+        /* Update the force on pj. */
+        for ( k = 0 ; k < 3 ; k++ )
+            // forces[ 3*pjd + k ] += pjf[k];
+            atomicAdd( &forces[ 3*pjd + k ] , pjf[k] );
 
         /* Sync the shared memory values. */
         // __threadfence_block();
@@ -1906,7 +2169,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         for ( int k = 0 ; k < tid_count ; k++ )
             timers[k] = 0.0f;
         for ( did = 0 ; did < e->nr_devices ; did++ )
-            if ( cudaMemcpyToSymbolAsync( cuda_timers , timers , sizeof(float) * tid_count , 0 , cudaMemcpyHostToDevice , (cudaStream_t)e->stream[did] ) != cudaSuccess )
+            if ( cudaMemcpyToSymbolAsync( cuda_timers , timers , sizeof(float) * tid_count , 0 , cudaMemcpyHostToDevice , (cudaStream_t)e->streams[did] ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
     #endif
     
@@ -1941,7 +2204,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
         /* Copy the particle data to the device. */
         #ifdef PARTS_TEX
-            buff4 = (float4 *)&parts_cuda[ maxcount * cid ];
+            buff4 = (float4 *)&parts_cuda[ 512 * cid ];
         #else
             buff4 = (float4 *)&parts_cuda[ inds[cid] ];
         #endif
@@ -1954,14 +2217,6 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             }
 
         }
-
-    #ifdef PARTS_TEX
-        /* Set the texture properties. */
-        tex_parts.addressMode[0] = cudaAddressModeClamp;
-        tex_parts.addressMode[1] = cudaAddressModeClamp;
-        tex_parts.filterMode = cudaFilterModePoint;
-        tex_parts.normalized = false;
-    #endif
 
     /* Start the clock. */
     // tic = getticks();
@@ -1994,7 +2249,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
         /* Bind the particle positions to a texture. */
         #ifdef PARTS_TEX
-            if ( cudaMemcpyToArrayAsync( (cudaArray *)s->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            if ( cudaMemcpyToArrayAsync( (cudaArray *)e->cuArray_parts[did] , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * 512 , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
         #else
             if ( cudaMemcpyAsync( e->parts_cuda[did] , parts_cuda , sizeof(float4) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
@@ -2062,7 +2317,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             
         }
         
-    /* Loop over the devices again and collect the data. */
+    /* Loop over the devices and emit the memory reads. */
     for ( did = 0 ; did < e->nr_devices ; did++ ) {
     
         /* Set the device ID. */
@@ -2270,7 +2525,7 @@ extern "C" int engine_cuda_load_parts ( struct engine *e ) {
 
         /* Bind the particle positions to a texture. */
         #ifdef PARTS_TEX
-            if ( cudaMemcpyToArrayAsync( (cudaArray *)s->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            if ( cudaMemcpyToArrayAsync( (cudaArray *)e->cuArray_parts , 0 , 0 , parts_cuda , sizeof(float4) * s->nr_cells * maxcount , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
         #else
             if ( cudaMemcpyAsync( e->parts_cuda[did] , parts_cuda , sizeof(float4) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
@@ -2691,9 +2946,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             tc = &tasks_cuda[nr_tasks];
             
             /* Skip pairs and self with wrong cid, keep all sorts. */
-            struct cell *ci = &s->cells[ t->i ];
-            if ( ( t->type == task_type_pair && (ci->loc[0]+ci->loc[1]+ci->loc[2]) % nr_devices != did ) ||
-                 ( t->type == task_type_self && (ci->loc[0]+ci->loc[1]+ci->loc[2]) % nr_devices != did ) )
+            if ( ( t->type == task_type_pair && t->i % nr_devices != did ) ||
+                 ( t->type == task_type_self && t->i % nr_devices != did ) )
                 continue;
             
             /* Copy the data. */
@@ -2805,9 +3059,13 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         if ( cudaMemcpyToSymbol( cuda_nr_parts , &s->nr_parts , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         #ifdef PARTS_TEX
-            if ( cudaMallocArray( (cudaArray **)&s->cuArray_parts , &channelDesc_float4 , maxcount , s->nr_cells ) != cudaSuccess )
+            tex_parts.addressMode[0] = cudaAddressModeClamp;
+            tex_parts.addressMode[1] = cudaAddressModeClamp;
+            tex_parts.filterMode = cudaFilterModePoint;
+            tex_parts.normalized = false;
+            if ( cudaMallocArray( (cudaArray **)&e->cuArray_parts[did] , &channelDesc_float4 , 512 , s->nr_cells ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
-            if ( cudaBindTextureToArray( tex_parts , (cudaArray *)s->cuArray_parts ) != cudaSuccess )
+            if ( cudaBindTextureToArray( tex_parts , (cudaArray *)e->cuArray_parts[did] ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
         #else
             if ( cudaMalloc( &e->parts_cuda[did] , sizeof( float4 ) * s->nr_parts ) != cudaSuccess )
@@ -2829,6 +3087,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     }
     
     
+
 
 
 
