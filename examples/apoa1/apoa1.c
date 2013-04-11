@@ -108,7 +108,8 @@ int main ( int argc , char *argv[] ) {
     struct potential *pot;
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
-    double L[] = { cutoff , cutoff , cutoff };
+    double L[] = { cutoff*1.05 , cutoff*1.05 , cutoff*1.05 };
+    int devices[] = { 0 , 1 };
     
     
     /* Start the clock. */
@@ -170,8 +171,8 @@ int main ( int argc , char *argv[] ) {
     fflush(stdout);
     
     #ifdef WITH_CUDA
-        if ( engine_cuda_setdevice( 0 ) != 0 ) {
-            printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
+        if ( engine_cuda_setdevices( &e , 2 , devices ) != 0 ) {
+            printf( "main[%i]: engine_cuda_setdevices failed with engine_err=%i.\n" , myrank , engine_err );
             errs_dump(stdout);
             abort();
             }
