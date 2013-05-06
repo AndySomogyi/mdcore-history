@@ -102,6 +102,9 @@ struct cell {
     /* Sorting task for this cell. */
     struct task *sort;
     
+    /*ID of the GPU this cell belongs to. */
+    int GPUID;
+    
     };
     
 

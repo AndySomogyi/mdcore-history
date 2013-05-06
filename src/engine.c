@@ -67,7 +67,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[27] = {
+char *engine_err_msg[29] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -94,7 +94,9 @@ char *engine_err_msg[27] = {
     "CUDA support is only available in single-precision.", 
     "Max. number of parts per cell exceeded.",
     "An error occured when calling a queue funtion.", 
-    "An error occured when evaluating a rigid constraint.", 
+    "An error occured when evaluating a rigid constraint.",
+    "Cell cutoff size doesn't work with METIS", 
+    "METIS library undefined",
 	};
 
 
@@ -498,7 +500,253 @@ int engine_split ( struct engine *e ) {
 
     }
         
-    
+    /**
+* @brief Split the computation domain over a number of nodes using METIS graph partitioning.
+*
+*@param e The #engine to split up.
+*@param N The number of computational nodes.
+*@param flags Flag telling whether to split the space for MPI or for GPUs.
+*
+*@return #engine_err_ok or < 0 on error (see #engine_err).
+*/        
+int engine_split_METIS ( struct engine *e, int N, int flags){
+#ifdef WITH_METIS
+//printf("Using METIS algorithm to split the space\n");
+int currentIndex, i,j,shiftDim,neighbor;
+idx_t vw; //Temporary vertex Weight store
+idx_t ew; //Temporary edge Weight store
+
+
+//Do single GPU version ie. N = 1
+if(N==1)
+{
+if( flags == engine_split_MPI )
+	{
+		for(i = 0; i < e->s.nr_cells; i++ )
+		{
+			e->s.cells[i].nodeID = 0;
+			
+		}
+}else if ( flags == engine_split_GPU )
+	{
+		for( i = 0 ; i < e->s.nr_cells ; i++ )
+		{
+			e->s.cells[i].GPUID = 0;
+		}
+
+
+	}
+return engine_err_ok;
+}
+
+//Values to adjust weighting of edges dependent on spatial share.
+//These values are taken from random simulations of vector distances as described in GONNET 2007.
+float FACE = 0.50004f;
+float EDGE = 0.16176f;
+float CORNER = 0.036213f;
+
+    int nr_pairs = 0;
+    for( i = 0; i < e->s.nr_tasks; i++ )
+	if(e->s.tasks[i].type == task_type_pair)
+		nr_pairs++;
+    nr_pairs *= 2;
+    /* Check inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+
+	/* Check cell size >= cutoff distance*/
+	if( e->s.h[0] < e->s.cutoff || e->s.h[1] < e->s.cutoff || e->s.h[2] < e->s.cutoff)
+		return error(engine_err_cutoff);
+	
+	//Need to include #include <metis.h>
+	/*Allocate memory required for METIS*/
+	/*Number of cells = number of nodes. */
+	idx_t *xadj = (idx_t*) malloc((e->s.nr_cells+1) * sizeof(idx_t));
+	if(xadj == NULL) return error(engine_err_malloc);
+	/*Number of edges = number of cellpairs */
+	idx_t *adjncy = (idx_t*) malloc (nr_pairs *2 * sizeof(idx_t));
+	if(adjncy == NULL) return error(engine_err_malloc);
+	/*Vertex Weights */
+	idx_t *vwgt = (idx_t*) malloc(e->s.nr_cells * sizeof(idx_t));
+	if(vwgt == NULL) return error(engine_err_malloc);
+	/*Edge Weights */
+	idx_t *adjwgt = (idx_t*) malloc(nr_pairs * 2 * sizeof(idx_t));
+	if(adjwgt == NULL) return error(engine_err_malloc);
+	/*Number vertices */
+	idx_t *nvtxs = (idx_t*) malloc(sizeof(idx_t));
+	if(nvtxs==NULL)return 1;
+	*nvtxs = e->s.nr_cells;
+	//Number constraints
+	idx_t *ncon = (idx_t*) malloc(sizeof(idx_t));
+	if(ncon==NULL)return 1;
+	*ncon = 1;
+	//Number partitions
+	idx_t *nparts = (idx_t*) malloc(sizeof(idx_t));
+	if(nparts==NULL)return 1;
+	*nparts = N;
+
+	/*results*/
+	idx_t *objval = (idx_t*) malloc(sizeof(idx_t));
+	if(objval==NULL)return 1;
+	idx_t *part = (idx_t*) malloc(e->s.nr_cells * (sizeof(idx_t)));
+	if(part==NULL)return 1;
+
+	//Loop over cell pairs and add to array if valid. Needs to be double loop.
+	currentIndex=0;
+	for(j=0; j<e->s.nr_cells; j++)
+{
+	vw=0;
+	ew=0;
+	xadj[j]=currentIndex;
+	for(i=0; i<e->s.nr_tasks; i++)
+	{
+		if(e->s.tasks[i].type == task_type_sort)
+			continue;
+		shiftDim=0;
+		//If the pair involves cell j.
+		if(e->s.tasks[i].i==j || e->s.tasks[i].j==j)
+		{
+			
+
+			//If type = self this is a self interaction. All particles interact (n^2-n interactions)
+			//Increment vertex weight by e->s.cell[j].count ^ 2 - e->s.cell[j].count
+			if(e->s.tasks[i].type == task_type_self)
+			{
+				vw+= e->s.cells[j].count*e->s.cells[j].count - e->s.cells[j].count;
+			}else{
+			//Find neighbor cell index.
+				if(e->s.tasks[i].i==j)
+					neighbor = e->s.tasks[i].j;
+				else
+					neighbor = e->s.tasks[i].i;
+
+				//Check how many shift==0.
+				if(e->s.cells[e->s.tasks[i].i].loc[0] == e->s.cells[e->s.tasks[i].j].loc[0])
+					shiftDim++;
+				if(e->s.cells[e->s.tasks[i].i].loc[1] == e->s.cells[e->s.tasks[i].j].loc[1])
+					shiftDim++;
+				if(e->s.cells[e->s.tasks[i].i].loc[2] == e->s.cells[e->s.tasks[i].j].loc[2])
+					shiftDim++;	
+
+				//If shiftDim = 2 this is a face interaction. Add edge from j to i
+				//Edge has weight e->s.cell[j].count * e->s.cell[neighbor].count * FACE	(Estimated number of distance calculations)		
+				if(shiftDim==2)
+				{
+					ew = e->s.cells[j].count * e->s.cells[neighbor].count * FACE;
+					//Vertex Weights are the sum of edge weights + self interaction
+					vw+= ew;
+					//Add an edge and the edge weight to the graph
+					adjncy[currentIndex] = neighbor;
+					adjwgt[currentIndex] = ew;
+					currentIndex++;
+				}
+	
+				//If shiftDim = 1 this is an edge interaction. Add edge from j to i
+				//Edge has weight e->s.cell[j].count * e->s.cell[neightbor.count * EDGE (Estimated number of distance calculations)
+				if(shiftDim==1)
+				{
+					ew = e->s.cells[j].count * e->s.cells[neighbor].count * EDGE;
+					//Vertex Weights are the sum of edge weights + self interaction
+					vw+=ew;
+					//Add an edge and the edge weight to the graph
+					adjncy[currentIndex] = neighbor;
+					adjwgt[currentIndex] = ew;				
+					currentIndex++;
+				}
+	
+	
+				//If shiftDim = 0 this is an corner interaction. Add edge from j to i
+				//Edge has weight e->s.cell[j].count * e->s.cell[neightbor.count * CORNER (Estimated number of distance calculations)
+				if(shiftDim==0)
+				{
+					ew = e->s.cells[j].count * e->s.cells[neighbor].count * CORNER;
+					//Vertex Weights are the sum of edge weights + self interaction
+					vw+=ew;
+					//Add an edge and the edge weight to the graph
+					adjncy[currentIndex] = neighbor;
+					adjwgt[currentIndex] = ew;				
+					currentIndex++;
+				}			
+			}
+				
+			
+		}
+	}
+	//We now know vertex weight.
+	vwgt[j] = vw;
+}
+
+	//Need to add the final thing METIS needs to xadj
+	xadj[e->s.nr_cells]=currentIndex;
+
+	//Setup METIS options
+	idx_t *options = (idx_t*) malloc(METIS_NOPTIONS * sizeof(idx_t));
+	if(options==NULL)return 1;
+	METIS_SetDefaultOptions(options);
+	options[METIS_OPTION_PTYPE]=METIS_PTYPE_KWAY;
+	options[METIS_OPTION_OBJTYPE]=METIS_OBJTYPE_CUT;
+	options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM;
+	options[METIS_OPTION_IPTYPE]=METIS_IPTYPE_GROW;
+	options[METIS_OPTION_NCUTS] = 1;
+	options[METIS_OPTION_NSEPS] = 1;
+	options[METIS_OPTION_NUMBERING] = 0; //C-style numbering :)
+	options[METIS_OPTION_NITER] = 10;
+	options[METIS_OPTION_SEED] = 1;
+	options[METIS_OPTION_CONTIG] = 1;
+	options[METIS_OPTION_UFACTOR] = 30;
+//	options[METIS_OPTION_DBGLVL] = METIS_DBG_INFO;
+
+	//Run METIS to partition the graph
+	METIS_PartGraphKway( nvtxs , ncon , xadj , adjncy , vwgt , NULL , adjwgt , nparts , NULL , NULL , options , objval , part );
+	if( flags == engine_split_MPI )
+	{
+		for(i = 0; i < e->s.nr_cells; i++ )
+		{
+			e->s.cells[i].nodeID = part[i];
+				//Not my cell? Mark as ghost.
+			if(part[i] != e->nodeID)
+				e->s.cells[i].flags |= cell_flag_ghost;
+			 e->nr_nodes = N;
+			
+		}
+	}else if ( flags == engine_split_GPU )
+	{
+		int part1 = 0;
+		int part2 = 0;
+		for( i = 0 ; i < e->s.nr_cells ; i++ )
+		{
+			e->s.cells[i].GPUID = part[i];
+			if(e->s.cells[i].GPUID == 0)
+				part1++;
+			else
+				part2++;
+		}
+		printf("%i  %i \n", part1, part2);
+
+
+	}
+
+/* Store the number of nodes. */
+   
+	/*Free memory used by METIS*/
+	free(xadj);
+	free(adjncy);
+	free(vwgt);
+	free(adjwgt);
+	free(nvtxs);
+	free(ncon);
+	free(nparts);
+	free(objval);
+	free(part);
+	free(options);
+printf("Successfully split the space\n");
+
+/* Call it a day. */
+    return engine_err_ok;
+#else
+return engine_err_nometis;
+#endif
+} 
 /**
  * @brief Split the computational domain over a number of nodes using
  *      bisection.

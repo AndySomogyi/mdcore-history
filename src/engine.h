@@ -46,6 +46,8 @@
 #define engine_err_maxparts              -24
 #define engine_err_queue                 -25
 #define engine_err_rigid                 -26
+#define engine_err_cutoff		 		 -27
+#define engine_err_nometis				 -28
 
 
 /* some constants */
@@ -74,10 +76,13 @@
 #define engine_readbuff                  16384
 #define engine_maxgpu                    10
 
+#define engine_split_MPI		1
+#define engine_split_GPU		2
+
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
 
-/** Timer IDs. */
+/** Timmer IDs. */
 enum {
     engine_timer_step = 0,
     engine_timer_prepare,
@@ -115,6 +120,9 @@ struct engine {
 
     /** Some flags controlling how this engine works. */
     unsigned int flags;
+
+/** Some flags controlling which cuda scheduling we use. */
+    unsigned int flags_cuda;
 
     /** The space on which to work */
     struct space s;
@@ -216,8 +224,10 @@ struct engine {
         float *forces_cuda[ engine_maxgpu ];
         void *cuArray_parts[ engine_maxgpu ], *parts_cuda[ engine_maxgpu ];
         void *parts_cuda_local;
-        int *counts_cuda[ engine_maxgpu ], *counts_cuda_local;
-        int *ind_cuda[ engine_maxgpu ], *ind_cuda_local;
+	int *cells_cuda_local[ engine_maxgpu];
+	int cells_cuda_nr[ engine_maxgpu ];
+        int *counts_cuda[ engine_maxgpu ], *counts_cuda_local[ engine_maxgpu ];
+        int *ind_cuda[ engine_maxgpu ], *ind_cuda_local[ engine_maxgpu ];
         struct task_cuda *tasks_cuda[ engine_maxgpu ];
         int *taboo_cuda[ engine_maxgpu ];
         int nrtasks_cuda[ engine_maxgpu ];
@@ -337,14 +347,18 @@ int engine_verlet_update ( struct engine *e );
         extern "C" int engine_cuda_load ( struct engine *e );
         extern "C" int engine_cuda_load_parts ( struct engine *e );
         extern "C" int engine_cuda_unload_parts ( struct engine *e );
-        extern "C" int engine_cuda_setdevice ( struct engine *e , int id );
-        extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
+        extern "C" int engine_cuda_setdevice ( struct engine *e , int id , unsigned int cuda_flags );
+        extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids , unsigned int cuda_flags);
+	extern "C" int engine_split_METIS ( struct engine *e, int N, int flags);
     #else
         int engine_nonbond_cuda ( struct engine *e );
         int engine_cuda_load ( struct engine *e );
         int engine_cuda_load_parts ( struct engine *e );
         int engine_cuda_unload_parts ( struct engine *e );
-        int engine_cuda_setdevice ( struct engine *e , int id );
-        int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
+        int engine_cuda_setdevice ( struct engine *e , int id , unsigned int cuda_flags );
+        int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids , unsigned int cuda_flags );
+	int engine_split_METIS ( struct engine *e, int N, int flags);
     #endif
+#else
+	int engine_split_METIS ( struct engine *e, int N, int flags);
 #endif
