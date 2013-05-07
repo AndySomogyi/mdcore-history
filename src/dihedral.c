@@ -978,9 +978,6 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
                 potential_eval_r( pot , cphiq , &ee , &eff );
             #endif
             
-            if ( pi->id == 2271 || pj->id == 2271 || pk->id == 2271 || pl->id == 2271 )
-                printf( "dihedral_eval: cphi=%e , ee=%e , eff=%e.\n" , cphiq , ee , eff );
-            
             /* update the forces */
             for ( k = 0 ; k < 3 ; k++ ) {
                 pi->f[k] -= ( wi = eff * dxi[k] );
