@@ -176,7 +176,7 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
         t25 = -FPTYPE_TWO*xj[1];
         t26 = -FPTYPE_TWO*xj[0];
         t6 = (t24+xi[2])*xi[2]+(t25+xi[1])*xi[1]+(t26+xi[0])*xi[0]+t21;
-        t3 = FPTYPE_ONE/sqrt(t6);
+        t3 = FPTYPE_ONE/FPTYPE_SQRT(t6);
         t10 = xk[0]-xj[0];
         t11 = xi[2]-xj[2];
         t12 = xi[1]-xj[1];
@@ -186,7 +186,7 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
         t7 = t13*t10+t12*t9+t11*t8;
         t27 = t3*t7;
         t5 = (t24+xk[2])*xk[2]+(t25+xk[1])*xk[1]+(t26+xk[0])*xk[0]+t21;
-        t1 = FPTYPE_ONE/sqrt(t5);
+        t1 = FPTYPE_ONE/FPTYPE_SQRT(t5);
         t23 = t1/t5*t7;
         t22 = FPTYPE_ONE/t6*t27;
         dxi[0] = (t10*t3-t13*t22)*t1;
@@ -356,8 +356,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
     struct cell **celllist;
     struct potential *pot;
     FPTYPE xi[3], xj[3], xk[3], dxi[3] , dxk[3], ctheta, wi, wk;
-    register FPTYPE t1, t10, t11, t12, t13, t21, t22, t23, t24, t25, t26, t27, t3,
-        t5, t6, t7, t8, t9, t4, t14, t2;
+    FPTYPE rji[3], rjk[3], inji, injk, dprod;
     struct potential **pots;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
@@ -423,35 +422,25 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
             xk[k] = pk->x[k] + shift*h[k];
             }
             
-        /* This is Maple-generated code, see "angles.maple" for details. */
-        t2 = xj[2]*xj[2];
-        t4 = xj[1]*xj[1];
-        t14 = xj[0]*xj[0];
-        t21 = t2+t4+t14;
-        t24 = -FPTYPE_TWO*xj[2];
-        t25 = -FPTYPE_TWO*xj[1];
-        t26 = -FPTYPE_TWO*xj[0];
-        t6 = (t24+xi[2])*xi[2]+(t25+xi[1])*xi[1]+(t26+xi[0])*xi[0]+t21;
-        t3 = FPTYPE_ONE/sqrt(t6);
-        t10 = xk[0]-xj[0];
-        t11 = xi[2]-xj[2];
-        t12 = xi[1]-xj[1];
-        t13 = xi[0]-xj[0];
-        t8 = xk[2]-xj[2];
-        t9 = xk[1]-xj[1];
-        t7 = t13*t10+t12*t9+t11*t8;
-        t27 = t3*t7;
-        t5 = (t24+xk[2])*xk[2]+(t25+xk[1])*xk[1]+(t26+xk[0])*xk[0]+t21;
-        t1 = FPTYPE_ONE/sqrt(t5);
-        t23 = t1/t5*t7;
-        t22 = FPTYPE_ONE/t6*t27;
-        dxi[0] = (t10*t3-t13*t22)*t1;
-        dxi[1] = (t9*t3-t12*t22)*t1;
-        dxi[2] = (t8*t3-t11*t22)*t1;
-        dxk[0] = (t13*t1-t10*t23)*t3;
-        dxk[1] = (t12*t1-t9*t23)*t3;
-        dxk[2] = (t11*t1-t8*t23)*t3;
-        ctheta = FPTYPE_FMAX( -FPTYPE_ONE , FPTYPE_FMIN( FPTYPE_ONE , t1*t27 ) );
+        /* Get the angle rays. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            rji[k] = xi[k] - xj[k];
+            rjk[k] = xk[k] - xj[k];
+            }
+            
+        /* Compute some quantities we will re-use. */
+        dprod = rji[0]*rjk[0] + rji[1]*rjk[1] + rji[2]*rjk[2];
+        inji = FPTYPE_ONE / FPTYPE_SQRT( rji[0]*rji[0] + rji[1]*rji[1] + rji[2]*rji[2] );
+        injk = FPTYPE_ONE / FPTYPE_SQRT( rjk[0]*rjk[0] + rjk[1]*rjk[1] + rjk[2]*rjk[2] );
+        
+        /* Compute the cosine. */
+        ctheta = FPTYPE_FMAX( -FPTYPE_ONE , FPTYPE_FMIN( FPTYPE_ONE , dprod * inji * injk ) );
+        
+        /* Set the derivatives. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            dxi[k] = ( rjk[k]*injk - ctheta * rji[k]*inji ) * inji;
+            dxk[k] = ( rji[k]*inji - ctheta * rjk[k]*injk ) * injk;
+            }
         
         /* printf( "angle_eval: cos of angle %i (%s-%s-%s) is %e.\n" , aid ,
             e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , ctheta ); */
@@ -471,7 +460,7 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
         if ( ctheta < pot->a || ctheta > pot->b ) {
             printf( "angle_eval[%i]: angle %i (%s-%s-%s) out of range [%e,%e], ctheta=%e.\n" ,
                 e->nodeID , aid , e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , pot->a , pot->b , ctheta );
-            ctheta = fmax( pot->a , fmin( pot->b , ctheta ) );
+            ctheta = FPTYPE_FMAX( pot->a , FPTYPE_FMIN( pot->b , ctheta ) );
             }
 
         #ifdef VECTORIZE
