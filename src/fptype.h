@@ -23,7 +23,9 @@
         /** The default basic type is double. */
         typedef double FPTYPE;
         #define FPTYPE_EPSILON DBL_EPSILON
-        #define FPTYPE_DOUBLE
+        #ifndef FPTYPE_DOUBLE
+            #define FPTYPE_DOUBLE
+        #endif
         #define FPTYPE_ONE 1.0
         #define FPTYPE_TWO 2.0
         #define FPTYPE_ZERO 0.0
@@ -182,7 +184,7 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     
     /* Return the sum of squares. */
     return d.f[0];
-#elif defined(FPTYPE_DOUBLE) && defined(__SSE4_1__)
+#elif defined(FPTYPE_DOUBLE) && defined(NO__SSE4_1__)
     union {
         vector(2,double) v;
         double f[2];
@@ -206,7 +208,7 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     
     /* Return the sum of squares. */
     return d1.f[0] + d2.f[0];
-#elif defined(FPTYPE_DOUBLE) && defined(__SSE3__)
+#elif defined(FPTYPE_DOUBLE) && defined(NO__SSE3__)
     union {
         vector(2,double) v;
         double f[2];
