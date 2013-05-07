@@ -26,7 +26,9 @@
 /* Some constants. */
 #define rigid_maxparts                  10
 #define rigid_maxconstr                 (3*rigid_maxparts)
-#define rigid_maxiter                   50
+#define rigid_maxiter                   100
+#define rigid_pshake_refine             4
+#define rigid_pshake_maxalpha           0.1f
 
 
 /** ID of the last error */
@@ -50,9 +52,13 @@ struct rigid {
         int i, j;
         double d2;
         } constr[ rigid_maxconstr ];
+        
+    /** The constraint shuffle matrix. */
+    float a[ rigid_maxconstr*rigid_maxconstr ];
     
     };
     
 
 /* associated functions */
 int rigid_eval_shake ( struct rigid *r , int N , struct engine *e );
+int rigid_eval_pshake ( struct rigid *r , int N , struct engine *e , int a_update );
