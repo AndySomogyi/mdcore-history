@@ -187,10 +187,15 @@ int space_prepare ( struct space *s ) {
 
     int pid, cid, j, k;
 
-    /* re-set next_pair */
+    /* re-set some counters. */
     s->nr_swaps = 0;
     s->nr_stalls = 0;
     s->epot = 0.0;
+    s->epot_nonbond = 0.0;
+    s->epot_bond = 0.0;
+    s->epot_angle = 0.0;
+    s->epot_dihedral = 0.0;
+    s->epot_exclusion = 0.0;
     
     /* Run through the tasks and set the waits. */
     for ( k = 0 ; k < s->nr_tasks ; k++ )

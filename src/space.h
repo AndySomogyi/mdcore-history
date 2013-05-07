@@ -130,7 +130,7 @@ struct space {
     FPTYPE maxdx;
     
     /** Potential energy collected by the space itself. */
-    double epot;
+    double epot, epot_nonbond, epot_bond, epot_angle, epot_dihedral, epot_exclusion;
 
     };
     

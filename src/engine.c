@@ -1837,6 +1837,7 @@ int engine_advance ( struct engine *e ) {
         }
             
     /* Store the accumulated potential energy. */
+    s->epot_nonbond += epot;
     s->epot += epot;
         
     /* return quietly */

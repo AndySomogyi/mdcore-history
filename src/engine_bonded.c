@@ -76,11 +76,11 @@
  
 int engine_bonded_eval_sets ( struct engine *e ) {
 
-    double epot = 0.0;
+    double epot_bond = 0.0, epot_angle = 0.0, epot_dihedral = 0.0, epot_exclusion = 0.0;
     #ifdef HAVE_OPENMP
         int sets_taboo[ e->nr_sets];
         int k, j, set_curr, sets_next = 0, sets_ind[ e->nr_sets ];
-        double epot_local;
+        double epot_local_bond = 0.0, epot_local_angle = 0.0, epot_local_dihedral = 0.0, epot_local_exclusion = 0.0;
         ticks toc_bonds, toc_angles, toc_dihedrals, toc_exclusions;
     #endif
     ticks tic;
@@ -93,12 +93,16 @@ int engine_bonded_eval_sets ( struct engine *e ) {
             sets_taboo[k] = 0;
             }
     
-        #pragma omp parallel private(k,j,set_curr,epot_local,toc_bonds,toc_angles,toc_dihedrals,toc_exclusions)
+        #pragma omp parallel private(k,j,set_curr,epot_local_bond,epot_local_angle,epot_local_dihedral,epot_local_exclusion,toc_bonds,toc_angles,toc_dihedrals,toc_exclusions)
         if ( e->nr_sets > 0 && omp_get_num_threads() > 1 ) {
         
             /* Init local counters. */
             toc_bonds = 0; toc_angles = 0; toc_dihedrals = 0; toc_exclusions = 0;
-            epot_local = 0.0; set_curr = -1;
+            epot_local_bond = 0.0;
+            epot_local_angle = 0.0;
+            epot_local_dihedral = 0.0;
+            epot_local_exclusion = 0.0;
+            set_curr = -1;
             
             /* Main loop. */
             while ( sets_next < e->nr_sets ) {
@@ -137,26 +141,26 @@ int engine_bonded_eval_sets ( struct engine *e ) {
                     break;
                     
                 /* Evaluate the bonded interaction in the set. */
+                /* Do exclusions. */
+                tic = getticks();
+                exclusion_eval( e->sets[set_curr].exclusions , e->sets[set_curr].nr_exclusions , e , &epot_local_exclusion );
+                toc_exclusions += getticks() - tic;
+                
                 /* Do bonds. */
                 tic = getticks();
-                bond_eval( e->sets[set_curr].bonds , e->sets[set_curr].nr_bonds , e , &epot_local );
+                bond_eval( e->sets[set_curr].bonds , e->sets[set_curr].nr_bonds , e , &epot_local_bond );
                 toc_bonds += getticks() - tic;
 
                 /* Do angles. */
                 tic = getticks();
-                angle_eval( e->sets[set_curr].angles , e->sets[set_curr].nr_angles , e , &epot_local );
+                angle_eval( e->sets[set_curr].angles , e->sets[set_curr].nr_angles , e , &epot_local_angle );
                 toc_angles += getticks() - tic;
 
                 /* Do dihedrals. */
                 tic = getticks();
-                dihedral_eval( e->sets[set_curr].dihedrals , e->sets[set_curr].nr_dihedrals , e , &epot_local );
+                dihedral_eval( e->sets[set_curr].dihedrals , e->sets[set_curr].nr_dihedrals , e , &epot_local_dihedral );
                 toc_dihedrals += getticks() - tic;
 
-                /* Do exclusions. */
-                tic = getticks();
-                exclusion_eval( e->sets[set_curr].exclusions , e->sets[set_curr].nr_exclusions , e , &epot_local );
-                toc_exclusions += getticks() - tic;
-                
                 /* Un-mark conflicting sets. */
                 #pragma omp critical (taboo)
                 for ( k = 0 ; k < e->sets[set_curr].nr_confl ; k++ )
@@ -171,7 +175,10 @@ int engine_bonded_eval_sets ( struct engine *e ) {
                 e->timers[engine_timer_angles] += toc_angles;
                 e->timers[engine_timer_dihedrals] += toc_dihedrals;
                 e->timers[engine_timer_exclusions] += toc_exclusions;
-                epot += epot_local;
+                epot_bond += epot_local_bond;
+                epot_angle += epot_local_angle;
+                epot_dihedral += epot_local_dihedral;
+                epot_exclusion += epot_local_exclusion;
                 }
             
             }
@@ -179,56 +186,61 @@ int engine_bonded_eval_sets ( struct engine *e ) {
         /* Otherwise, just do the sequential thing. */
         else {
         
+            /* Do exclusions. */
             tic = getticks();
-            bond_eval( e->bonds , e->nr_bonds , e , &epot );
+            exclusion_eval( e->exclusions , e->nr_exclusions , e , &epot_exclusion );
+            e->timers[engine_timer_exclusions] += getticks() - tic;
+        
+            /* Do bonds. */
+            tic = getticks();
+            bond_eval( e->bonds , e->nr_bonds , e , &epot_bond );
             e->timers[engine_timer_bonds] += getticks() - tic;
 
             /* Do angles. */
             tic = getticks();
-            angle_eval( e->angles , e->nr_angles , e , &epot );
+            angle_eval( e->angles , e->nr_angles , e , &epot_angle );
             e->timers[engine_timer_angles] += getticks() - tic;
 
             /* Do dihedrals. */
             tic = getticks();
-            dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot );
+            dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot_dihedral );
             e->timers[engine_timer_dihedrals] += getticks() - tic;
 
-            /* Do exclusions. */
-            tic = getticks();
-            exclusion_eval( e->exclusions , e->nr_exclusions , e , &epot );
-            e->timers[engine_timer_exclusions] += getticks() - tic;
-        
             }
     #else
 
+        /* Do exclusions. */
+        tic = getticks();
+        if ( exclusion_eval( e->exclusions , e->nr_exclusions , e , &epot_exclusion ) < 0 )
+            return error(engine_err_exclusion);
+        e->timers[engine_timer_exclusions] += getticks() - tic;
+            
         /* Do bonds. */
         tic = getticks();
-        if ( bond_eval( e->bonds , e->nr_bonds , e , &epot ) < 0 )
+        if ( bond_eval( e->bonds , e->nr_bonds , e , &epot_bond ) < 0 )
             return error(engine_err_bond);
         e->timers[engine_timer_bonds] += getticks() - tic;
             
         /* Do angles. */
         tic = getticks();
-        if ( angle_eval( e->angles , e->nr_angles , e , &epot ) < 0 )
+        if ( angle_eval( e->angles , e->nr_angles , e , &epot_angle ) < 0 )
             return error(engine_err_angle);
         e->timers[engine_timer_angles] += getticks() - tic;
             
         /* Do dihedrals. */
         tic = getticks();
-        if ( dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot ) < 0 )
+        if ( dihedral_eval( e->dihedrals , e->nr_dihedrals , e , &epot_dihedral ) < 0 )
             return error(engine_err_dihedral);
         e->timers[engine_timer_dihedrals] += getticks() - tic;
-            
-        /* Do exclusions. */
-        tic = getticks();
-        if ( exclusion_eval( e->exclusions , e->nr_exclusions , e , &epot ) < 0 )
-            return error(engine_err_exclusion);
-        e->timers[engine_timer_exclusions] += getticks() - tic;
             
     #endif
         
     /* Store the potential energy. */
-    e->s.epot += epot;
+    e->s.epot += epot_bond + epot_angle + epot_dihedral + epot_exclusion;
+    e->s.epot_bond += epot_bond;
+    e->s.epot_angle += epot_angle;
+    e->s.epot_dihedral += epot_dihedral;
+    e->s.epot_exclusion += epot_exclusion;
     
     /* I'll be back... */
     return engine_err_ok;
@@ -1294,7 +1306,7 @@ int engine_bond_add ( struct engine *e , int i , int j ) {
  
 int engine_bonded_eval ( struct engine *e ) {
 
-    double epot = 0.0;
+    double epot_bond = 0.0, epot_angle = 0.0, epot_dihedral = 0.0, epot_exclusion = 0.0;
     struct space *s;
     struct dihedral dtemp;
     struct angle atemp;
@@ -1305,7 +1317,7 @@ int engine_bonded_eval ( struct engine *e ) {
     int i, j, k;
     #ifdef HAVE_OPENMP
         int nr_threads, thread_id;
-        double epot_local;
+        double epot_local_bond = 0.0, epot_local_angle = 0.0, epot_local_dihedral = 0.0, epot_local_exclusion = 0.0;
     #endif
     ticks tic;
     
@@ -1425,90 +1437,102 @@ int engine_bonded_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(thread_id,nr_threads,epot_local)
+        #pragma omp parallel private(thread_id,nr_threads,epot_local_bond,epot_local_angle,epot_local_dihedral,epot_local_exclusion)
         if ( ( e->flags & engine_flag_parbonded ) &&
              ( ( nr_threads = omp_get_num_threads() ) > 1 ) &&
              ( nr_bonds + nr_angles + nr_dihedrals ) > 0 ) {
              
             /* Init the local potential energy. */
-            epot_local = 0;
+            epot_local_bond = 0;
+            epot_local_angle = 0;
+            epot_local_dihedral = 0;
+            epot_local_exclusion = 0;
              
             /* Get the thread ID. */
             thread_id = omp_get_thread_num();
 
+            /* Correct for excluded interactons. */
+            exclusion_eval_div( e->exclusions , nr_exclusions , nr_threads , thread_id , e , &epot_local_exclusion );
+              
             /* Compute the bonded interactions. */
-            bond_eval_div( e->bonds , nr_bonds , nr_threads , thread_id , e , &epot_local );
+            bond_eval_div( e->bonds , nr_bonds , nr_threads , thread_id , e , &epot_local_bond );
                     
             /* Compute the angle interactions. */
-            angle_eval_div( e->angles , nr_angles , nr_threads , thread_id , e , &epot_local );
+            angle_eval_div( e->angles , nr_angles , nr_threads , thread_id , e , &epot_local_angle );
                     
             /* Compute the dihedral interactions. */
-            dihedral_eval_div( e->dihedrals , nr_dihedrals , nr_threads , thread_id , e , &epot_local );
+            dihedral_eval_div( e->dihedrals , nr_dihedrals , nr_threads , thread_id , e , &epot_local_dihedral );
                     
-            /* Correct for excluded interactons. */
-            exclusion_eval_div( e->exclusions , nr_exclusions , nr_threads , thread_id , e , &epot_local );
-              
             /* Aggregate the global potential energy. */
-            #pragma omp atomic
-            epot += epot_local;
+            #pragma omp critical
+            {
+                epot_bond += epot_local_bond;
+                epot_angle += epot_local_angle;
+                epot_dihedral += epot_local_dihedral;
+                epot_exclusion += epot_local_exclusion;
+                }
                     
             }
             
         /* Otherwise, evaluate directly. */
         else if ( omp_get_thread_num() == 0 ) {
         
+            /* Do exclusions. */
+            tic = getticks();
+            exclusion_eval( e->exclusions , nr_exclusions , e , &epot_exclusion );
+            e->timers[engine_timer_exclusions] += getticks() - tic;
+            
             /* Do bonds. */
             tic = getticks();
-            bond_eval( e->bonds , nr_bonds , e , &epot );
+            bond_eval( e->bonds , nr_bonds , e , &epot_bond );
             e->timers[engine_timer_bonds] += getticks() - tic;
             
             /* Do angles. */
             tic = getticks();
-            angle_eval( e->angles , nr_angles , e , &epot );
+            angle_eval( e->angles , nr_angles , e , &epot_angle );
             e->timers[engine_timer_angles] += getticks() - tic;
             
             /* Do dihedrals. */
             tic = getticks();
-            dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot );
+            dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot_dihedral );
             e->timers[engine_timer_dihedrals] += getticks() - tic;
-            
-            /* Do exclusions. */
-            tic = getticks();
-            exclusion_eval( e->exclusions , nr_exclusions , e , &epot );
-            e->timers[engine_timer_exclusions] += getticks() - tic;
             
             }
             
     #else
     
+        /* Do exclusions. */
+        tic = getticks();
+        if ( exclusion_eval( e->exclusions , nr_exclusions , e , &epot_exclusion ) < 0 )
+            return error(engine_err_exclusion);
+        e->timers[engine_timer_exclusions] += getticks() - tic;
+            
         /* Do bonds. */
         tic = getticks();
-        if ( bond_eval( e->bonds , nr_bonds , e , &epot ) < 0 )
+        if ( bond_eval( e->bonds , nr_bonds , e , &epot_bond ) < 0 )
             return error(engine_err_bond);
         e->timers[engine_timer_bonds] += getticks() - tic;
             
         /* Do angles. */
         tic = getticks();
-        if ( angle_eval( e->angles , nr_angles , e , &epot ) < 0 )
+        if ( angle_eval( e->angles , nr_angles , e , &epot_angle ) < 0 )
             return error(engine_err_angle);
         e->timers[engine_timer_angles] += getticks() - tic;
             
         /* Do dihedrals. */
         tic = getticks();
-        if ( dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot ) < 0 )
+        if ( dihedral_eval( e->dihedrals , nr_dihedrals , e , &epot_dihedral ) < 0 )
             return error(engine_err_dihedral);
         e->timers[engine_timer_dihedrals] += getticks() - tic;
-            
-        /* Do exclusions. */
-        tic = getticks();
-        if ( exclusion_eval( e->exclusions , nr_exclusions , e , &epot ) < 0 )
-            return error(engine_err_exclusion);
-        e->timers[engine_timer_exclusions] += getticks() - tic;
             
     #endif
         
     /* Store the potential energy. */
-    s->epot += epot;
+    s->epot += epot_bond + epot_angle + epot_dihedral + epot_exclusion;
+    s->epot_bond += epot_bond;
+    s->epot_angle += epot_angle;
+    s->epot_dihedral += epot_dihedral;
+    s->epot_exclusion += epot_exclusion;
     
     /* I'll be back... */
     return engine_err_ok;
@@ -1895,6 +1919,7 @@ int engine_dihedral_eval ( struct engine *e ) {
         
     /* Store the potential energy. */
     s->epot += epot;
+    s->epot_dihedral += epot;
     
     /* I'll be back... */
     return engine_err_ok;
@@ -1999,6 +2024,7 @@ int engine_angle_eval ( struct engine *e ) {
         
     /* Store the potential energy. */
     s->epot += epot;
+    s->epot_angle += epot;
     
     /* I'll be back... */
     return engine_err_ok;
@@ -2082,6 +2108,7 @@ int engine_exclusion_eval ( struct engine *e ) {
         
     /* Store the potential energy. */
     s->epot += epot;
+    s->epot_exclusion += epot;
     
     /* I'll be back... */
     return engine_err_ok;
@@ -2184,6 +2211,7 @@ int engine_bond_eval ( struct engine *e ) {
         
     /* Store the potential energy. */
     s->epot += epot;
+    s->epot_bond += epot;
     
     /* I'll be back... */
     return engine_err_ok;
