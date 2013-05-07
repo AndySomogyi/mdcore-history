@@ -110,13 +110,14 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
             }
 
         /* Store this rigid. */
-        e->rigids[ e->nr_rigids ].nr_parts = 2;
-        e->rigids[ e->nr_rigids ].nr_constr = 1;
-        e->rigids[ e->nr_rigids ].parts[0] = pid;
-        e->rigids[ e->nr_rigids ].parts[1] = pjd;
-        e->rigids[ e->nr_rigids ].constr[0].i = 0;
-        e->rigids[ e->nr_rigids ].constr[0].j = 1;
-        e->rigids[ e->nr_rigids ].constr[0].d2 = d*d;
+        r = &e->rigids[ e->nr_rigids ];
+        r->nr_parts = 2;
+        r->nr_constr = 1;
+        r->parts[0] = pid;
+        r->parts[1] = pjd;
+        r->constr[0].i = 0;
+        r->constr[0].j = 1;
+        r->constr[0].d2 = d*d;
         e->part2rigid[pid] = e->nr_rigids;
         e->part2rigid[pjd] = e->nr_rigids;
         e->nr_rigids += 1;
@@ -204,6 +205,11 @@ int engine_rigid_add ( struct engine *e , int pid , int pjd , double d ) {
         r->nr_constr += 1;
         
         }
+        
+    /* Fill the constraint shuffle matrix. */
+    bzero( r->a , sizeof(float) * r->nr_constr * r->nr_constr );
+    for ( k = 0 ; k < r->nr_constr ; k++ )
+        r->a[ k + k*r->nr_constr ] = 1.0f;
         
     /* Re-set the rigid local/semilocal counts. */
     e->rigids_local = e->rigids_semilocal = e->nr_rigids;
@@ -389,16 +395,24 @@ int engine_rigid_eval ( struct engine *e ) {
                         }
                 
                     /* Compute the bonded interactions. */
-                    if ( count > 0 )
-                        rigid_eval_shake( &e->rigids[finger] , count , e );
+                    if ( count > 0 ) {
+                        if ( e->flags & engine_flag_shake )
+                            rigid_eval_shake( &e->rigids[finger] , count , e );
+                        else
+                            rigid_eval_pshake( &e->rigids[finger] , count , e , (e->time < engine_pshake_steps) );
+                        }
                 
                     } /* main loop. */
 
                 }
 
             /* Otherwise, evaluate directly. */
-            else if ( omp_get_thread_num() == 0 )
-                rigid_eval_shake( e->rigids , nr_local , e );
+            else if ( omp_get_thread_num() == 0 ) {
+                if ( e->flags & engine_flag_shake )
+                    rigid_eval_shake( e->rigids , nr_local , e );
+                else
+                    rigid_eval_pshake( e->rigids , nr_local , e , (e->time < engine_pshake_steps) );
+                }
                 
                 
 #ifdef WITH_MPI
@@ -440,22 +454,36 @@ int engine_rigid_eval ( struct engine *e ) {
                         }
                 
                     /* Compute the bonded interactions. */
-                    if ( count > 0 )
-                        rigid_eval_shake( &e->rigids[finger] , count , e );
+                    if ( count > 0 ) {
+                        if ( e->flags & engine_flag_shake )
+                            rigid_eval_shake( &e->rigids[finger] , count , e );
+                        else
+                            rigid_eval_pshake( &e->rigids[finger] , count , e , (e->time < engine_pshake_steps) );
+                        }
                 
                     } /* main loop. */
 
                 }
 
             /* Otherwise, evaluate directly. */
-            else if ( omp_get_thread_num() == 0 )
-                rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e );
+            else if ( omp_get_thread_num() == 0 ) {
+                if ( e->flags & engine_flag_shake )
+                    rigid_eval_shake( &e->rigids[nr_local] , nr_rigids-nr_local , e );
+                else
+                    rigid_eval_pshake( &e->rigids[nr_local] , nr_rigids-nr_local , e , (e->time < engine_pshake_steps) );
+                }
                 
         #else
         
             /* Shake local rigids. */
-            if ( rigid_eval_shake( e->rigids , nr_local , e ) < 0 )
-                return error(engine_err_rigid);
+            if ( e->flags & engine_flag_shake ) {
+                if ( rigid_eval_shake( e->rigids , nr_local , e ) < 0 )
+                    return error(engine_err_rigid);
+                }
+            else {
+                if ( rigid_eval_pshake( e->rigids , nr_local , e , (e->time < engine_pshake_steps) ) < 0 )
+                    return error(engine_err_rigid);
+                }
                 
             /* Wait for exchange to come in. */
             tic = getticks();
@@ -467,8 +495,14 @@ int engine_rigid_eval ( struct engine *e ) {
             e->timers[engine_timer_verlet] -= tic;
                 
             /* Shake semi-local rigids. */
-            if ( rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e ) < 0 )
-                return error(engine_err_rigid);
+            if ( e->flags & engine_flag_shake ) {
+                if ( rigid_eval_shake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e ) < 0 )
+                    return error(engine_err_rigid);
+                }
+            else {
+                if ( rigid_eval_pshake( &(e->rigids[nr_local]) , nr_rigids-nr_local , e , (e->time < engine_pshake_steps) ) < 0 )
+                    return error(engine_err_rigid);
+                }
                 
         #endif
     
@@ -507,21 +541,35 @@ int engine_rigid_eval ( struct engine *e ) {
                         }
                 
                     /* Compute the bonded interactions. */
-                    if ( count > 0 )
-                        rigid_eval_shake( &e->rigids[finger] , count , e );
+                    if ( count > 0 ) {
+                        if ( e->flags & engine_flag_shake )
+                            rigid_eval_shake( &e->rigids[finger] , count , e );
+                        else
+                            rigid_eval_pshake( &e->rigids[finger] , count , e , (e->time < engine_pshake_steps) );
+                        }
                 
                     } /* main loop. */
 
                 }
 
             /* Otherwise, evaluate directly. */
-            else if ( omp_get_thread_num() == 0 )
-                rigid_eval_shake( e->rigids , nr_rigids , e );
+            else if ( omp_get_thread_num() == 0 ) {
+                if ( e->flags & engine_flag_shake )
+                    rigid_eval_shake( e->rigids , nr_rigids , e );
+                else
+                    rigid_eval_pshake( e->rigids , nr_rigids , e , (e->time < engine_pshake_steps) );
+                }
                 
         #else
         
-            if ( rigid_eval_shake( e->rigids , nr_rigids , e ) < 0 )
-                return error(engine_err_rigid);
+            if ( e->flags & engine_flag_shake ) {
+                if ( rigid_eval_shake( e->rigids , nr_rigids , e ) < 0 )
+                    return error(engine_err_rigid);
+                }
+            else {
+                if ( rigid_eval_pshake( e->rigids , nr_rigids , e , (e->time < engine_pshake_steps) ) < 0 )
+                    return error(engine_err_rigid);
+                }
                 
         #endif
     

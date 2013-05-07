@@ -62,6 +62,7 @@
 #define engine_flag_prefetch             128
 #define engine_flag_verlet_pseudo        256
 #define engine_flag_unsorted             512
+#define engine_flag_shake                1024
 #define engine_flag_mpi                  2048
 #define engine_flag_parbonded            4096
 #define engine_flag_async                8192
@@ -75,6 +76,7 @@
 #define engine_exclusions_chunk          100
 #define engine_readbuff                  16384
 #define engine_maxgpu                    10
+#define engine_pshake_steps              20
 
 #define engine_split_MPI		1
 #define engine_split_GPU		2
