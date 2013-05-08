@@ -265,7 +265,7 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
     
     /* Store the potential energy. */
     if ( epot_out != NULL )
-        *epot_out += epot;
+        *epot_out -= epot;
     
     /* We're done here. */
     return exclusion_err_ok;
@@ -471,7 +471,7 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
     
     /* Store the potential energy. */
     if ( epot_out != NULL )
-        *epot_out += epot;
+        *epot_out -= epot;
     
     /* We're done here. */
     return exclusion_err_ok;
@@ -499,7 +499,7 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
     struct part *pi, *pj, **partlist;
     struct cell **celllist;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w;
+    FPTYPE dx[3], r2, w, cutoff2;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -511,6 +511,8 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
 #else
     FPTYPE ee, eff;
 #endif
+    // FPTYPE maxepot = FPTYPE_ZERO;
+    // int maxepot_id = 0;
     
     /* Check inputs. */
     if ( b == NULL || e == NULL )
@@ -522,6 +524,7 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
     partlist = s->partlist;
     celllist = s->celllist;
     ld_pots = e->max_type;
+    cutoff2 = s->cutoff2;
     for ( k = 0 ; k < 3 ; k++ )
         h[k] = s->h[k];
         
@@ -556,7 +559,7 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
             }
         
         /* Out of range? */
-        if ( r2 > pot->b*pot->b )
+        if ( r2 > cutoff2 )
             continue;
 
         #ifdef VECTORIZE
@@ -617,7 +620,11 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
                 }
 
             /* tabulate the energy */
-            epot -= ee;
+            epot += ee;
+            /* if ( FPTYPE_FABS(ee) > maxepot ) {
+                maxepot = FPTYPE_FABS(ee);
+                maxepot_id = bid;
+                } */
         #endif
 
         } /* loop over exclusions. */
@@ -660,9 +667,26 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
             }
     #endif
     
+    /* Dump the exclusion with the maximum epot. */
+    /* pid = b[maxepot_id].i; pjd = b[maxepot_id].j;
+    pi = partlist[ pid ];
+    pj = partlist[ pjd ];
+    loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
+    for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+        shift[k] = loci[k] - locj[k];
+        if ( shift[k] > 1 )
+            shift[k] = -1;
+        else if ( shift[k] < -1 )
+            shift[k] = 1;
+        dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
+        r2 += dx[k] * dx[k];
+        }
+    printf( "exclusion_eval[%i]: maximum epot=%.3e (r=%.3e) between parts of type %s (id=%i) and %s (id=%i).\n" ,
+        maxepot_id , maxepot , sqrt(r2) , e->types[ pi->type ].name2 , pi->type , e->types[ pj->type ].name2 , pj->type ); */
+    
     /* Store the potential energy. */
     if ( epot_out != NULL )
-        *epot_out += epot;
+        *epot_out -= epot;
     
     /* We're done here. */
     return exclusion_err_ok;
