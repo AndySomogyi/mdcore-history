@@ -210,7 +210,7 @@ int main ( int argc , char *argv[] ) {
         printf("main[%i]: could not open the file \"apoa1.xplor\".\n",myrank);
         return -1;
         }
-    if ( engine_read_xplor( &e , xplor , 0.0 , 1e-3 , 1 ) < 0 ) {
+    if ( engine_read_xplor( &e , xplor , 0.0 , 1e-4 , 1 ) < 0 ) {
         printf("main[%i]: engine_read_xplor failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         return -1;

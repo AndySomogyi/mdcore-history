@@ -83,7 +83,7 @@ int main ( int argc , char *argv[] ) {
     // int nr_mols = 16128, nr_parts = nr_mols*3;
     double cutoff = 1.2;
     double Temp = 298.0;
-    double tol = 1.0e-2;
+    double tol = 1.0e-4;
     double bath_coeff = 0.2;
     double pekin_max = 100.0;
     int pekin_max_time = 100;
