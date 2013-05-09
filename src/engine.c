@@ -37,6 +37,9 @@
 #ifdef HAVE_OPENMP
     #include <omp.h>
 #endif
+#ifdef WITH_METIS
+    #include <metis.h>
+#endif
 
 /* include local headers */
 #include "cycle.h"
