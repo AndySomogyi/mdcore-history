@@ -842,7 +842,7 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                 
                 /* Do we need to create the potential? */
                 if ( potid < 0 ) {
-                    if ( ( p = potential_create_harmonic_angle( M_PI/180*(r0-45) , M_PI/180*(r0+45) , 4.184*K , M_PI/180*r0 , tol ) ) == NULL )
+                    if ( ( p = potential_create_harmonic_angle( M_PI/180*(r0-30) , M_PI/180*(r0+30) , 4.184*K , M_PI/180*r0 , tol ) ) == NULL )
                         return error(engine_err_potential);
                     if ( ( potid = engine_angle_addpot( e , p ) ) < 0 )
                         return error(engine_err);
@@ -937,7 +937,7 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                 
                 /* Do we need to create the potential? */
                 if ( potid < 0 ) {
-                    if ( ( p = potential_create_harmonic_dihedral( 4.184*K , n , M_PI/180*r0 , tol ) ) == NULL ) {
+                    if ( ( p = potential_create_harmonic_dihedral( 4.184*K , n , M_PI/180*r0 , 1e-2 ) ) == NULL ) {
                         printf( "engine_read_cpf: failed to create dihedral with K=%e, n=%i, delta=%e.\n" , K , n , r0 );
                         return error(engine_err_potential);
                         }
