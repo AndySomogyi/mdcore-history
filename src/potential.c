@@ -311,7 +311,7 @@ struct potential *potential_create_harmonic ( double a , double b , double K , d
     /* fill this potential */
     potential_create_harmonic_K = K;
     potential_create_harmonic_r0 = r0;
-    if ( potential_init( p , &potential_create_harmonic_f , &potential_create_harmonic_dfdr , &potential_create_harmonic_d6fdr6 , a , b , tol ) < 0 ) {
+    if ( potential_init( p , &potential_create_harmonic_f , NULL , &potential_create_harmonic_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -479,7 +479,7 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
     /* fill this potential */
     potential_create_harmonic_angle_K = K;
     potential_create_harmonic_angle_theta0 = theta0;
-    if ( potential_init( p , &potential_create_harmonic_angle_f , &potential_create_harmonic_angle_dfdr , &potential_create_harmonic_angle_d6fdr6 , left , right , tol ) < 0 ) {
+    if ( potential_init( p , &potential_create_harmonic_angle_f , NULL , &potential_create_harmonic_angle_d6fdr6 , left , right , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -1034,20 +1034,35 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         
     /* if this interpolation is good enough, stop here! */
     if ( err_l < tol ) {
+    
+        /* Set the domain variables. */
         p->n = l;
         p->c = c_l;
         p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
         p->alpha[0] += 1;
+        
+        /* Fix the first interval. */
         p->c[0] = a; p->c[1] = 1.0 / a;
-        p->c[potential_degree+2] = f(a);
-        p->c[potential_degree+1] = fp(a) * a;
-        p->c[potential_degree] = 0.0;
-        for ( k = 2 ; k <= potential_degree ; k++ )
-            p->c[potential_degree] += k * (k-1) * p->c[2*potential_chunk-k-1] * ( 1 - 2*(k%2) );
-        p->c[potential_degree] *= a * a * p->c[potential_degree+4] * p->c[potential_degree+4];
-        for ( k = 2 ; k < potential_degree ; k++ )
-            p->c[k] = 0.0;
+        double coeffs[potential_degree], eff[potential_degree];
+        for ( k = 0 ; k < potential_degree ; k++ ) {
+            coeffs[k] = p->c[2*potential_chunk-1-k];
+            eff[k] = 0.0;
+            }
+        for ( i = 0 ; i < potential_degree ; i++ )
+            for ( k = potential_degree-1 ; k >= i ; k-- ) {
+                eff[i] = coeffs[k] + (-1.0)*eff[i];
+                coeffs[k] *= (k - i) * p->c[potential_chunk+1] * a;
+                }
+        p->c[potential_chunk-1] = eff[0];
+        p->c[potential_chunk-2] = eff[1];
+        p->c[potential_chunk-3] = 0.5 * eff[2];
+        // p->c[potential_chunk-4] = (eff[2] - eff[1] ) / 3;
+        for ( k = 3 ; k <= potential_degree ; k++ )
+            p->c[potential_chunk-1-k] = 0.0;
+                
+        /* Clean up. */
         free(xi_l);
+        
         return potential_err_ok;
         }
         
