@@ -30,7 +30,9 @@
 #include "../config.h"
 
 /* MPI headers. */
-#include <mpi.h>
+#ifdef WITH_MPI
+    #include <mpi.h>
+#endif
 
 /* OpenMP headers. */
 #include <omp.h>

@@ -19,33 +19,19 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the source directory and debug to CFLAGS
-AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
+AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS) $(FFTW3_CFLAGS)
 
 # Set the linker flags if metis is present
-AM_LDFLAGS = $(METIS_LDFLAGS)
+AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = neon neon_verlet neon_pwverlet neon_pseudoverlet
+bin_PROGRAMS = neon neon_pseudoverlet
 
 # Plain old tests
 # Sources for test
 neon_SOURCES = neon.c
 neon_CFLAGS = -DENGINE_FLAGS="engine_flag_none" -DFPTYPE_SINGLE $(AM_CFLAGS)
 neon_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using Verlet lists
-# Sources for neon_verlet
-neon_verlet_SOURCES = neon.c
-neon_verlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet" $(AM_CFLAGS)
-neon_verlet_LDADD = ../../src/.libs/libmdcore_single.a
-
-
-# Using pairwise Verlet lists
-# Sources for neon_pwverlet
-neon_pwverlet_SOURCES = neon.c
-neon_pwverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pairwise" $(AM_CFLAGS)
-neon_pwverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
 # Using pairwise Verlet lists of the second kind

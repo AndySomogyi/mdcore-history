@@ -124,7 +124,7 @@ int main ( int argc , char *argv[] ) {
     printf("done.\n"); fflush(stdout);
     
     #ifdef WITH_CUDA
-        if ( engine_cuda_setdevice( 0 ) != 0 ) {
+        if ( engine_cuda_setdevice( &e , 0 ) != 0 ) {
             printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
             errs_dump(stdout);
             abort();
