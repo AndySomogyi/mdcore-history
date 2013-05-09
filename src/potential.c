@@ -56,6 +56,48 @@ char *potential_err_msg[6] = {
     "Not yet implemented.",
     "Maximum number of intervals reached before tolerance satisfied."
 	};
+
+
+/**
+ * @brief Switching function.
+ *
+ * @param r The radius.
+ * @param A The start of the switching region.
+ * @param B The end of the switching region.
+ */
+
+inline double potential_switch ( double r , double A , double B ) {
+
+    if ( r < A )
+        return 1.0;
+    else if ( r > B )
+        return 0.0;
+    else {
+    
+        double B2 = B*B, A2 = A*A, r2 = r*r;
+        double B2mr2 = B2 - r2, B2mA2 = B2 - A2;
+    
+        return B2mr2*B2mr2 * ( B2 + 2*r2 - 3*A2 ) / ( B2mA2 * B2mA2 * B2mA2 );
+    
+        }
+
+    }
+    
+inline double potential_switch_p ( double r , double A , double B ) {
+
+    if ( A < r && r < B ) {
+    
+        double B2 = B*B, A2 = A*A, r2 = r*r;
+        double B2mr2 = B2 - r2, B2mA2 = B2 - A2;
+        double r2_p = 2*r, B2mr2_p = -r2_p;
+    
+        return ( 2*B2mr2_p*B2mr2 * ( B2 + 2*r2 - 3*A2 ) + B2mr2*B2mr2 * 2*r2_p ) / ( B2mA2 * B2mA2 * B2mA2 );
+    
+        }
+    else
+        return 0.0;
+
+    }
     
     
 /**
@@ -570,6 +612,78 @@ struct potential *potential_create_LJ126_Ewald ( double a , double b , double A 
     }
     
 
+double potential_create_LJ126_Ewald_switch_A;
+double potential_create_LJ126_Ewald_switch_B;
+double potential_create_LJ126_Ewald_switch_kappa;
+double potential_create_LJ126_Ewald_switch_q;
+double potential_create_LJ126_Ewald_switch_s;
+double potential_create_LJ126_Ewald_switch_cutoff;
+
+/* the potential functions */
+double potential_create_LJ126_Ewald_switch_f ( double r ) {
+    return potential_LJ126 ( r , potential_create_LJ126_Ewald_switch_A , potential_create_LJ126_Ewald_switch_B ) * potential_switch( r , potential_create_LJ126_Ewald_switch_s , potential_create_LJ126_Ewald_switch_cutoff ) +
+        potential_create_LJ126_Ewald_switch_q * potential_Ewald( r , potential_create_LJ126_Ewald_switch_kappa );
+    }
+
+double potential_create_LJ126_Ewald_switch_dfdr ( double r ) {
+    return potential_LJ126_p ( r , potential_create_LJ126_Ewald_switch_A , potential_create_LJ126_Ewald_switch_B ) * potential_switch( r , potential_create_LJ126_Ewald_switch_s , potential_create_LJ126_Ewald_switch_cutoff ) +
+        potential_LJ126 ( r , potential_create_LJ126_Ewald_switch_A , potential_create_LJ126_Ewald_switch_B ) * potential_switch_p( r , potential_create_LJ126_Ewald_switch_s , potential_create_LJ126_Ewald_switch_cutoff ) +
+        potential_create_LJ126_Ewald_switch_q * potential_Ewald_p( r , potential_create_LJ126_Ewald_switch_kappa );
+    }
+
+double potential_create_LJ126_Ewald_switch_d6fdr6 ( double r ) {
+    return potential_LJ126_6p ( r , potential_create_LJ126_Ewald_switch_A , potential_create_LJ126_Ewald_switch_B ) +
+        potential_create_LJ126_Ewald_switch_q * potential_Ewald_6p( r , potential_create_LJ126_Ewald_switch_kappa );
+    }
+        
+/**
+ * @brief Creates a #potential representing the sum of a
+ *      12-6 Lennard-Jones potential with a switching distance
+ *      and the real-space part of an Ewald potential.
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param q The charge scaling of the potential.
+ * @param s The switching distance.
+ * @param kappa The screening distance of the Ewald potential.
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ */
+
+struct potential *potential_create_LJ126_Ewald_switch ( double a , double b , double A , double B , double q , double kappa , double s , double tol ) {
+
+    struct potential *p;
+    
+    /* allocate the potential */
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    potential_create_LJ126_Ewald_switch_A = A;
+    potential_create_LJ126_Ewald_switch_B = B;
+    potential_create_LJ126_Ewald_switch_kappa = kappa;
+    potential_create_LJ126_Ewald_switch_q = q;
+    potential_create_LJ126_Ewald_switch_s = s;
+    potential_create_LJ126_Ewald_switch_cutoff = b;
+    if ( potential_init( p , &potential_create_LJ126_Ewald_switch_f , &potential_create_LJ126_Ewald_switch_dfdr , &potential_create_LJ126_Ewald_switch_d6fdr6 , a , b , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
+
 double potential_create_Coulomb_q;
 double potential_create_Coulomb_b;
 
@@ -736,6 +850,68 @@ struct potential *potential_create_LJ126 ( double a , double b , double A , doub
     potential_create_LJ126_A = A;
     potential_create_LJ126_B = B;
     if ( potential_init( p , &potential_create_LJ126_f , &potential_create_LJ126_dfdr , &potential_create_LJ126_d6fdr6 , a , b , tol ) < 0 ) {
+        free(p);
+        return NULL;
+        }
+    
+    /* return it */
+    return p;
+
+    }
+    
+    
+double potential_create_LJ126_switch_A;
+double potential_create_LJ126_switch_B;
+double potential_create_LJ126_switch_s;
+double potential_create_LJ126_switch_cutoff;
+
+/* the potential functions */
+double potential_create_LJ126_switch_f ( double r ) {
+    return potential_LJ126( r , potential_create_LJ126_switch_A , potential_create_LJ126_switch_B ) * potential_switch( r , potential_create_LJ126_switch_s , potential_create_LJ126_switch_cutoff );
+    }
+
+double potential_create_LJ126_switch_dfdr ( double r ) {
+    return potential_LJ126_p ( r , potential_create_LJ126_switch_A , potential_create_LJ126_switch_B ) * potential_switch( r , potential_create_LJ126_switch_s , potential_create_LJ126_switch_cutoff ) +
+        potential_LJ126( r , potential_create_LJ126_switch_A , potential_create_LJ126_switch_B ) * potential_switch_p( r , potential_create_LJ126_switch_s , potential_create_LJ126_switch_cutoff );
+    }
+
+double potential_create_LJ126_switch_d6fdr6 ( double r ) {
+    return potential_LJ126_6p( r , potential_create_LJ126_switch_A , potential_create_LJ126_switch_B );
+    }
+
+/**
+ * @brief Creates a #potential representing a switched 12-6 Lennard-Jones potential
+ *
+ * @param a The smallest radius for which the potential will be constructed.
+ * @param b The largest radius for which the potential will be constructed.
+ * @param A The first parameter of the Lennard-Jones potential.
+ * @param B The second parameter of the Lennard-Jones potential.
+ * @param s The switchting length
+ * @param tol The tolerance to which the interpolation should match the exact
+ *      potential.
+ *
+ * @return A newly-allocated #potential representing the potential
+ *      @f$ \left( \frac{A}{r^{12}} - \frac{B}{r^6} \right) @f$ in @f$[a,b]@f$
+ *      or @c NULL on error (see #potential_err).
+ *
+ */
+
+struct potential *potential_create_LJ126_switch ( double a , double b , double A , double B , double s , double tol ) {
+
+    struct potential *p;
+    
+    /* allocate the potential */
+    if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
+        error(potential_err_malloc);
+        return NULL;
+        }
+        
+    /* fill this potential */
+    potential_create_LJ126_switch_A = A;
+    potential_create_LJ126_switch_B = B;
+    potential_create_LJ126_switch_s = s;
+    potential_create_LJ126_switch_cutoff = b;
+    if ( potential_init( p , &potential_create_LJ126_switch_f , &potential_create_LJ126_switch_dfdr , &potential_create_LJ126_switch_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -965,15 +1141,27 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->c = c_r;
     p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
     p->alpha[0] += 1.0;
+    
+    /* Make the first interval a linear continuation. */
     p->c[0] = a; p->c[1] = 1.0 / a;
-    p->c[potential_degree+2] = f(a);
-    p->c[potential_degree+1] = (p->c[2*potential_chunk-2] - 2*p->c[2*potential_chunk-3] + 3*p->c[2*potential_chunk-4] - 4*p->c[2*potential_chunk-5] + 5*p->c[2*potential_chunk-6]) * p->c[potential_chunk+1] * a;
-    p->c[potential_degree] = 0.0;
-    for ( k = 2 ; k <= potential_degree ; k++ )
-        p->c[potential_degree] += k * (k-1) * p->c[2*potential_chunk-k-1] * ( 1 - 2*(k%2) );
-    p->c[potential_degree] *= a * a * p->c[potential_chunk+1] * p->c[potential_chunk+1];
-    for ( k = 2 ; k < potential_degree ; k++ )
-        p->c[k] = 0.0;
+    double coeffs[potential_degree], eff[potential_degree];
+    for ( k = 0 ; k < potential_degree ; k++ ) {
+        coeffs[k] = p->c[2*potential_chunk-1-k];
+        eff[k] = 0.0;
+        }
+    for ( i = 0 ; i < potential_degree ; i++ )
+        for ( k = potential_degree-1 ; k >= i ; k-- ) {
+            eff[i] = coeffs[k] + (-1.0)*eff[i];
+            coeffs[k] *= (k - i) * p->c[potential_chunk+1] * a;
+            }
+    p->c[potential_chunk-1] = eff[0];
+    p->c[potential_chunk-2] = eff[1];
+    p->c[potential_chunk-3] = 0.5 * eff[2];
+    // p->c[potential_chunk-4] = (eff[2] - eff[1] ) / 3;
+    for ( k = 3 ; k <= potential_degree ; k++ )
+        p->c[potential_chunk-1-k] = 0.0;
+            
+    /* Clean up. */
     free(xi_r);
     free(xi_l); free(c_l);
         
@@ -1080,6 +1268,89 @@ int potential_getfp ( double (*f)( double ) , int n , FPTYPE *x , double *fp ) {
     }
     
     
+int potential_getfp_fixend ( double (*f)( double ) , double fpa , double fpb , int n , FPTYPE *x , double *fp ) {
+    
+    int i, k;
+    double m, h, eff, fx[n+1], hx[n];
+    double d0[n+1], d1[n+1], d2[n+1], b[n+1];
+    double viwl1[n], viwr1[n];
+    static double *w = NULL, *xi = NULL;
+    
+    /* Cardinal functions. */
+    const double cwl1[4] = { 0.25, -0.25, -0.25, 0.25 };
+    const double cwr1[4] = { -0.25, -0.25, 0.25, 0.25 };
+    const double wl0wl1 = 0.1125317885884428;
+    const double wl1wl1 = 0.03215579530433858;
+    const double wl0wr1 = -0.04823369227661384;
+    const double wl1wr1 = -0.02143719641629633;
+    const double wr0wr1 = -0.1125317885884429;
+    const double wr1wr1 = 0.03215579530433859;
+    const double wl1wr0 = 0.04823369227661384;
+
+    /* Pre-compute the weights? */
+    if ( w == NULL ) {
+        if ( ( w = (double *)malloc( sizeof(double) * potential_N ) ) == NULL ||
+             ( xi = (double *)malloc( sizeof(double) * potential_N ) ) == NULL )
+            return error(potential_err_malloc);
+        for ( k = 1 ; k < potential_N-1 ; k++ ) {
+            xi[k] = cos( k * M_PI / (potential_N - 1) );
+            w[k] = 1.0 / sqrt( 1.0 - xi[k]*xi[k] );
+            }
+        xi[0] = 1.0; xi[potential_N-1] = -1.0;
+        w[0] = 0.0; w[potential_N-1] = 0.0;
+        }
+        
+    /* Get the values of fx and ih. */
+    for ( i = 0 ; i <= n ; i++ )
+        fx[i] = f( x[i] );
+    for ( i = 0 ; i < n ; i++ )
+        hx[i] = x[i+1] - x[i];
+        
+    /* Compute the products of f with respect to wl1 and wr1. */
+    for ( i = 0 ; i < n ; i++ ) {
+        viwl1[i] = 0.0; viwr1[i] = 0.0;
+        m = 0.5*(x[i] + x[i+1]);
+        h = 0.5*(x[i+1] - x[i]);
+        for ( k = 1 ; k < potential_N-1 ; k++ ) {
+            eff = f( m + h*xi[k] );
+            viwl1[i] += w[k] * ( eff * ( cwl1[0] + xi[k]*(cwl1[1] + xi[k]*(cwl1[2] + xi[k]*cwl1[3])) ) );
+            viwr1[i] += w[k] * ( eff * ( cwr1[0] + xi[k]*(cwr1[1] + xi[k]*(cwr1[2] + xi[k]*cwr1[3])) ) );
+            }
+        viwl1[i] /= potential_N-2;
+        viwr1[i] /= potential_N-2;
+        }
+        
+    /* Fill the diagonals and the right-hand side. */
+    d1[0] = 1.0;
+    d2[0] = 0.0;
+    b[0] = fpa;
+    for ( i = 1 ; i < n ; i++ ) {
+        d0[i] = wl1wr1 * hx[i-1];
+        d1[i] = wr1wr1 * hx[i-1] + wl1wl1 * hx[i];
+        d2[i] = wl1wr1 * hx[i];
+        b[i] = 2 * ( viwr1[i-1] - fx[i-1]*wl0wr1 - fx[i]*wr0wr1 ) +
+               2 * ( viwl1[i] - fx[i]*wl0wl1 - fx[i+1]*wl1wr0 );
+        }
+    d0[n] = 0.0;
+    d1[n] = 1.0;
+    b[n] = fpb;
+    
+    /* Solve the trilinear system. */
+    for ( i = 1 ; i <= n ; i++ )  {
+        m = d0[i]/d1[i-1];
+        d1[i] = d1[i] - m*d2[i-1];
+        b[i] = b[i] - m*b[i-1];
+        }
+    fp[n] = b[n]/d1[n];
+    for ( i = n - 1 ; i >= 0 ; i-- )
+        fp[i] = ( b[i] - d2[i]*fp[i+1] ) / d1[i];
+        
+    /* Fingers crossed... */
+    return potential_err_ok;
+        
+    }
+    
+    
 /**
  * @brief Compute the interpolation coefficients over a given set of nodes.
  * 
@@ -1132,7 +1403,8 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         }
         
     /* Compute the optimal fpx. */
-    if ( potential_getfp( f , n , xi , fpx ) < 0 )
+    // if ( potential_getfp( f , n , xi , fpx ) < 0 )
+    if ( potential_getfp_fixend( f , fp(xi[0]) , fp(xi[n]) , n , xi , fpx ) < 0 )
         return error(potential_err);
     /* for ( k = 0 ; k <= n ; k++ )
         printf( "potential_getcoeffs: fp[%i]=%e , fpx[%i]=%e.\n" , k , fp(xi[k]) , k , fpx[k] );
