@@ -38,3 +38,4 @@ struct exclusion {
 
 /* associated functions */
 int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *epot_out );
+int exclusion_evalf ( struct exclusion *b , int N , struct engine *e , FPTYPE *f , double *epot_out );

@@ -281,4 +281,207 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
     }
 
 
+int exclusion_evalf ( struct exclusion *b , int N , struct engine *e , FPTYPE *f , double *epot_out ) {
+
+    int bid, pid, pjd, k, *loci, *locj, shift[3], ld_pots;
+    double h[3], epot = 0.0;
+    struct space *s;
+    struct part *pi, *pj, **partlist;
+    struct cell **celllist;
+    struct potential *pot, **pots;
+    FPTYPE dx[3], r2, w, cutoff2;
+#if defined(VECTORIZE)
+    struct potential *potq[VEC_SIZE];
+    int icount = 0, l;
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE dxq[VEC_SIZE*3];
+#else
+    FPTYPE ee, eff;
+#endif
+    // FPTYPE maxepot = FPTYPE_ZERO;
+    // int maxepot_id = 0;
+    
+    /* Check inputs. */
+    if ( b == NULL || e == NULL )
+        return error(exclusion_err_null);
+        
+    /* Get local copies of some variables. */
+    s = &e->s;
+    pots = e->p;
+    partlist = s->partlist;
+    celllist = s->celllist;
+    ld_pots = e->max_type;
+    cutoff2 = s->cutoff2;
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+        
+    /* Loop over the exclusions. */
+    for ( bid = 0 ; bid < N ; bid++ ) {
+    
+        /* Get the particles involved. */
+        pid = b[bid].i; pjd = b[bid].j;
+        if ( ( pi = partlist[ pid ] ) == NULL ||
+             ( pj = partlist[ pjd ] ) == NULL )
+            continue;
+        
+        /* Skip if both ghosts. */
+        if ( ( pi->flags & part_flag_ghost ) && 
+             ( pj->flags & part_flag_ghost ) )
+            continue;
+            
+        /* Get the potential. */
+        if ( ( pot = pots[ pj->type*ld_pots + pi->type ] ) == NULL )
+            continue;
+    
+        /* get the distance between both particles */
+        loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
+        for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+            shift[k] = loci[k] - locj[k];
+            if ( shift[k] > 1 )
+                shift[k] = -1;
+            else if ( shift[k] < -1 )
+                shift[k] = 1;
+            dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
+            r2 += dx[k] * dx[k];
+            }
+        
+        /* Out of range? */
+        if ( r2 > cutoff2 )
+            continue;
+
+        #ifdef VECTORIZE
+            /* add this exclusion to the interaction queue. */
+            r2q[icount] = r2;
+            dxq[icount*3] = dx[0];
+            dxq[icount*3+1] = dx[1];
+            dxq[icount*3+2] = dx[2];
+            effi[icount] = &( f[ 4*pid ] );
+            effj[icount] = &( f[ 4*pjd ] );
+            potq[icount] = pot;
+            icount += 1;
+
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
+
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single( potq , r2q , ee , eff );
+                    #else
+                    potential_eval_vec_4single( potq , r2q , ee , eff );
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
+                    potential_eval_vec_4double( potq , r2q , ee , eff );
+                    #else
+                    potential_eval_vec_2double( potq , r2q , ee , eff );
+                    #endif
+                #endif
+
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        w = eff[l] * dxq[l*3+k];
+                        effi[l][k] += w;
+                        effj[l][k] -= w;
+                        }
+                    }
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
+        #else
+            /* evaluate the exclusion */
+            #ifdef EXPLICIT_POTENTIALS
+                potential_eval_expl( pot , r2 , &ee , &eff );
+            #else
+                potential_eval( pot , r2 , &ee , &eff );
+            #endif
+
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                w = eff * dx[k];
+                f[ 4*pid + k ] -= w;
+                f[ 4*pjd + k ] += w;
+                }
+
+            /* tabulate the energy */
+            epot += ee;
+            /* if ( FPTYPE_FABS(ee) > maxepot ) {
+                maxepot = FPTYPE_FABS(ee);
+                maxepot_id = bid;
+                } */
+        #endif
+
+        } /* loop over exclusions. */
+        
+    #if defined(VECTORIZE)
+        /* are there any leftovers? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entries */
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
+                potq[k] = potq[0];
+                r2q[k] = r2q[0];
+                }
+
+            /* evaluate the potentials */
+            #if defined(VEC_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_4single( potq , r2q , ee , eff );
+                #endif
+            #elif defined(VEC_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double( potq , r2q , ee , eff );
+                #else
+                potential_eval_vec_2double( potq , r2q , ee , eff );
+                #endif
+            #endif
+
+            /* for each entry, update the forces and energy */
+            for ( l = 0 ; l < icount ; l++ ) {
+                epot += ee[l];
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    w = eff[l] * dxq[l*3+k];
+                    effi[l][k] += w;
+                    effj[l][k] -= w;
+                    }
+                }
+
+            }
+    #endif
+    
+    /* Dump the exclusion with the maximum epot. */
+    /* pid = b[maxepot_id].i; pjd = b[maxepot_id].j;
+    pi = partlist[ pid ];
+    pj = partlist[ pjd ];
+    loci = celllist[ pid ]->loc; locj = celllist[ pjd ]->loc;
+    for ( r2 = 0.0 , k = 0 ; k < 3 ; k++ ) {
+        shift[k] = loci[k] - locj[k];
+        if ( shift[k] > 1 )
+            shift[k] = -1;
+        else if ( shift[k] < -1 )
+            shift[k] = 1;
+        dx[k] = pi->x[k] - pj->x[k] + h[k]*shift[k];
+        r2 += dx[k] * dx[k];
+        }
+    printf( "exclusion_eval[%i]: maximum epot=%.3e (r=%.3e) between parts of type %s (id=%i) and %s (id=%i).\n" ,
+        maxepot_id , maxepot , sqrt(r2) , e->types[ pi->type ].name2 , pi->type , e->types[ pj->type ].name2 , pj->type ); */
+    
+    /* Store the potential energy. */
+    if ( epot_out != NULL )
+        *epot_out -= epot;
+    
+    /* We're done here. */
+    return exclusion_err_ok;
+    
+    }
+
+
 

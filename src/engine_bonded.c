@@ -1681,7 +1681,7 @@ int engine_angle_eval ( struct engine *e ) {
 
 
 /**
- * @brief Correct for the excluded interactions stored in this engine.
+ * @brief Compute the exclusioned interactions stored in this engine.
  * 
  * @param e The #engine.
  *
@@ -1695,7 +1695,10 @@ int engine_exclusion_eval ( struct engine *e ) {
     int nr_exclusions = e->nr_exclusions, i, j;
     struct exclusion temp;
     #ifdef HAVE_OPENMP
-        int nr_threads, thread_id;
+        FPTYPE *eff;
+        int nr_threads, cid, pid, gpid, k;
+        struct part *p;
+        struct cell *c;
         double epot_local;
     #endif
     
@@ -1726,20 +1729,36 @@ int engine_exclusion_eval ( struct engine *e ) {
     #ifdef HAVE_OPENMP
     
         /* Is it worth parallelizing? */
-        #pragma omp parallel private(thread_id,nr_threads,epot_local)
+        #pragma omp parallel private(k,nr_threads,c,p,cid,pid,gpid,eff,epot_local)
         if ( ( e->flags & engine_flag_parbonded ) &&
-             ( ( nr_threads = omp_get_num_threads() ) > 1 ) &&
-             ( nr_exclusions > 0 ) ) {
-             
+             ( ( nr_threads = omp_get_num_threads() ) > 1 ) && 
+             ( nr_exclusions > engine_exclusions_chunk ) ) {
+    
             /* Init the local potential energy. */
             epot_local = 0.0;
             
-            /* Get the thread ID. */
-            thread_id = omp_get_thread_num();
+            /* Allocate a buffer for the forces. */
+            eff = (FPTYPE *)malloc( sizeof(FPTYPE) * 4 * s->nr_parts );
+            bzero( eff , sizeof(FPTYPE) * 4 * s->nr_parts );
 
-            /* Correct for excluded interactons. */
-            exclusion_eval_mod( e->exclusions , nr_exclusions , nr_threads , thread_id , e , &epot_local );
+            /* Compute the exclusioned interactions. */
+            k = omp_get_thread_num();
+            exclusion_evalf( &e->exclusions[k*nr_exclusions/nr_threads] , (k+1)*nr_exclusions/nr_threads - k*nr_exclusions/nr_threads , e , eff , &epot_local );
                     
+            /* Write-back the forces (if anything was done). */
+            for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
+                c = &s->cells[ s->cid_real[cid] ];
+                pthread_mutex_lock( &c->cell_mutex );
+                for ( pid = 0 ; pid < c->count ; pid++ ) {
+                    p = &c->parts[ pid ];
+                    gpid = p->id;
+                    for ( k = 0 ; k < 3 ; k++ )
+                        p->f[k] += eff[ gpid*4 + k ];
+                    }
+                pthread_mutex_unlock( &c->cell_mutex );
+                }
+            free( eff );
+                
             /* Aggregate the global potential energy. */
             #pragma omp atomic
             epot += epot_local;
