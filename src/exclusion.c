@@ -98,9 +98,9 @@ int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_
     int icount = 0, l;
     FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -304,9 +304,9 @@ int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_
     int icount = 0, l;
     FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -504,9 +504,9 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;

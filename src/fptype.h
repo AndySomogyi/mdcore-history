@@ -64,14 +64,17 @@
 #if ( defined(__AVX__) && defined(FPTYPE_SINGLE) )
     #define VEC_SINGLE
     #define VEC_SIZE 8
+    #define VEC_ALIGN 32
     #define VECTORIZE
 #elif ( (defined(__SSE__) || defined(__ALTIVEC__)) && defined(FPTYPE_SINGLE) )
     #define VEC_SINGLE
     #define VEC_SIZE 4
+    #define VEC_ALIGN 16
     #define VECTORIZE
 #elif ( (defined(__SSE2__) || defined(__AVX__)) && defined(FPTYPE_DOUBLE) )
     #define VEC_DOUBLE
     #define VEC_SIZE 4
+    #define VEC_ALIGN 16
     #define VECTORIZE
 #endif
 

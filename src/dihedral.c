@@ -104,9 +104,9 @@ int dihedral_eval_div ( struct dihedral *d , int N , int nr_threads , int cid_di
     int icount = 0, l;
     FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
-    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -433,9 +433,9 @@ int dihedral_eval_mod ( struct dihedral *d , int N , int nr_threads , int cid_mo
     int icount = 0, l;
     FPTYPE dummy = 0.0;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
-    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -760,9 +760,9 @@ int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
-    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -1074,9 +1074,9 @@ int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f ,
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE], *effl[VEC_SIZE];
-    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cphiq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], djq[VEC_SIZE*3], dlq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;

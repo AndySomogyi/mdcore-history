@@ -100,9 +100,9 @@ int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , st
     int icount = 0, l;
     FPTYPE dummy[3] = { 0.0 , 0.0 , 0.0 };
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
-    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -362,9 +362,9 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
     struct potential *potq[VEC_SIZE];
     int icount = 0;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
-    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;
@@ -608,9 +608,9 @@ int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , doubl
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
-    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
 #else
     FPTYPE ee, eff;

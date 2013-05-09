@@ -109,9 +109,9 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[3*VEC_SIZE];
 #else
     FPTYPE e, f;
@@ -354,9 +354,9 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
     FPTYPE e, f;
@@ -568,9 +568,9 @@ __attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct
 #if defined(VECTORIZE)
     int l, icount = 0;
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (16)));
-    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (16)));
+    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
     struct potential *potq[VEC_SIZE];
 #else
