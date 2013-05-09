@@ -42,5 +42,3 @@ struct angle {
 /* associated functions */
 int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out );
 int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , double *epot_out );
-int angle_eval_mod ( struct angle *a , int N , int nr_threads , int cid_mod , struct engine *e , double *epot_out );
-int angle_eval_div ( struct angle *a , int N , int nr_threads , int cid_div , struct engine *e , double *epot_out );

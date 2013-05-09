@@ -38,5 +38,3 @@ struct exclusion {
 
 /* associated functions */
 int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *epot_out );
-int exclusion_eval_mod ( struct exclusion *b , int N , int nr_threads , int cid_mod , struct engine *e , double *epot_out );
-int exclusion_eval_div ( struct exclusion *b , int N , int nr_threads , int cid_div , struct engine *e , double *epot_out );
