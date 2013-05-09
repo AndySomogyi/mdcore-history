@@ -206,7 +206,7 @@ AC_OUTPUT(Makefile
     examples/argon/Makefile
     examples/bulk/Makefile
     examples/bulk/Makefile_cell
-    examples/btree/Makefile
+    examples/neon/Makefile
     examples/hybrid/Makefile
     examples/flexible/Makefile
     examples/jac/Makefile
