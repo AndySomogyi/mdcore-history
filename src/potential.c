@@ -980,7 +980,7 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     FPTYPE mtol = 10 * FPTYPE_EPSILON;
 
     /* check inputs */
-    if ( p == NULL || f == NULL || fp == NULL )
+    if ( p == NULL || f == NULL )
         return error(potential_err_null);
         
     /* check if we have a user-specified 6th derivative or not. */
