@@ -123,7 +123,7 @@ struct engine {
     /** Some flags controlling how this engine works. */
     unsigned int flags;
 
-/** Some flags controlling which cuda scheduling we use. */
+    /** Some flags controlling which cuda scheduling we use. */
     unsigned int flags_cuda;
 
     /** The space on which to work */
@@ -226,8 +226,8 @@ struct engine {
         float *forces_cuda[ engine_maxgpu ];
         void *cuArray_parts[ engine_maxgpu ], *parts_cuda[ engine_maxgpu ];
         void *parts_cuda_local;
-	int *cells_cuda_local[ engine_maxgpu];
-	int cells_cuda_nr[ engine_maxgpu ];
+        int *cells_cuda_local[ engine_maxgpu];
+        int cells_cuda_nr[ engine_maxgpu ];
         int *counts_cuda[ engine_maxgpu ], *counts_cuda_local[ engine_maxgpu ];
         int *ind_cuda[ engine_maxgpu ], *ind_cuda_local[ engine_maxgpu ];
         struct task_cuda *tasks_cuda[ engine_maxgpu ];
@@ -349,16 +349,16 @@ int engine_verlet_update ( struct engine *e );
         extern "C" int engine_cuda_load ( struct engine *e );
         extern "C" int engine_cuda_load_parts ( struct engine *e );
         extern "C" int engine_cuda_unload_parts ( struct engine *e );
-        extern "C" int engine_cuda_setdevice ( struct engine *e , int id , unsigned int cuda_flags );
-        extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids , unsigned int cuda_flags);
+        extern "C" int engine_cuda_setdevice ( struct engine *e , int id );
+        extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
 	extern "C" int engine_split_METIS ( struct engine *e, int N, int flags);
     #else
         int engine_nonbond_cuda ( struct engine *e );
         int engine_cuda_load ( struct engine *e );
         int engine_cuda_load_parts ( struct engine *e );
         int engine_cuda_unload_parts ( struct engine *e );
-        int engine_cuda_setdevice ( struct engine *e , int id , unsigned int cuda_flags );
-        int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids , unsigned int cuda_flags );
+        int engine_cuda_setdevice ( struct engine *e , int id );
+        int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
 	int engine_split_METIS ( struct engine *e, int N, int flags);
     #endif
 #else

@@ -2452,7 +2452,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     int did, *cellsorts;
     int pind[ e->max_type * e->max_type ], *pind_cuda[ engine_maxgpu ];
     struct space *s = &e->s;
-//    int nr_devices = e->nr_devices;
+    int nr_devices = e->nr_devices;
     struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
     struct task_cuda *tasks_cuda, *tc, *ts;
     struct task *t;
@@ -2466,7 +2466,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     void *dummy[ engine_maxgpu ];
 
     /*Split the space over the available GPUs*/
-    engine_split_METIS( e , e->nr_devices , engine_split_GPU  );
+    engine_split_METIS( e , nr_devices , engine_split_GPU  );
     
     /* Set the coeff properties. */
     tex_coeffs.addressMode[0] = cudaAddressModeClamp;
@@ -2550,7 +2550,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     printf( "engine_cuda_load: packed %i potentials with %i coefficient chunks (%i kB).\n" , nr_pots , max_coeffs , (int)(sizeof(float4)*(2*max_coeffs+2)*nr_pots)/1024 ); fflush(stdout);
         
     /* Bind the potential coefficients to a texture. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ; did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMallocArray( &cuArray_coeffs[did] , &channelDesc_float4 , 2*max_coeffs + 2 , nr_pots ) != cudaSuccess )
@@ -2565,7 +2565,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     h[1] = s->h[1]*s->span[1];
     h[2] = s->h[2]*s->span[2];
     dim[0] = s->dim[0]; dim[1] = s->dim[1]; dim[2] = s->dim[2];
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ; did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_h , h , sizeof(float) * 3 , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -2582,7 +2582,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         corig[ 3*i + 1 ] = s->cells[i].origin[1];
         corig[ 3*i + 2 ] = s->cells[i].origin[2];
         }
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ; did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMalloc( &dummy[did] , sizeof(float) * s->nr_cells * 3 ) != cudaSuccess )
@@ -2595,7 +2595,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     free( corig );
     
     /* Copy the potential indices to the device. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMallocArray( &cuArray_pind[did] , &channelDesc_int , e->max_type * e->max_type , 1 ) != cudaSuccess )
@@ -2605,7 +2605,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
     
     /* Store pind as a constant too. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMalloc( &pind_cuda[did] , sizeof(unsigned int) * e->max_type * e->max_type ) != cudaSuccess )
@@ -2617,7 +2617,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
             
     /* Bind the textures on the device. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs[did] ) != cudaSuccess )
@@ -2629,7 +2629,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         
     /* Set the constant pointer to the null potential and other useful values. */
     dscale = ((float)SHRT_MAX) / ( 3.0 * sqrt( s->h[0]*s->h[0]*s->span[0]*s->span[0] + s->h[1]*s->h[1]*s->span[1]*s->span[1] + s->h[2]*s->h[2]*s->span[2]*s->span[2] ) );
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_cutoff2 , &cutoff2 , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -2652,7 +2652,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return error(engine_err_malloc);
     if ( ( cellsorts = (int *)malloc( sizeof(int) * s->nr_tasks ) ) == NULL )
         return error(engine_err_malloc);
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
 	if( (e->cells_cuda_local[did] = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL)
 	    return error(engine_err_malloc);
         e->cells_cuda_nr[did]=0;
@@ -2666,7 +2666,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             tc = &tasks_cuda[nr_tasks];
 	    
             /* Skip pairs and self with wrong cid, keep all sorts. */
-            if ( ( t->type == task_type_pair && e->s.cells[t->i].GPUID != did  /*t->i % e->nr_devices != did */) ||
+            if ( ( t->type == task_type_pair && e->s.cells[t->i].GPUID != did  /*t->i % nr_devices != did */) ||
                  ( t->type == task_type_self && e->s.cells[t->i].GPUID != did /*e->s.cells[t->i].loc[1] < e->s.cdim[1] / e->nr_devices * (did + 1) && e->s.cells[t->i].loc[1] >= e->s.cdim[1] / e->nr_devices * did t->i % e->nr_devices != did*/ ) )
                 continue;
             
@@ -2739,10 +2739,12 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             
         }
     
+	/* Clean up */
+    free( tasks_cuda );
     free( cellsorts );
         
     /* Allocate the sortlists locally and on the device if needed. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMalloc( &e->sortlists_cuda[did] , sizeof(unsigned int) * s->nr_parts * 13 ) != cudaSuccess )
@@ -2752,7 +2754,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
 
 
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
 	    /* Allocate the cell counts and offsets. */
     if ( ( e->counts_cuda_local[did] = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL ||
          ( e->ind_cuda_local[did] = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL )
@@ -2766,7 +2768,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
         
     /* Allocate and init the taboo list on the device. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMalloc( &dummy[did] , sizeof(int) * s->nr_cells ) != cudaSuccess )
@@ -2787,7 +2789,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     #endif
 
     /* Allocate the particle and force data. */
-    for ( did = 0 ;did < e->nr_devices ; did++ ) {
+    for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_nr_parts , &s->nr_parts , sizeof(int *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -2812,10 +2814,9 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
 
     /* Init the pair queue on the device. */
-	       if ( engine_cuda_queues_load( e ) < 0 )
+    if ( engine_cuda_queues_load( e ) < 0 )
         return error(engine_err);
-	//free( tasks_cuda );
-    free( tasks_cuda );
+        
     /* He's done it! */
     return engine_err_ok;
     
