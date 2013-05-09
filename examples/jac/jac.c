@@ -81,8 +81,8 @@ int main ( int argc , char *argv[] ) {
     // int nr_mols = 16128, nr_parts = nr_mols*3;
     double cutoff = 0.9;
     double Temp = 300.0;
-    double pekin_max = 100.0;
-    int pekin_max_time = 0;
+    double pekin_max = 15.0;
+    int pekin_max_time = 1000;
 
 
     /* Local variables. */
@@ -108,7 +108,7 @@ int main ( int argc , char *argv[] ) {
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
     double L[] = { cutoff , cutoff , cutoff };
-    int devices[] = { 0 , 2 };
+    int devices[] = { 0 , 1 };
     
     struct spme spme;
     int dim_spme[3] = { 6*spme_gpc , 6*spme_gpc , 6*spme_gpc };
@@ -225,7 +225,7 @@ int main ( int argc , char *argv[] ) {
         printf("main[%i]: could not open the file \"par_all22_prot.inp\".\n",myrank);
         abort();
         }
-    if ( engine_read_cpf( &e , cpf , 3.0 , 3.3e-3 , 1 ) < 0 ) {
+    if ( engine_read_cpf( &e , cpf , 3.0 , 1.0e-4 , 1 ) < 0 ) {
         printf("main[%i]: engine_read_cpf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();
@@ -366,7 +366,7 @@ int main ( int argc , char *argv[] ) {
         v[0] = ((double)rand()) / RAND_MAX - 0.5;
         v[1] = ((double)rand()) / RAND_MAX - 0.5;
         v[2] = ((double)rand()) / RAND_MAX - 0.5;
-        temp = 2.3 * sqrt( 2.0 * e.types[e.s.partlist[k]->type].imass / ( v[0]*v[0] + v[1]*v[1] + v[2]*v[2] ) );
+        temp = 1.8 * sqrt( 2.0 * e.types[e.s.partlist[k]->type].imass / ( v[0]*v[0] + v[1]*v[1] + v[2]*v[2] ) );
         v[0] *= temp; v[1] *= temp; v[2] *= temp;
         e.s.partlist[k]->v[0] = v[0];
         e.s.partlist[k]->v[1] = v[1];
@@ -566,9 +566,9 @@ int main ( int argc , char *argv[] ) {
                     if ( e.time < pekin_max_time && 0.5*v2*e.types[p->type].mass > pekin_max ) {
                         /* printf( "main[%i]: particle %i (%s) was caught speeding (v2=%e).\n" ,
                             myrank , p->id , e.types[p->type].name , v2 ); */
-                        p->v[0] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
-                        p->v[1] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
-                        p->v[2] = sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
+                        p->v[0] *= sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
+                        p->v[1] *= sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
+                        p->v[2] *= sqrt( 2 * pekin_max * e.types[p->type].imass ) / sqrt(v2);
                         }
                     vcom_x += p->v[0] * e.types[p->type].mass;
                     vcom_y += p->v[1] * e.types[p->type].mass;
@@ -604,12 +604,12 @@ int main ( int argc , char *argv[] ) {
             
         /* Compute the temperature. */
         // printf( "main[%i]: vcom is [ %e , %e , %e ].\n" , myrank , vcom[0] , vcom[1] , vcom[2] );
-        temp = ekin / ( 1.5 * 6.022045E23 * 1.380662E-26 * e.s.nr_parts );
-        w = sqrt( 1.0 + 0.05 * ( Temp / temp - 1.0 ) );
+        temp = 2.0 * ekin * 1.66053892e-27 * 1e6 / ( 1.3806488e-23 * ( 3*e.s.nr_parts - e.nr_constr ) );
+        w = sqrt( 1.0 + 0.01 * ( Temp / temp - 1.0 ) );
         // printf( "main[%i]: ekin=%e, temp=%e, w=%e, nr_parts=%i.\n" , myrank , ekin , temp , w , e.s.nr_parts );
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
             
-        if ( step < 5000 ) {
+        if ( step < 10000 ) {
         
             /* Scale the particle velocities. */
             #pragma omp parallel for schedule(static), private(cid,i,j,p,k)
