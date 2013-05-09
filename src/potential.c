@@ -404,7 +404,7 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
     potential_create_harmonic_dihedral_K = K;
     potential_create_harmonic_dihedral_n = n;
     potential_create_harmonic_dihedral_delta = delta;
-    if ( potential_init( p , &potential_create_harmonic_dihedral_f , &potential_create_harmonic_dihedral_dfdr , &potential_create_harmonic_dihedral_d6fdr6 , a , b , tol ) < 0 ) {
+    if ( potential_init( p , &potential_create_harmonic_dihedral_f , NULL , &potential_create_harmonic_dihedral_d6fdr6 , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -1384,7 +1384,7 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
     static FPTYPE *coskx = NULL;
 
     /* check input sanity */
-    if ( f == NULL || fp == NULL || xi == NULL || err == NULL )
+    if ( f == NULL || xi == NULL || err == NULL )
         return error(potential_err_null);
         
     /* Do we need to init the pre-computed cosines? */
@@ -1403,9 +1403,14 @@ int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYP
         }
         
     /* Compute the optimal fpx. */
-    // if ( potential_getfp( f , n , xi , fpx ) < 0 )
-    if ( potential_getfp_fixend( f , fp(xi[0]) , fp(xi[n]) , n , xi , fpx ) < 0 )
-        return error(potential_err);
+    if ( fp == NULL ) {
+        if ( potential_getfp( f , n , xi , fpx ) < 0 )
+            return error(potential_err);
+        }
+    else {
+        if ( potential_getfp_fixend( f , fp(xi[0]) , fp(xi[n]) , n , xi , fpx ) < 0 )
+            return error(potential_err);
+        }
     /* for ( k = 0 ; k <= n ; k++ )
         printf( "potential_getcoeffs: fp[%i]=%e , fpx[%i]=%e.\n" , k , fp(xi[k]) , k , fpx[k] );
     fflush(stdout); getchar(); */
