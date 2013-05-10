@@ -46,6 +46,7 @@
 
 /* Include mdcore. */
 #include "mdcore.h"
+#include "potential_eval.h"
 
 /* Ticks Per Second. */
 #ifndef CPU_TPS
@@ -81,8 +82,9 @@ int main ( int argc , char *argv[] ) {
     // int nr_mols = 16128, nr_parts = nr_mols*3;
     double cutoff = 0.9;
     double Temp = 300.0;
-    double pekin_max = 15.0;
+    double pekin_max = 14.0;
     int pekin_max_time = 1000;
+    double dt = 0.002, hdt = 0.5*dt;
 
 
     /* Local variables. */
@@ -98,6 +100,7 @@ int main ( int argc , char *argv[] ) {
     int nr_nodes = 1;
     int verbose = 0;
     int maxpekin_id;
+    int rigidH = 1;
     
     
     /* mdcore stuff. */
@@ -113,6 +116,7 @@ int main ( int argc , char *argv[] ) {
     struct spme spme;
     int dim_spme[3] = { 6*spme_gpc , 6*spme_gpc , 6*spme_gpc };
     float h_spme[3] = { dim[0]/dim_spme[0] , dim[1]/dim_spme[1] , dim[2]/dim_spme[2] };
+    double kappa = 3.0;
     
     
     /* Start the clock. */
@@ -165,9 +169,9 @@ int main ( int argc , char *argv[] ) {
         errs_dump(stdout);
         abort();
         }
-    e.dt = 0.0025;
+    e.dt = dt;
     e.time = 0;
-    e.tol_rigid = 1.0e-5;
+    e.tol_rigid = 1.0e-7;
     e.nodeID = myrank;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
@@ -187,7 +191,7 @@ int main ( int argc , char *argv[] ) {
     #endif
     
     #ifdef NO_HAVE_FFTW3
-        if ( spme_init( &spme , dim_spme , h_spme , 3.0f ) != 0 ) {
+        if ( spme_init( &spme , dim_spme , h_spme , kappa ) != 0 ) {
             printf( "main[%i]: spme_init failed with engine_err=%i.\n" , myrank , engine_err );
             errs_dump(stdout);
             abort();
@@ -225,7 +229,7 @@ int main ( int argc , char *argv[] ) {
         printf("main[%i]: could not open the file \"par_all22_prot.inp\".\n",myrank);
         abort();
         }
-    if ( engine_read_cpf( &e , cpf , 3.0 , 1.0e-4 , 1 ) < 0 ) {
+    if ( engine_read_cpf( &e , cpf , kappa , 1.0e-4 , rigidH ) < 0 ) {
         printf("main[%i]: engine_read_cpf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();
@@ -245,14 +249,15 @@ int main ( int argc , char *argv[] ) {
             }
             
     /* Remove water angles. */
-    for ( k = 0 ; k < e.nr_angles ; k++ )
-        if ( e.s.partlist[e.angles[k].j]->type == typeOT ) {
-            e.nr_angles -= 1;
-            e.angles[k] = e.angles[e.nr_angles];
-            k -= 1;
-            }
-            
-            
+    if ( rigidH )
+        for ( k = 0 ; k < e.nr_angles ; k++ )
+            if ( e.s.partlist[e.angles[k].j]->type == typeOT ) {
+                e.nr_angles -= 1;
+                e.angles[k] = e.angles[e.nr_angles];
+                k -= 1;
+                }
+                
+
     /* Print some stats. */
     if ( myrank == 0 ) {
         printf( "main[%i]: read %i registered types.\n" , myrank , e.nr_types );
@@ -269,19 +274,14 @@ int main ( int argc , char *argv[] ) {
         }
         
     
-    /* Dump bond types. */
-    /* for ( j = 0 ; j < e.nr_types ; j++ )
-        for ( k = j ; k < e.nr_types ; k++ )
-            if ( ( pot = e.p_bond[ j*e.max_type + k ] ) != NULL )
-                printf( "main[%i]: got bond between types %s and %s with %i intervals.\n" ,
-                    myrank , e.types[j].name2 , e.types[k].name2 , pot->n ); */
-    
     /* Check for missing bonds. */
     for ( k = 0 ; k < e.nr_bonds ; k++ )
-        if ( e.p_bond[ e.s.partlist[e.bonds[k].i]->type*e.max_type + e.s.partlist[e.bonds[k].j]->type ] == NULL )
+        if ( e.p_bond[ e.s.partlist[e.bonds[k].i]->type*e.max_type + e.s.partlist[e.bonds[k].j]->type ] == NULL ) {
             printf( "main[%i]: no potential specified for bond %i: %s %s.\n" ,
                 myrank , k , e.types[e.s.partlist[e.bonds[k].i]->type].name ,
                 e.types[e.s.partlist[e.bonds[k].j]->type].name );
+            e.bonds[k--] = e.bonds[--e.nr_bonds];
+            }
 
     /* Check for missing angles. */
     for ( k = 0 ; k < e.nr_angles ; k++ )
@@ -300,14 +300,7 @@ int main ( int argc , char *argv[] ) {
                 e.types[e.s.partlist[e.dihedrals[k].k]->type].name ,
                 e.types[e.s.partlist[e.dihedrals[k].l]->type].name );
                 
-    /* Dump potentials. */
-    /* for ( j = 0 ; j < e.nr_types ; j++ )
-        for ( k = j ; k < e.nr_types ; k++ )
-            if ( ( pot = e.p[ j*e.max_type + k ] ) != NULL )
-                printf( "main[%i]: got potential between types %s and %s with %i intervals.\n" ,
-                    myrank , e.types[j].name2 , e.types[k].name2 , pot->n ); */
     
-            
     /* Add exclusions. */
     for ( k = 0 ; k < e.nr_bonds ; k++ )
         if ( engine_exclusion_add( &e , e.bonds[k].i , e.bonds[k].j ) < 0 ) {
@@ -383,6 +376,7 @@ int main ( int argc , char *argv[] ) {
         e.s.partlist[k]->v[2] -= vcom[2];
         }
         
+        
     /* Ignore angles for now. */
     // e.nr_bonds = 0;
     // e.nr_angles = 0;
@@ -390,29 +384,84 @@ int main ( int argc , char *argv[] ) {
     // e.nr_dihedrals = 0;
     // e.nr_exclusions = 0;
     
+    /* Dump the rigid groups. */
+    /* for ( k = 0 ; k < e.nr_rigids ; k++ ) {
+        struct rigid *r = &e.rigids[k];
+        printf( "main[%i]: rigid %i has %i parts [ %s %s " , myrank , k , r->nr_parts ,
+            e.types[e.s.partlist[r->parts[0]]->type].name , e.types[e.s.partlist[r->parts[1]]->type].name );
+        for ( j = 2 ; j < r->nr_parts ; j++ )
+            printf( "%s " , e.types[e.s.partlist[r->parts[j]]->type].name );
+        printf( "] and %i constr [ " , r->nr_constr );
+        for ( j = 0 ; j < r->nr_constr ; j++ )
+            printf( "(%i,%i) " , r->constr[j].i , r->constr[j].j );
+        printf( "].\n" );
+        } */
+        
+    /* Check if any angles are constrained. */
+    /* for ( k = 0 ; k < e.nr_angles ; k++ ) {
+        struct angle *a = &e.angles[k];
+        if ( e.part2rigid[ a->i ] >= 0 && e.part2rigid[ a->i ] == e.part2rigid[ a->k ] )
+            printf( "main[%i]: angle %i [ %s %s %s ] has rigid ends [ %i %i %i ].\n" , myrank ,
+                k , e.types[ e.s.partlist[ a->i ]->type ].name , e.types[ e.s.partlist[ a->j ]->type ].name , e.types[ e.s.partlist[ a->k ]->type ].name ,
+                e.part2rigid[ a->i ] , e.part2rigid[ a->j ] , e.part2rigid[ a->k ] );
+        } */
+            
+    /* Dump bond types. */
+    /* for ( j = 0 ; j < e.nr_types ; j++ )
+        for ( k = j ; k < e.nr_types ; k++ )
+            if ( ( pot = e.p_bond[ j*e.max_type + k ] ) != NULL )
+                printf( "main[%i]: got bond between types %s and %s with %i intervals.\n" ,
+                    myrank , e.types[j].name2 , e.types[k].name2 , pot->n ); */
+    
+    /* Dump potentials. */
+    /* for ( j = 0 ; j < e.nr_types ; j++ )
+        for ( k = j ; k < e.nr_types ; k++ )
+            if ( ( pot = e.p[ j*e.max_type + k ] ) != NULL )
+                printf( "main[%i]: got potential between types %s and %s with %i intervals.\n" ,
+                    myrank , e.types[j].name2 , e.types[k].name2 , pot->n ); */
+    
+    /* Dump particle types. */
+    /* for ( k = 0 ; k < e.nr_types ; k++ )
+        printf( "main[%i]: particle type %s has id=%i.\n" ,
+            myrank , e.types[k].name2 , k ); */
+    
+            
     /* Dump a potential to make sure its ok... */
     /* pot = e.p[ 26*e.max_type + 26 ];
     for ( k = 0 ; k < e.nr_types ; k++ ) {
         for ( j = k ; j < e.nr_types ; j++ )
             if ( e.p[ j*e.max_type + k ] != NULL && ( pot == NULL || pot->n < e.p[ j*e.max_type + k ]->n ) )
                 pot = e.p[ j*e.max_type + k ];
-        }
-    k = 26; j = 26;
-    double A, B, q;
-    FPTYPE ee, eff;
-    A = 4.184 * 0.046000 * pow(2*0.0224500,12);
-    B = 2 * 4.184 * 0.046000 * pow(2*0.0224500,6);
-    q = e.types[k].charge * e.types[j].charge;
-    printf( "main: dumping potential for %s-%s (%i-%i, n=%i).\n" , e.types[k].name , e.types[j].name , k , j , pot->n );
-    for ( i = 0 ; i <= 10000 ; i++ ) {
-        temp = pot->a + (double)i/10000 * (pot->b - pot->a);
-        potential_eval_r( pot , temp , &ee , &eff );
-        printf("%23.16e %23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
-            potential_LJ126(temp,A,B) + q*potential_Ewald(temp,3.0) , 
-            potential_LJ126_p(temp,A,B) + q*potential_Ewald_p(temp,3.0) ,
-            pot->alpha[0] + temp*(pot->alpha[1] + temp*(pot->alpha[2] + temp*pot->alpha[3])) );
-        }
+        } */
+    /* k = 22; j = 63;
+    pot = e.p[ k*e.max_type + j ];
+    for ( k = 0 ; k < e.nr_types ; k++ )
+        for ( j = k ; j < e.nr_types ; j++ ) {
+            if ( ( pot = e.p_bond[ k*e.max_type + j ] ) == NULL )
+                continue;
+            printf( "main: dumping potential for %s-%s (%i-%i, n=%i) in [%.3e,%.3e].\n" , e.types[k].name2 , e.types[j].name2 , k , j , pot->n , pot->a , pot->b );
+    //     for ( k = 0 ; k < e.nr_dihedralpots ; k++ ) {
+    //         pot = e.p_dihedral[k];
+            double A, B, q;
+            FPTYPE ee, eff;
+            A = 4.184 * sqrt(0.046*0.046) * pow(0.02245+0.02245,12);
+            B = 2 * 4.184 * sqrt(0.046*0.046) * pow(0.02245+0.02245,6);
+            q = e.types[k].charge * e.types[j].charge;
+            for ( i = 0 ; i <= 100 ; i++ ) {
+                temp = 1.0*pot->a + (double)i/100 * (pot->b - pot->a*1.0);
+                potential_eval_r( pot , temp , &ee , &eff );
+                printf("%23.16e %23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
+                    potential_LJ126(temp,A,B) + q*potential_Ewald(temp,kappa) , 
+                    potential_LJ126_p(temp,A,B) + q*potential_Ewald_p(temp,kappa) ,
+                    pot->alpha[0] + temp*(pot->alpha[1] + temp*(pot->alpha[2] + temp*pot->alpha[3])) );
+                }
+            printf( "\n\n\n" );
+            for ( i = 0 ; i < pot->n+1 ; i++ )
+                printf( "coeffs[%i]: %e %e %e %e %e %e %e %e\n" ,
+                    i , pot->c[i*potential_chunk+0] , pot->c[i*potential_chunk+1] , pot->c[i*potential_chunk+2] , pot->c[i*potential_chunk+3] , pot->c[i*potential_chunk+4] , pot->c[i*potential_chunk+5] , pot->c[i*potential_chunk+6] , pot->c[i*potential_chunk+7] );
+            }
     return 0; */
+    
     
     /* Split the engine over the processors. */
     if ( engine_split_bisect( &e , nr_nodes ) < 0 ) {
@@ -460,7 +509,7 @@ int main ( int argc , char *argv[] ) {
         }
         
     /* Set the number of OpenMP threads to the number of runners. */
-    // omp_set_num_threads( nr_runners );
+    omp_set_num_threads( nr_runners );
         
         
     /* Give the system a quick shake before going anywhere. */
@@ -554,7 +603,7 @@ int main ( int argc , char *argv[] ) {
         
         /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
         ekin = 0.0; epot = e.s.epot;
-        #pragma omp parallel private(c,p,j,k,v2,ekin_local,vcom_x,vcom_y,vcom_z)
+        #pragma omp parallel private(c,p,j,k,v2,ekin_local,vcom_x,vcom_y,vcom_z,v)
         {
             vcom_x = 0.0; vcom_y = 0.0; vcom_z = 0.0; ekin_local = 0.0; 
             incr = omp_get_num_threads();
@@ -562,7 +611,11 @@ int main ( int argc , char *argv[] ) {
                 c = &e.s.cells[ e.s.cid_real[k] ];
                 for ( j = 0 ; j < c->count ; j++ ) {
                     p = &( c->parts[j] );
-                    v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
+                    double im = e.types[p->type].imass;
+                    v[0] = p->v[0] - hdt*p->f[0] * im;
+                    v[1] = p->v[1] - hdt*p->f[1] * im;
+                    v[2] = p->v[2] - hdt*p->f[2] * im;
+                    v2 = v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
                     if ( e.time < pekin_max_time && 0.5*v2*e.types[p->type].mass > pekin_max ) {
                         /* printf( "main[%i]: particle %i (%s) was caught speeding (v2=%e).\n" ,
                             myrank , p->id , e.types[p->type].name , v2 ); */
@@ -573,33 +626,33 @@ int main ( int argc , char *argv[] ) {
                     vcom_x += p->v[0] * e.types[p->type].mass;
                     vcom_y += p->v[1] * e.types[p->type].mass;
                     vcom_z += p->v[2] * e.types[p->type].mass;
-                    ekin_local += v2 * e.types[p->type].mass * 0.5;
+                    ekin_local += v2 * e.types[p->type].mass;
                     }
                 }
                 
             #pragma omp critical
             {
                 vcom[0] += vcom_x; vcom[1] += vcom_y; vcom[2] += vcom_z;
-                ekin += ekin_local;
+                ekin += ekin_local * 0.5;
                 }
             }
         // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
             
-#ifdef WITH_MPI
-        /* Collect vcom and ekin from all procs. */
-        if ( e.nr_nodes > 1 ) {
-            es[0] = epot; es[1] = ekin;
-            es[2] = vcom[0]; es[3] = vcom[1]; es[4] = vcom[2];
-            es[5] = mass_tot;
-            if ( ( res = MPI_Allreduce( MPI_IN_PLACE , es , 6 , MPI_DOUBLE , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
-                printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
-                abort();
+        #ifdef WITH_MPI
+            /* Collect vcom and ekin from all procs. */
+            if ( e.nr_nodes > 1 ) {
+                es[0] = epot; es[1] = ekin;
+                es[2] = vcom[0]; es[3] = vcom[1]; es[4] = vcom[2];
+                es[5] = mass_tot;
+                if ( ( res = MPI_Allreduce( MPI_IN_PLACE , es , 6 , MPI_DOUBLE , MPI_SUM , MPI_COMM_WORLD ) ) != MPI_SUCCESS ) {
+                    printf( "main[%i]: call to MPI_Allreduce failed with error %i.\n" , myrank , res );
+                    abort();
+                    }
+                ekin = es[1]; epot = es[0];
+                vcom[0] = es[2]; vcom[1] = es[3]; vcom[2] = es[4];
+                mass_tot = es[5];
                 }
-            ekin = es[1]; epot = es[0];
-            vcom[0] = es[2]; vcom[1] = es[3]; vcom[2] = es[4];
-            mass_tot = es[5];
-            }
-#endif
+        #endif
         vcom[0] /= mass_tot; vcom[1] /= mass_tot; vcom[2] /= mass_tot;
             
         /* Compute the temperature. */
@@ -609,7 +662,7 @@ int main ( int argc , char *argv[] ) {
         // printf( "main[%i]: ekin=%e, temp=%e, w=%e, nr_parts=%i.\n" , myrank , ekin , temp , w , e.s.nr_parts );
         // printf("main[%i]: vcom_tot is [ %e , %e , %e ].\n",myrank,vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
             
-        if ( step < 10000 ) {
+        if ( step < 5000 ) {
         
             /* Scale the particle velocities. */
             #pragma omp parallel for schedule(static), private(cid,i,j,p,k)
@@ -645,8 +698,10 @@ int main ( int argc , char *argv[] ) {
         if ( myrank == 0 ) {
             /* printf("%i %e %e %e %i %i %.3f ms\n",
                 e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
-            printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
+            printf("%i %e %e %e %e %e %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
+                e.time,epot,ekin,temp,
+                e.s.epot_nonbond, e.s.epot_bond, e.s.epot_angle, e.s.epot_dihedral, e.s.epot_exclusion,
+                e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
                 e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
                 e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
                 (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
