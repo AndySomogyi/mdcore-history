@@ -84,7 +84,9 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
 int potential_getcoeffs ( double (*f)( double ) , double (*fp)( double ) , FPTYPE *xi , int n , FPTYPE *c , FPTYPE *err );
 double potential_getalpha ( double (*f6p)( double ) , double a , double b );
 struct potential *potential_create_LJ126 ( double a , double b , double A , double B , double tol );
+struct potential *potential_create_LJ126_switch ( double a , double b , double A , double B , double s , double tol );
 struct potential *potential_create_LJ126_Ewald ( double a , double b , double A , double B , double q , double kappa , double tol );
+struct potential *potential_create_LJ126_Ewald_switch ( double a , double b , double A , double B , double q , double kappa , double s , double tol );
 struct potential *potential_create_LJ126_Coulomb ( double a , double b , double A , double B , double q , double tol );
 struct potential *potential_create_Ewald ( double a , double b , double q , double kappa , double tol );
 struct potential *potential_create_Coulomb ( double a , double b , double q , double tol );
@@ -115,3 +117,5 @@ double potential_Ewald_6p ( double r , double kappa );
 double potential_Coulomb ( double r );
 double potential_Coulomb_p ( double r );
 double potential_Coulomb_6p ( double r );
+double potential_switch ( double r , double A , double B );
+double potential_switch_p ( double r , double A , double B );
