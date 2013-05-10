@@ -102,7 +102,8 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     unsigned int *iparts, *jparts;
     FPTYPE dscale;
     FPTYPE shift[3], nshift, bias;
-    FPTYPE pix[4], *pif;
+    FPTYPE pix[4];
+    FPTYPE *pif;
     int pid, count_i, count_j;
     double epot = 0.0;
 #if defined(VECTORIZE)
@@ -349,7 +350,8 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
     struct engine *eng;
     int emt, pioff;
     FPTYPE cutoff2, r2, dx[4], w;
-    FPTYPE pix[4], *pif;
+    FPTYPE pix[4];
+    FPTYPE *pif;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
@@ -556,10 +558,11 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
  * @sa #runner_sortedpair.
  */
 
-__attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *shift ) {
+__attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j ) {
 
     int i, j, k, emt, pioff, count_i, count_j;
-    FPTYPE cutoff2, r2, dx[4], pix[4], w, *pif;
+    FPTYPE cutoff2, r2, dx[4], pix[4], w, shift[3];
+    FPTYPE *pif;
     double epot = 0.0;
     struct engine *eng;
     struct part *part_i, *part_j, *parts_i, *parts_j;
@@ -590,6 +593,9 @@ __attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct
     cutoff2 = s->cutoff2;
     pix[3] = FPTYPE_ZERO;
         
+    /* Get the sort ID. */
+    space_getsid( s , &cell_i , &cell_j , shift );
+    
     /* Make local copies of the parts if requested. */
     if ( r->e->flags & engine_flag_localparts ) {
     

@@ -547,7 +547,7 @@ int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B );
-                    if ( fabs(vm) < 5*Kr0 )
+                    if ( fabs(vm) < engine_maxKcutoff*Kr0 )
                         ar = am;
                     else
                         al = am;
@@ -565,7 +565,7 @@ int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + potential_escale*q/r0 );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + potential_escale*q/am;
-                    if ( fabs(vm) < 5*Kr0 )
+                    if ( fabs(vm) < engine_maxKcutoff*Kr0 )
                         ar = am;
                     else
                         al = am;
@@ -584,7 +584,7 @@ int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + q*potential_Ewald( r0, kappa ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + q*potential_Ewald( am , kappa );
-                    if ( fabs(vm) < 5*Kr0 )
+                    if ( fabs(vm) < engine_maxKcutoff*Kr0 )
                         ar = am;
                     else
                         al = am;
@@ -690,6 +690,7 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
             return error(engine_err_cpf);
           
         /* Is this a rigid bond (and do we care)? */  
+        // if ( rigidH && ( ( type1[0] == 'H' && type1[1] == 'T' ) || ( type2[0] == 'H' && type2[1] == 'T' ) ) ) {
         if ( rigidH && ( type1[0] == 'H' || type2[0] == 'H' ) ) {
         
             /* Loop over all bonds... */
@@ -1157,12 +1158,12 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B );
-                    if ( fabs(vm) < 5*Kr0 )
+                    if ( fabs(vm) < engine_maxKcutoff*Kr0 )
                         ar = am;
                     else
                         al = am;
                     }
-                if ( ( p = potential_create_LJ126( al , e->s.cutoff , A , B , tol ) ) == NULL ) {
+                if ( ( p = potential_create_LJ126_switch( al , e->s.cutoff , A , B , 0.7 , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e on [%e,%e].\n" ,
                     e->types[j].name , e->types[k].name , 
                     A , B , al , e->s.cutoff );
@@ -1175,7 +1176,7 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + potential_escale*q/r0 );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + potential_escale*q/am;
-                    if ( fabs(vm) < 5*Kr0 )
+                    if ( fabs(vm) < engine_maxKcutoff*Kr0 )
                         ar = am;
                     else
                         al = am;
@@ -1194,12 +1195,12 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                 Kr0 = fabs( potential_LJ126( r0 , A , B ) + q*potential_Ewald( r0, kappa ) );
                 while ( ar-al > 1e-5 ) {
                     am = 0.5*(al + ar); vm = potential_LJ126( am , A , B ) + q*potential_Ewald( am , kappa );
-                    if ( fabs(vm) < 5*Kr0 )
+                    if ( fabs(vm) < engine_maxKcutoff*Kr0 )
                         ar = am;
                     else
                         al = am;
                     }
-                if ( ( p = potential_create_LJ126_Ewald( al , e->s.cutoff , A , B , q , kappa , tol ) ) == NULL ) {
+                if ( ( p = potential_create_LJ126_Ewald_switch( al , e->s.cutoff , A , B , q , kappa , 0.7 , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
                     e->types[j].name , e->types[k].name , 
                     A , B , q ,

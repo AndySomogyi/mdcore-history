@@ -769,7 +769,7 @@ int runner_run ( struct runner *r ) {
             switch ( t->type ) {
                 case task_type_sort:
                     TIMER_TIC_ND
-                    if ( s->verlet_rebuild )
+                    if ( s->verlet_rebuild && !( e->flags & engine_flag_unsorted ) )
                         if ( runner_dosort( r , &s->cells[ t->i ] , t->flags ) < 0 )
                             return error(runner_err);
                     s->cells_taboo[ t->i ] = 0;
@@ -784,8 +784,14 @@ int runner_run ( struct runner *r ) {
                     break;
                 case task_type_pair:
                     TIMER_TIC_ND
-                    if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
-                        return error(runner_err);
+                    if ( e->flags & engine_flag_unsorted ) {
+                        if ( runner_dopair_unsorted( r , &s->cells[ t->i ] , &s->cells[ t->j ] ) < 0 )
+                            return error(runner_err);
+                        }
+                    else {
+                        if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
+                            return error(runner_err);
+                        }
                     s->cells_taboo[ t->i ] = 0;
                     s->cells_taboo[ t->j ] = 0;
                     TIMER_TOC(runner_timer_pair);

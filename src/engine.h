@@ -77,6 +77,7 @@
 #define engine_readbuff                  16384
 #define engine_maxgpu                    10
 #define engine_pshake_steps              20
+#define engine_maxKcutoff                2
 
 #define engine_split_MPI		1
 #define engine_split_GPU		2

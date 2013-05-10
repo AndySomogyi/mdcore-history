@@ -67,6 +67,7 @@ endif
 
 # Set-up for general (double-precision) case
 libmdcore_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)
+libmdcore_la_CFLAGS = -DFPTYPE_DOUBLE $(AM_CFLAGS)
 
 # Set-up for general (double-precision) MPI-endabled case
 libmdcore_mpi_la_SOURCES = $(SOURCES) $(SOURCES_CUDA)

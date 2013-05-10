@@ -32,6 +32,7 @@
         #define FPTYPE_SQRT sqrt
         #define FPTYPE_FMAX fmax
         #define FPTYPE_FMIN fmin
+        #define FPTYPE_FABS fabs
     #else
         /** The basic type is set to float. */
         typedef float FPTYPE;
@@ -42,6 +43,7 @@
         #define FPTYPE_SQRT sqrtf
         #define FPTYPE_FMAX fmaxf
         #define FPTYPE_FMIN fminf
+        #define FPTYPE_FABS fabsf
         #ifndef FPTYPE_SINGLE
             #define FPTYPE_SINGLE
         #endif
