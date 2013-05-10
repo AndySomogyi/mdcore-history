@@ -1804,7 +1804,7 @@ __global__ void cuda_memset_float ( float *data , float val , int N ) {
  
 extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
-    dim3 nr_threads( cuda_frame , 1 );
+    dim3 nr_threads( 128 , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
     int k, cid, did, pid, maxcount = 0;
     cudaStream_t stream;
