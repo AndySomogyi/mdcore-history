@@ -183,13 +183,6 @@ int k, threadID;
                         sort_j , sort_i ,
                         shift , dshift ,
                         &epot );
-                    runner_dopair_onesided2_cuda(
-                        parts_i , counts[cid] ,
-                        parts_j , counts[cjd] ,
-                        forces_i , forces_j , 
-                        sort_i , sort_j ,
-                        shift , dshift ,
-                        &epot );
                 #endif
 
 		#ifdef TASK_TIMERS

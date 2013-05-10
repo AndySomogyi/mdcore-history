@@ -1399,8 +1399,8 @@ __device__ void runner_dopair_left_cuda ( int cid , int count_i , int cjd , int 
 __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
 #endif
 
-    int k, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
-    int pioff, pot;
+    int k, pjd, spid, spjd, threadID;
+    int pioff;
     unsigned int dmaxdist, di;
     float4 pi, pj;
     int pot;
@@ -1416,9 +1416,7 @@ __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float
     /* Pre-compute the inverse norm of the shift. */
     dmaxdist = 2 + cuda_dscale * cuda_maxdist;
 
-    /* Loop over the particles in cell_j, frame-wise. */
-    cj = count_j;
-    for ( pid = threadID ; pid < count_i ; pid += cuda_frame ) {
+	/* nr_threads >= count_i */
     
     for ( i = threadID ; i < count_i ;  i += blockDim.x  ) {
     /*cj = count_j-1;
@@ -1426,7 +1424,7 @@ __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float
             cj -= 1;*/
     di= sort_i[i]&0xffff;      
         /* Get a direct pointer on the pjdth part in cell_j. */
-        spid = sort_i[pid] >> 16;
+        spid = sort_i[i] >> 16;
         #ifdef PARTS_TEX
             pi = tex2D( tex_parts , spid , cid );
         #else
@@ -1435,18 +1433,10 @@ __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float
         pioff = pi.w * cuda_maxtype;
         pi.x -= shift[0]; pi.y -= shift[1]; pi.z -= shift[2];
         pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
-        di = sort_i[pid] & 0xffff;
-        
-        /* Loop over the particles in cell_i. */
-        for ( pjd = count_j-1 ; pjd >= 0 && (sort_j[pjd] & 0xffff) + dshift <= dmaxdist + di ; pjd++ ) {
-        
-            /* Get a handle on the wrapped particle pid in cell_i. */
-            spjd = sort_j[pjd] >> 16;
-            #ifdef PARTS_TEX
-                pj = tex2D( tex_parts , spjd , cjd );
-            #else
-                pj = parts_j[ spjd ];
-            #endif
+        /* Loop over the particles in cell_j. */
+        for ( pjd = count_j-1 ; pjd >=0 && (sort_j[pjd]&0xffff)+dshift<=dmaxdist+di ; pjd-- ) {
+                 
+                /* Get a handle on the wrapped particle pid in cell_i. */
 
                 spjd = sort_j[pjd] >> 16;
                 #ifdef PARTS_TEX
@@ -1488,8 +1478,9 @@ __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float
             
         /* Update the force on pj. */
         for ( k = 0 ; k < 3 ; k++ )
-            forces_i[ 3*spid + k ] += pif[k];
-    
+        	atomicAdd( &forces_i[ 3*spid + k], pif[k] );
+            //forces_i[ 3*spid + k ] += pif[k];
+    	
         /* Sync the shared memory values. */
         // __threadfence_block();
         
@@ -1503,103 +1494,9 @@ __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float
     }
 
 
-#ifdef PARTS_TEX
-__device__ void runner_dopair_onesided2_cuda ( int cid , int count_i , int cjd , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
-#else
-__device__ void runner_dopair_onesided2_cuda ( float4 *parts_i , int count_i , float4 *parts_j , int count_j , float *forces_i , float *forces_j , unsigned int *sort_i , unsigned int *sort_j , float *shift , unsigned int dshift , float *epot_global ) {
-#endif
-
-    int k, pid, pjd, spid, spjd, pjdid, threadID, wrap, cj;
-    int pioff, pot, di;
-    unsigned int dmaxdist;
-    float4 pi, pj;
-    float epot = 0.0f, r2, w, ee = 0.0f, eff = 0.0f;
-    float dx[3], pif[3];
     
     
-    /* Get the size of the frame, i.e. the number of threads in this block. */
-    threadID = threadIdx.x;
-    
-    /* Pre-compute the inverse norm of the shift. */
-    dmaxdist = 2 + cuda_dscale * cuda_maxdist;
-       
-
-    /* Loop over the particles in cell_j, frame-wise. */
-    cj = count_j;
-    for ( pjd = threadID ; pjd < count_j ; pjd += cuda_frame ) {
-    
-        /* Get a direct pointer on the pjdth part in cell_j. */
-        spjd = sort_j[pjd] >> 16;
-        #ifdef PARTS_TEX
-            pj = tex2D( tex_parts , spjd , cjd );
-        #else
-            pj = parts_j[ spjd ];
-        #endif
-        pjoff = pj.w * cuda_maxtype;
-        pj.x -= shift[0]; pj.y -= shift[1]; pj.z -= shift[2];
-        pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
-        dj = sort_j[pid] & 0xffff + dshift;
-        
-        /* Loop over the particles in cell_i. */
-        for ( pid = count_i-1 ; pid >= 0 && dj <= dmaxdist + (sort_i[pid] & 0xffff) ; pid++ ) {
-        
-            /* Get a handle on the wrapped particle pid in cell_i. */
-            spid = sort_i[pid] >> 16;
-            #ifdef PARTS_TEX
-                pi = tex2D( tex_parts , spid , cid );
-            #else
-                pi = parts_i[ spid ];
-            #endif
-
-            /* Compute the radius between pi and pj. */
-            r2 = 0.0f;
-            dx[0] = pi.x - pj.x; r2 += dx[0]*dx[0];
-            dx[1] = pi.y - pj.y; r2 += dx[1]*dx[1];
-            dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
-
-            /* Set the null potential if anything is bad. */
-            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pioff + (int)pj.w ] ) != 0 ) {
-
-                /* printf( "runner_dopair_cuda[%i]: doing pair [%i,%i] with r=%i (d=%i).\n" ,
-                    threadID , sort_i[pid].ind , sort_j[pjd].ind , (int)(sqrtf(r2)*1000.0) , (int)((sort_j[pjd].d - sort_i[pid].d)*1000) ); */
-
-                // atomicAdd( &cuda_pairs_done , 1 );
-
-                /* Interact particles pi and pj. */
-                potential_eval_cuda_tex( pot , r2 , &ee , &eff );
-
-                /* Store the interaction force and energy. */
-                epot += ee;
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff * dx[k];
-                    pjf[k] += w;
-                    }
-
-                /* Sync the shared memory values. */
-                // __threadfence_block();
-
-                } /* in range and potential. */
-
-            } /* loop over parts in cell_i. */
-            
-        /* Update the force on pj. */
-        for ( k = 0 ; k < 3 ; k++ )
-            forces_j[ 3*spjd + k ] += pjf[k];
-    
-        /* Sync the shared memory values. */
-        // __threadfence_block();
-        
-        } /* loop over the particles in cell_j. */
-        
-    /* Store the potential energy. */
-    *epot_global += epot;
-        
-    TIMER_TOC(tid_pair)
-    
-    }
-
-
-/**
+       /**
  * @brief Compute the pairwise interactions for the given pair on a CUDA device.
  *
  * @param icid Array of parts in the first cell.
@@ -1810,71 +1707,7 @@ __device__ void runner_doself_cuda ( float4 *parts , int count , float *forces ,
     }
 
 
-    /* Loop over the particles in the cell, frame-wise. */
-    for ( pjd = threadID ; pjd < count ; pjd += cuda_frame ) {
-    
-        /* Get a direct pointer on the pjdth part in cell_j. */
-        #ifdef PARTS_TEX
-            pj = tex2D( tex_parts , pjd , cid );
-        #else
-            pj = parts[ pjd ];
-        #endif
-        pjoff = pj.w * cuda_maxtype;
-        pjf[0] = 0.0f; pjf[1] = 0.0f; pjf[2] = 0.0f;
-            
-        /* Loop over the particles in cell_i. */
-        for ( pid = 0 ; pid < count ; pid++ ) {
-        
-            /* Get a handle on the wrapped particle pid in cell_i. */
-            #ifdef PARTS_TEX
-                pi = tex2D( tex_parts , pid , cid );
-            #else
-                pi = parts[ pid ];
-            #endif
 
-            /* Compute the radius between pi and pj. */
-            r2 = 0.0f;
-            dx[0] = pi.x - pj.x; r2 += dx[0]*dx[0];
-            dx[1] = pi.y - pj.y; r2 += dx[1]*dx[1];
-            dx[2] = pi.z - pj.z; r2 += dx[2]*dx[2];
-
-            /* Set the null potential if anything is bad. */
-            if ( r2 < cuda_cutoff2 && ( pot = cuda_pind[ pjoff + (int)pi.w ] ) != 0 ) {
-
-                /* Interact particles pi and pj. */
-                potential_eval_cuda_tex( pot , r2 , &ee , &eff );
-
-                /* Store the interaction force and energy. */
-                epot += ee;
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = eff * dx[k];
-                    pjf[k] += w;
-                    }
-
-                /* Sync the shared memory values. */
-                // __threadfence_block();
-            
-                } /* in range and potential. */
-
-            } /* loop over parts in cell_i. */
-            
-        /* Update the force on pj. */
-        for ( k = 0 ; k < 3 ; k++ )
-            forces[ 3*pjd + k ] += pjf[k];
-
-        /* Sync the shared memory values. */
-        // __threadfence_block();
-
-        } /* loop over the particles in cell_j. */
-        
-    /* Store the potential energy. */
-    *epot_global += epot;
-        
-    TIMER_TOC(tid_self)
-    
-    }
-    
-    
 /**
  * @brief Our very own memset for the particle forces as cudaMemsetAsync requires
  *        a device switch when using streams on different devices.
