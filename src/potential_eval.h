@@ -1477,7 +1477,7 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4double_r ( struc
 #else
     int k;
     for ( k = 0 ; k < 4 ; k++ )
-        potential_eval_r( p[k] , r[k] , &e[k] , &f[k] );
+        potential_eval_r( p[k] , r_in[k] , &e[k] , &f[k] );
 #endif
         
     }
