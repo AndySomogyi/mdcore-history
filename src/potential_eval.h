@@ -1415,8 +1415,8 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4double_r ( struc
     double *data[4];
     
     /* Get r . */
-    r_1.v = _mm_load_pd( &r[0] );
-    r_2.v = _mm_load_pd( &r[2] );
+    r_1.v = _mm_load_pd( &r_in[0] );
+    r_2.v = _mm_load_pd( &r_in[2] );
     
     /* compute the index */
     alpha0_1.v = _mm_setr_pd( p[0]->alpha[0] , p[1]->alpha[0] );
