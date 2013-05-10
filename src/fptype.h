@@ -167,13 +167,13 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     return d.f[0];
 #elif defined(FPTYPE_DOUBLE) && defined(__AVX__)
     union {
-        vector(4,double) v;
+        __m256d v;
         double f[4];
         } a, b, c, d;
         
     /* Load x1 and x2 into a and b. */
-    a.v = _m256_mm_load_pd( x1 );
-    b.v = _m256_mm_load_pd( x2 );
+    a.v = _mm256_load_pd( x1 );
+    b.v = _mm256_load_pd( x2 );
     
     /* Compute the difference and store in dx. */
     c.v = a.v - b.v;
@@ -184,8 +184,8 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     
     /* Add horizontally twice to get the sum of the four entries
        in the lowest double. */
-    d.v = _mm256_hadd_ps( d.v , d.v );
-    d.v = _mm256_hadd_ps( d.v , d.v );
+    d.v = _mm256_hadd_pd( d.v , d.v );
+    d.v = _mm256_hadd_pd( d.v , d.v );
     
     /* Return the sum of squares. */
     return d.f[0];

@@ -1228,8 +1228,8 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4double ( struct 
     rind.v = _mm256_max_pd( _mm256_setzero_pd() , _mm256_add_pd( alpha0.v , _mm256_mul_pd( r.v , _mm256_add_pd( alpha1.v , _mm256_mul_pd( r.v , alpha2.v ) ) ) ) );
     ind[0] = rind.f[0];
     ind[1] = rind.f[1];
+    ind[2] = rind.f[2];
     ind[3] = rind.f[3];
-    ind[4] = rind.f[4];
     
     /* get the table offset */
     data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
@@ -1357,18 +1357,18 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4double ( struct 
  * function simply calls #potential_eval on each entry.
  */
 
-__attribute__ ((always_inline)) INLINE void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r , FPTYPE *e , FPTYPE *f ) {
+__attribute__ ((always_inline)) INLINE void potential_eval_vec_4double_r ( struct potential *p[4] , FPTYPE *r_in , FPTYPE *e , FPTYPE *f ) {
 
 #if defined(__AVX__) && defined(FPTYPE_DOUBLE)
     int ind[4], j;
     union {
-        __v4df v;
+        __m256d v;
         double f[4];
         } alpha0, alpha1, alpha2, rind, mi, hi, x, ee, eff, c, r;
     double *data[4];
     
     /* Get r . */
-    r.v = _mm256_load_pd( r2 );
+    r.v = _mm256_load_pd( r_in );
     
     /* compute the index */
     alpha0.v = _mm256_setr_pd( p[0]->alpha[0] , p[1]->alpha[0] , p[2]->alpha[0] , p[3]->alpha[0] );
@@ -1377,8 +1377,8 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4double_r ( struc
     rind.v = _mm256_max_pd( _mm256_setzero_pd() , _mm256_add_pd( alpha0.v , _mm256_mul_pd( r.v , _mm256_add_pd( alpha1.v , _mm256_mul_pd( r.v , alpha2.v ) ) ) ) );
     ind[0] = rind.f[0];
     ind[1] = rind.f[1];
+    ind[2] = rind.f[2];
     ind[3] = rind.f[3];
-    ind[4] = rind.f[4];
     
     /* get the table offset */
     data[0] = &( p[0]->c[ ind[0] * potential_chunk ] );
