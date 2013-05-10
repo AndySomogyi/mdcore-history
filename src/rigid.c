@@ -84,9 +84,11 @@ int rigid_eval_shake ( struct rigid *rs , int N , struct engine *e ) {
     struct part *p[rigid_maxparts], **partlist;
     struct cell *c[rigid_maxparts], **celllist;
     struct rigid *r;
-    FPTYPE dt, idt, xp[3*rigid_maxparts], xp_old[3*rigid_maxparts];
+    double dt, idt;
+    double xp[3*rigid_maxparts], xp_old[3*rigid_maxparts], h[3];
+    double res[rigid_maxconstr];
     FPTYPE m[rigid_maxparts], tol, lambda, w;
-    FPTYPE vc[3*rigid_maxconstr], res[rigid_maxconstr], max_res, h[3];
+    FPTYPE vc[3*rigid_maxconstr], max_res;
     FPTYPE wvc[3*rigid_maxconstr];
     // FPTYPE vcom[3];
 
@@ -280,9 +282,11 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
     struct part *p[rigid_maxparts], **partlist;
     struct cell *c[rigid_maxparts], **celllist;
     struct rigid *r;
-    FPTYPE dt, idt, xp[3*rigid_maxparts], xp_old[3*rigid_maxparts];
-    FPTYPE m[rigid_maxparts], tol, lambda, max_res;
-    FPTYPE vc[3*rigid_maxconstr*rigid_maxparts], res[rigid_maxconstr], h[3], dv[3];
+    double dt, idt;
+    double xp[3*rigid_maxparts], xp_old[3*rigid_maxparts], h[3];
+    double res[rigid_maxconstr];
+    FPTYPE lambda, m[rigid_maxparts], tol, max_res;
+    FPTYPE vc[3*rigid_maxconstr*rigid_maxparts], dv[3];
     // FPTYPE vcom[3];
 
     /* Check for bad input. */
@@ -301,7 +305,7 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
     /* Loop over the rigid constraints. */
     for ( rid = 0 ; rid < N ; rid++ ) {
     
-        /* Get some local values we'll be re-usnig quite a bit. */
+        /* Get some local values we'll be re-using quite a bit. */
         r = &rs[rid];
         nr_parts = r->nr_parts;
         nr_constr = r->nr_constr;
@@ -342,7 +346,7 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
                 xp_old[ k*3 + j ] = xp[ k*3 + j ] - dt*p[k]->v[j];
                     
         /* Create the gradient vectors. */
-        bzero( vc , sizeof(float) * 3 * nr_constr * nr_parts );
+        bzero( vc , sizeof(FPTYPE) * 3 * nr_constr * nr_parts );
         for ( k = 0 ; k < nr_constr ; k++ ) {
             pid = r->constr[k].i;
             pjd = r->constr[k].j;
