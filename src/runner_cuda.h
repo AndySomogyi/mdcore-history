@@ -21,7 +21,7 @@
 #define cuda_maxparts                       512
 #define cuda_maxdiags                       352
 #define cuda_ndiags                         ( ( (cuda_maxdiags - 1) * cuda_maxdiags ) / 2 )
-#define cuda_frame                          128
+#define cuda_frame                          32
 #define cuda_maxpots                        100
 #define max_fingers                         1
 #define cuda_maxblocks                      64

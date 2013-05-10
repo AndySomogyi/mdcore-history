@@ -747,7 +747,102 @@ printf("Successfully split the space\n");
 /* Call it a day. */
     return engine_err_ok;
 #else
-return engine_err_nometis;
+/* Bisect recursively */
+ /* Interior, recursive function that actually does the split. */
+    int engine_split_bisect_rec( int N_min , int N_max , int x_min , int x_max , int y_min , int y_max , int z_min , int z_max , int flags) {
+    
+        int i, j, k, m, Nm;
+        int hx, hy, hz;
+        unsigned int flag = 0;
+        struct cell *c;
+    
+        /* Check inputs. */
+        if ( x_max < x_min || y_max < y_min || z_max < z_min )
+            return error(engine_err_domain);
+            
+        /* Is there nothing left to split? */
+        if ( N_min == N_max ) {
+        
+            /* Flag as ghost or not? */
+            if( flags == engine_split_MPI )
+            {
+                if ( N_min != e->nodeID )
+                    flag = cell_flag_ghost;
+                
+            /* printf("engine_split_bisect: marking range [ %i..%i , %i..%i , %i..%i ] with flag %i.\n",
+                x_min, x_max, y_min, y_max, z_min, z_max, flag ); */
+        
+            /* Run through the cells. */
+                for ( i = x_min ; i < x_max ; i++ )
+                    for ( j = y_min ; j < y_max ; j++ )
+                        for ( k = z_min ; k < z_max ; k++ ) {
+                            c = &( e->s.cells[ space_cellid(&(e->s),i,j,k) ] );
+                            c->flags |= flag;
+                            c->nodeID = N_min;
+                            }
+                }else{
+                
+                    for ( i = x_min ; i < x_max ; i++ )
+                        for ( j = y_min ; j < y_max ; j++ )
+                            for ( k = z_min ; k < z_max ; k++ ) {
+                                c = &( e->s.cells[ space_cellid(&(e->s),i,j,k) ] );
+                                c->GPUID = N_min;
+                                }
+                }            
+            }
+            
+        /* Otherwise, bisect. */
+        else {
+        
+            hx = x_max - x_min;
+            hy = y_max - y_min;
+            hz = z_max - z_min;
+            Nm = (N_min + N_max) / 2;
+        
+            /* Is the x-axis the largest? */
+            if ( hx > hy && hx > hz ) {
+                m = (x_min + x_max) / 2;
+                if ( engine_split_bisect_rec( N_min , Nm , x_min , m , y_min , y_max , z_min , z_max , flags) < 0 ||
+                     engine_split_bisect_rec( Nm+1 , N_max , m , x_max , y_min , y_max , z_min , z_max , flags) < 0 )
+                    return error(engine_err);
+                }
+        
+            /* Nope, maybe the y-axis? */
+            else if ( hy > hz ) {
+                m = (y_min + y_max) / 2;
+                if ( engine_split_bisect_rec( N_min , Nm , x_min , x_max , y_min , m , z_min , z_max , flags ) < 0 ||
+                     engine_split_bisect_rec( Nm+1 , N_max , x_min , x_max , m , y_max , z_min , z_max , flags) < 0 )
+                    return error(engine_err);
+                }
+        
+            /* Then it has to be the z-axis. */
+            else {
+                m = (z_min + z_max) / 2;
+                if ( engine_split_bisect_rec( N_min , Nm , x_min , x_max , y_min , y_max , z_min , m , flags) < 0 ||
+                     engine_split_bisect_rec( Nm+1 , N_max , x_min , x_max , y_min , y_max , m , z_max , flags) < 0 )
+                    return error(engine_err);
+                }
+        
+            }
+            
+        /* So far, so good! */
+        return engine_err_ok;
+    
+        }
+
+    /* Check inputs. */
+    if ( e == NULL )
+        return error(engine_err_null);
+        
+    /* Call the recursive bisection. */
+    if ( engine_split_bisect_rec( 0 , N-1 , 0 , e->s.cdim[0] , 0 , e->s.cdim[1] , 0 , e->s.cdim[2] , flags) < 0 )
+        return error(engine_err);
+        
+    /* Store the number of nodes. */
+    e->nr_nodes = N;
+        
+    /* Call it a day. */
+    return engine_err_ok;
 #endif
 } 
 /**
@@ -778,21 +873,20 @@ int engine_split_bisect ( struct engine *e , int N ) {
         if ( N_min == N_max ) {
         
             /* Flag as ghost or not? */
-            if ( N_min != e->nodeID )
-                flag = cell_flag_ghost;
+                if ( N_min != e->nodeID )
+                    flag = cell_flag_ghost;
                 
             /* printf("engine_split_bisect: marking range [ %i..%i , %i..%i , %i..%i ] with flag %i.\n",
                 x_min, x_max, y_min, y_max, z_min, z_max, flag ); */
         
             /* Run through the cells. */
-            for ( i = x_min ; i < x_max ; i++ )
-                for ( j = y_min ; j < y_max ; j++ )
-                    for ( k = z_min ; k < z_max ; k++ ) {
-                        c = &( e->s.cells[ space_cellid(&(e->s),i,j,k) ] );
-                        c->flags |= flag;
-                        c->nodeID = N_min;
-                        }
-                        
+                for ( i = x_min ; i < x_max ; i++ )
+                    for ( j = y_min ; j < y_max ; j++ )
+                        for ( k = z_min ; k < z_max ; k++ ) {
+                            c = &( e->s.cells[ space_cellid(&(e->s),i,j,k) ] );
+                            c->flags |= flag;
+                            c->nodeID = N_min;
+                            }
             }
             
         /* Otherwise, bisect. */

@@ -2047,29 +2047,11 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #endif
 
     #ifdef TASK_TIMERS
-	if(e->flags_cuda & enginecuda_flag_NAMD)
-	{
-		int4 NAMD_timers_local[26*cuda_maxcells*3];
-		if(cudaMemcpyFromSymbol( NAMD_timers_local, NAMD_timers, sizeof(int4)*26*cuda_maxcells*3 , 0 , cudaMemcpyDeviceToHost) != cudaSuccess )
-			return cuda_error(engine_err_cuda);	
-		for(int i = 0; i < e->s.nr_cells * 3 ; i++)
-		printf("Task: %i %i %i %i\n", NAMD_timers_local[i].x, NAMD_timers_local[i].y, NAMD_timers_local[i].z, NAMD_timers_local[i].w);
-	}else if( e->flags_cuda & enginecuda_flag_onesided_tasks)
-	{
 		int4 NAMD_timers_local[26*cuda_maxcells*3];
 		if(cudaMemcpyFromSymbol( NAMD_timers_local, NAMD_timers, sizeof(int4)*26*cuda_maxcells*3 , 0 , cudaMemcpyDeviceToHost) != cudaSuccess )
 			return cuda_error(engine_err_cuda);	
 		for(int i = 0; i < e->s.nr_tasks ; i++)
 		printf("Task: %i %i %i %i\n", NAMD_timers_local[i].x, NAMD_timers_local[i].y, NAMD_timers_local[i].z, NAMD_timers_local[i].w);
-	}else if (e->flags_cuda & enginecuda_flag_CUDA)
-	{
-		int4 NAMD_timers_local[26*cuda_maxcells*3];
-		if(cudaMemcpyFromSymbol( NAMD_timers_local, NAMD_timers, sizeof(int4)*26*cuda_maxcells*3 , 0 , cudaMemcpyDeviceToHost) != cudaSuccess )
-			return cuda_error(engine_err_cuda);	
-		for(int i = 0; i < e->s.nr_tasks ; i++)
-		printf("Task: %i %i %i %i\n", NAMD_timers_local[i].x, NAMD_timers_local[i].y, NAMD_timers_local[i].z, NAMD_timers_local[i].w);
-
-	}
 
     #endif
     
@@ -2689,9 +2671,10 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
   	    c1=1; c2=1;
 	    for(int i = 0; i < e->cells_cuda_nr[did] ; i++ )
 	    {
-		if(t->i == e->cells_cuda_local[did][i])
+	    /* Check cell is valid */
+		if(t->i < 0 || t->i == e->cells_cuda_local[did][i])
 		    c1 = 0;
-		if(t->j == e->cells_cuda_local[did][i])
+		if(t->j < 0 || t->j == e->cells_cuda_local[did][i])
 		    c2 = 0;
    	    }
 	    if( c1 )
