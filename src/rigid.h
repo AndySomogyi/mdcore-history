@@ -27,7 +27,7 @@
 #define rigid_maxparts                  10
 #define rigid_maxconstr                 (3*rigid_maxparts)
 #define rigid_maxiter                   100
-#define rigid_pshake_refine             4
+#define rigid_pshake_refine             10
 #define rigid_pshake_maxalpha           0.1f
 
 
