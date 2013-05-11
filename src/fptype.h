@@ -63,21 +63,30 @@
 
     
 /* Define some macros for single/double precision vector operations. */
-#if ( defined(__AVX__) && defined(FPTYPE_SINGLE) )
-    #define VEC_SINGLE
-    #define VEC_SIZE 8
-    #define VEC_ALIGN 32
-    #define VECTORIZE
-#elif ( (defined(__SSE__) || defined(__ALTIVEC__)) && defined(FPTYPE_SINGLE) )
-    #define VEC_SINGLE
-    #define VEC_SIZE 4
-    #define VEC_ALIGN 16
-    #define VECTORIZE
-#elif ( (defined(__SSE2__) || defined(__AVX__)) && defined(FPTYPE_DOUBLE) )
-    #define VEC_DOUBLE
-    #define VEC_SIZE 4
-    #define VEC_ALIGN 16
-    #define VECTORIZE
+#if defined(FPTYPE_SINGLE)
+    #if defined(__AVX__)
+        #define VEC_SINGLE
+        #define VEC_SIZE 8
+        #define VEC_ALIGN 32
+        #define VECTORIZE
+    #elif ( defined(__SSE__) || defined(__ALTIVEC__) )
+        #define VEC_SINGLE
+        #define VEC_SIZE 4
+        #define VEC_ALIGN 16
+        #define VECTORIZE
+    #endif
+#else
+    #if defined(__AVX__)
+        #define VEC_DOUBLE
+        #define VEC_SIZE 4
+        #define VEC_ALIGN 32
+        #define VECTORIZE
+    #elif defined(__SSE2__)
+        #define VEC_DOUBLE
+        #define VEC_SIZE 4
+        #define VEC_ALIGN 16
+        #define VECTORIZE
+    #endif
 #endif
 
 
@@ -122,7 +131,7 @@
  
 __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x2 , FPTYPE *dx ) {
 
-#if defined(FPTYPE_SINGLE) && defined(__SSE4_1__)
+#if defined(VECTORIZE) && defined(FPTYPE_SINGLE) && defined(__SSE4_1__)
     union {
         vector(4,float) v;
         float f[4];
@@ -141,7 +150,7 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     
     /* Return the sum of squares. */
     return d.f[0];
-#elif defined(FPTYPE_SINGLE) && defined(__SSE3__)
+#elif defined(VECTORIZE) && defined(FPTYPE_SINGLE) && defined(__SSE3__)
     union {
         vector(4,float) v;
         float f[4];
@@ -165,7 +174,7 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     
     /* Return the sum of squares. */
     return d.f[0];
-#elif defined(FPTYPE_DOUBLE) && defined(__AVX__)
+#elif defined(VECTORIZE) && defined(FPTYPE_DOUBLE) && defined(__AVX__)
     union {
         __m256d v;
         double f[4];
@@ -185,15 +194,14 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     /* Add horizontally twice to get the sum of the four entries
        in the lowest double. */
     d.v = _mm256_hadd_pd( d.v , d.v );
-    d.v = _mm256_hadd_pd( d.v , d.v );
     
     /* Return the sum of squares. */
-    return d.f[0];
-#elif defined(FPTYPE_DOUBLE) && defined(NO__SSE4_1__)
+    return d.f[0] + d.f[2];
+#elif defined(VECTORIZE) && defined(FPTYPE_DOUBLE) && defined(__SSE4_1__)
     union {
         vector(2,double) v;
         double f[2];
-        } a1, a2, b1, b2, c1, c2, d1, d2;
+        } a1, a2, b1, b2, c1, c2, d1;
         
     /* Load x1 and x2 into a and b. */
     a1.v = _mm_load_pd( x1 );
@@ -205,15 +213,14 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     c1.v = a1.v - b1.v;
     c2.v = a2.v - b2.v;
     _mm_store_pd( dx , c1.v );
-    _mm_store_pd( &dx[2] , c1.v );
+    _mm_store_pd( &dx[2] , c2.v );
     
     /* Use the built-in dot-product instruction. */
-    d1.v = _mm_dp_pd( c1.v , c1.v , 1+4+8 );
-    d2.v = c2.v * c2.v;
+    d1.v = _mm_dp_pd( c1.v , c1.v , 0x31 ) + c2.v * c2.v;
     
     /* Return the sum of squares. */
-    return d1.f[0] + d2.f[0];
-#elif defined(FPTYPE_DOUBLE) && defined(NO__SSE3__)
+    return d1.f[0];
+#elif defined(VECTORIZE) && defined(FPTYPE_DOUBLE) && defined(__SSE3__)
     union {
         vector(2,double) v;
         double f[2];
@@ -229,7 +236,7 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     c1.v = a1.v - b1.v;
     c2.v = a2.v - b2.v;
     _mm_store_pd( dx , c1.v );
-    _mm_store_pd( &dx[2] , c1.v );
+    _mm_store_pd( &dx[2] , c2.v );
     
     /* Square the entries (use a different register so that c can be stored). */
     d1.v = c1.v * c1.v;

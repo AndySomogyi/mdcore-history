@@ -98,24 +98,25 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff, dmaxdist, dnshift;
-    FPTYPE cutoff, cutoff2, r2, dx[4], w;
+    FPTYPE cutoff, cutoff2, r2, w;
     unsigned int *iparts, *jparts;
     FPTYPE dscale;
     FPTYPE shift[3], nshift, bias;
-    FPTYPE pix[4];
     FPTYPE *pif;
     int pid, count_i, count_j;
     double epot = 0.0;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
+    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[3*VEC_SIZE];
 #else
-    FPTYPE e, f;
+    FPTYPE e, f, dx[4], pix[4];
 #endif
     
     /* break early if one of the cells is empty */
@@ -349,19 +350,20 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
     struct potential *pot, **pots;
     struct engine *eng;
     int emt, pioff;
-    FPTYPE cutoff2, r2, dx[4], w;
-    FPTYPE pix[4];
+    FPTYPE cutoff2, r2, w;
     FPTYPE *pif;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
+    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
-    FPTYPE e, f;
+    FPTYPE e, f, dx[4], pix[4];
 #endif
     
     /* break early if one of the cells is empty */
@@ -561,7 +563,7 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
 __attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j ) {
 
     int i, j, k, emt, pioff, count_i, count_j;
-    FPTYPE cutoff2, r2, dx[4], pix[4], w, shift[3];
+    FPTYPE cutoff2, r2, w, shift[3];
     FPTYPE *pif;
     double epot = 0.0;
     struct engine *eng;
@@ -570,6 +572,8 @@ __attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct
     struct space *s;
 #if defined(VECTORIZE)
     int l, icount = 0;
+    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
@@ -577,7 +581,7 @@ __attribute__ ((flatten)) int runner_dopair_unsorted ( struct runner *r , struct
     FPTYPE dxq[VEC_SIZE*3];
     struct potential *potq[VEC_SIZE];
 #else
-    FPTYPE e, f;
+    FPTYPE e, f, dx[4], pix[4];
 #endif
     
     /* break early if one of the cells is empty */

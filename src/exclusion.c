@@ -86,17 +86,18 @@ int exclusion_eval ( struct exclusion *b , int N , struct engine *e , double *ep
     struct part *pi, *pj, **partlist;
     struct cell **celllist;
     struct potential *pot, **pots;
-    FPTYPE dx[3], r2, w, cutoff2;
+    FPTYPE r2, w, cutoff2;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
+    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
-    FPTYPE ee, eff;
+    FPTYPE ee, eff, dx[4];
 #endif
     // FPTYPE maxepot = FPTYPE_ZERO;
     // int maxepot_id = 0;

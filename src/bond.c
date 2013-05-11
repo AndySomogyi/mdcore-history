@@ -86,17 +86,19 @@ int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out ) {
     struct part *pi, *pj, **partlist;
     struct cell **celllist;
     struct potential *pot, **pots;
-    FPTYPE pix[4], dx[4], r2, w;
+    FPTYPE r2, w;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
+    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
-    FPTYPE ee, eff;
+    FPTYPE ee, eff, dx[4], pix[4];
 #endif
     
     /* Check inputs. */
@@ -285,17 +287,19 @@ int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double 
     struct part *pi, *pj, **partlist;
     struct cell **celllist;
     struct potential *pot, **pots;
-    FPTYPE pix[4], dx[4], r2, w;
+    FPTYPE r2, w;
 #if defined(VECTORIZE)
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
+    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE dxq[VEC_SIZE*3];
 #else
-    FPTYPE ee, eff;
+    FPTYPE ee, eff, dx[4], pix[4];
 #endif
     
     /* Check inputs. */
