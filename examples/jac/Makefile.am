@@ -25,7 +25,7 @@ AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
 AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)
 
 # Set-up the library
-bin_PROGRAMS = jac_noverlet jac_pseudoverlet
+bin_PROGRAMS = jac_noverlet jac_pseudoverlet jac_double_pseudoverlet
 
 # Build a CUDA/MPI-enabled version too?
 if HAVECUDA
@@ -50,6 +50,11 @@ jac_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 jac_pseudoverlet_SOURCES = jac.c
 jac_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
 jac_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single.a
+
+# Sources for jac_double_pseudoverlet
+jac_double_pseudoverlet_SOURCES = jac.c
+jac_double_pseudoverlet_CFLAGS = -DFPTYPE_DOUBLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+jac_double_pseudoverlet_LDADD = ../../src/.libs/libmdcore.a
 
 
 # Using CUDA and Verlet lists
