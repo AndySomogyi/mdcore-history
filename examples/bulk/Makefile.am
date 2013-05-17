@@ -39,7 +39,7 @@ endif
 
 # Sources for bulk
 bulk_noverlet_SOURCES = bulk.c
-bulk_noverlet_CFLAGS =  -DFPTYPE_SINGLE $(AM_CFLAGS)
+bulk_noverlet_CFLAGS =  -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_none" $(AM_CFLAGS)
 bulk_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 

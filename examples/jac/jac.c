@@ -163,7 +163,7 @@ int main ( int argc , char *argv[] ) {
 #ifdef WITH_MPI
     if ( engine_init_mpi( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
 #else
-    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_affinity ) != 0 ) {
+    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_sets | engine_flag_affinity ) != 0 ) {
 #endif
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
@@ -171,7 +171,7 @@ int main ( int argc , char *argv[] ) {
         }
     e.dt = dt;
     e.time = 0;
-    e.tol_rigid = 1.0e-7;
+    e.tol_rigid = 1.0e-6;
     e.nodeID = myrank;
     printf("main[%i]: engine initialized.\n",myrank);
     if ( myrank == 0 )
@@ -229,7 +229,7 @@ int main ( int argc , char *argv[] ) {
         printf("main[%i]: could not open the file \"par_all22_prot.inp\".\n",myrank);
         abort();
         }
-    if ( engine_read_cpf( &e , cpf , kappa , 1.0e-4 , rigidH ) < 0 ) {
+    if ( engine_read_cpf( &e , cpf , kappa , 1.0e-4 , rigidH , 0.7 ) < 0 ) {
         printf("main[%i]: engine_read_cpf failed with engine_err=%i.\n",myrank,engine_err);
         errs_dump(stdout);
         abort();
@@ -338,18 +338,12 @@ int main ( int argc , char *argv[] ) {
     /* Make the bonded sets. */
     if ( e.flags & engine_flag_sets ) {
         printf( "main[%i]: computing bonded sets...\n" , myrank ); fflush(stdout);
-        if ( engine_bonded_sets( &e , 10*nr_runners ) < 0 ) {
-            printf("main[%i]: engine_bonded_sets failed with engine_err=%i.\n",myrank,engine_err);
+        int grid[3] = { 3 , 3 , 3 };
+        if ( engine_bonded_makesets( &e , grid ) < 0 ) {
+            printf("main[%i]: engine_bonded_makesets failed with engine_err=%i.\n",myrank,engine_err);
             errs_dump(stdout);
             abort();
             }
-        w_min = w_max = e.sets[0].weight;
-        for ( k = 1 ; k < e.nr_sets ; k++ )
-            if ( e.sets[k].weight > w_max )
-                w_max = e.sets[k].weight;
-            else if ( e.sets[k].weight < w_min )
-                w_min = e.sets[k].weight;
-        printf( "main[%i]: have %i bonded sets, weights in [%i,%i].\n" , myrank , e.nr_sets , w_min , w_max ); fflush(stdout);
         }    
         
     
@@ -435,20 +429,20 @@ int main ( int argc , char *argv[] ) {
         } */
     /* k = 22; j = 63;
     pot = e.p[ k*e.max_type + j ];
-    for ( k = 0 ; k < e.nr_types ; k++ )
-        for ( j = k ; j < e.nr_types ; j++ ) {
-            if ( ( pot = e.p_bond[ k*e.max_type + j ] ) == NULL )
-                continue;
+    // for ( k = 0 ; k < e.nr_types ; k++ )
+    //     for ( j = k ; j < e.nr_types ; j++ ) {
+    //         if ( ( pot = e.p_bond[ k*e.max_type + j ] ) == NULL )
+    //             continue;
             printf( "main: dumping potential for %s-%s (%i-%i, n=%i) in [%.3e,%.3e].\n" , e.types[k].name2 , e.types[j].name2 , k , j , pot->n , pot->a , pot->b );
     //     for ( k = 0 ; k < e.nr_dihedralpots ; k++ ) {
     //         pot = e.p_dihedral[k];
             double A, B, q;
             FPTYPE ee, eff;
-            A = 4.184 * sqrt(0.046*0.046) * pow(0.02245+0.02245,12);
-            B = 2 * 4.184 * sqrt(0.046*0.046) * pow(0.02245+0.02245,6);
+            A = 4.184 * sqrt(0.12*0.1521) * pow(0.17+0.177,12);
+            B = 2 * 4.184 * sqrt(0.12*0.1521) * pow(0.17+0.177,6);
             q = e.types[k].charge * e.types[j].charge;
-            for ( i = 0 ; i <= 100 ; i++ ) {
-                temp = 1.0*pot->a + (double)i/100 * (pot->b - pot->a*1.0);
+            for ( i = 0 ; i <= 1000 ; i++ ) {
+                temp = 1.0*pot->a + (double)i/1000 * (pot->b - pot->a*1.0);
                 potential_eval_r( pot , temp , &ee , &eff );
                 printf("%23.16e %23.16e %23.16e %23.16e %23.16e %23.16e\n", temp , ee , eff , 
                     potential_LJ126(temp,A,B) + q*potential_Ewald(temp,kappa) , 
@@ -459,7 +453,30 @@ int main ( int argc , char *argv[] ) {
             for ( i = 0 ; i < pot->n+1 ; i++ )
                 printf( "coeffs[%i]: %e %e %e %e %e %e %e %e\n" ,
                     i , pot->c[i*potential_chunk+0] , pot->c[i*potential_chunk+1] , pot->c[i*potential_chunk+2] , pot->c[i*potential_chunk+3] , pot->c[i*potential_chunk+4] , pot->c[i*potential_chunk+5] , pot->c[i*potential_chunk+6] , pot->c[i*potential_chunk+7] );
-            }
+    //         }
+    return 0; */
+    
+    /* Dump an angular potential. */
+    /* struct part pi, pj, pk;
+    pot = e.p_angle[ e.angles[0].pid ];
+    printf( "main: dumping potential for angle %s-%s-%s in [%.3e,%.3e].\n" ,
+        e.types[ e.s.partlist[e.angles[0].i]->type ].name ,
+        e.types[ e.s.partlist[e.angles[0].j]->type ].name ,
+        e.types[ e.s.partlist[e.angles[0].k]->type ].name ,
+        acos( pot->a ) , acos( pot->b ) );
+    e.s.partlist[e.angles[0].i] = &pi;
+    e.s.partlist[e.angles[0].j] = &pj; e.s.celllist[e.angles[0].j] = e.s.celllist[e.angles[0].i];
+    e.s.partlist[e.angles[0].k] = &pk; e.s.celllist[e.angles[0].k] = e.s.celllist[e.angles[0].i];
+    pj.x[0] = 0.0; pj.x[1] = 0.0; pj.x[2] = 0.0;
+    pi.x[0] = 1.0; pi.x[1] = 0.0; pi.x[2] = 0.0;
+    pk.x[2] = 0.0;
+    for ( i = 0 ; i <= 1000 ; i++ ) {
+        temp = -7.6e-01 + (double)i/1000 * (1.822e-01 + 7.6e-01);
+        pk.x[0] = temp; pk.x[1] = sqrt(1.0 - temp*temp);
+        pk.f[0] = 0.0; pk.f[1] = 0.0; epot = 0.0;
+        angle_eval( &e.angles[0] , 1 , &e , &epot );
+        printf( " %23.16e %23.16e %23.16e %23.16e\n" , temp , pk.f[0] , pk.f[1] , epot );
+        }
     return 0; */
     
     

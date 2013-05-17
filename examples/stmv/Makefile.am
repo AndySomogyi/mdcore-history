@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Add the source directory and debug to CFLAGS
-AM_CFLAGS = -g -I../../src -Wall $(OPENMP_CFLAGS)
+AM_CFLAGS = -g -I../../src -std=gnu99 -Wall $(OPENMP_CFLAGS) -DTIMER
 
 # Set the linker flags if metis is present
 AM_LDFLAGS = $(METIS_LDFLAGS) $(FFTW3_LDFLAGS)

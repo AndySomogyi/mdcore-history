@@ -393,28 +393,28 @@ int main ( int argc , char *argv[] ) {
         #else
             toc_step = getticks();
         #endif
-        // get the total COM-velocities, ekin and epot
-        vcom_tot[0] = 0.0; vcom_tot[1] = 0.0; vcom_tot[2] = 0.0;
-        ekin = 0.0; epot = e.s.epot;
-        for ( j = 0 ; j < nr_mols ; j++ ) {
-            for ( k = 0 ; k < 3 ; k++ ) {
-                vcom[k] = ( e.s.partlist[j*3]->v[k] * 15.9994 +
-                    e.s.partlist[j*3+1]->v[k] * 1.00794 +
-                    e.s.partlist[j*3+2]->v[k] * 1.00794 ) / 1.801528e+1;
-                vcom_tot[k] += vcom[k];
-                }
-            ekin += 9.00764 * ( vcom[0]*vcom[0] + vcom[1]*vcom[1] + vcom[2]*vcom[2] );
-            }
-        for ( k = 0 ; k < 3 ; k++ )
-            vcom_tot[k] /= nr_mols * 1.801528e+1;
-        // printf("main: vcom_tot is [ %e , %e , %e ].\n",vcom_tot[0],vcom_tot[1],vcom_tot[2]); fflush(stdout);
                 
+        /* Get the total atomic kinetic energy, v_com and molecular kinetic energy. */
+        ekin = 0.0; epot = e.s.epot;
+        for ( k = 0 ; k < e.s.nr_real ; k++ ) {
+            struct cell *c = &e.s.cells[ e.s.cid_real[k] ];
+            for ( j = 0 ; j < c->count ; j++ ) {
+                struct part *p = &( c->parts[j] );
+                double v2 = p->v[0]*p->v[0] + p->v[1]*p->v[1] + p->v[2]*p->v[2];
+                vcom[0] += p->v[0] * e.types[p->type].mass;
+                vcom[1] += p->v[1] * e.types[p->type].mass;
+                vcom[2] += p->v[2] * e.types[p->type].mass;
+                ekin += 0.5 * v2 * e.types[p->type].mass;
+                }
+            }
+        // printf( "main[%i]: max particle ekin is %e (%s:%i).\n" , myrank , maxpekin , e.types[e.s.partlist[maxpekin_id]->type].name , maxpekin_id );
+            
         // compute the temperature and scaling
-        temp = ekin / ( 1.5 * 6.022045E23 * 1.380662E-26 * nr_mols );
-        w = sqrt( 1.0 + 0.1 * ( Temp / temp - 1.0 ) );
+        temp = 2.0 * ekin / ( 6.022045E23 * 1.380662E-26 * ( 3*e.s.nr_parts - e.nr_constr ) );
+        w = sqrt( 1.0 + 0.05 * ( Temp / temp - 1.0 ) );
 
         // compute the molecular heat
-        if ( i < 10000 ) {
+        if ( i < 5000 ) {
         
             // scale the COM-velocities
             for ( j = 0 ; j < nr_mols ; j++ ) {

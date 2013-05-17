@@ -41,7 +41,7 @@ endif
 
 # Sources for jac
 jac_noverlet_SOURCES = jac.c
-jac_noverlet_CFLAGS =  -DFPTYPE_SINGLE $(AM_CFLAGS)
+jac_noverlet_CFLAGS =  -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_none" $(AM_CFLAGS)
 jac_noverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
 
@@ -51,6 +51,12 @@ jac_pseudoverlet_SOURCES = jac.c
 jac_pseudoverlet_CFLAGS = -DFPTYPE_SINGLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
 jac_pseudoverlet_LDADD = ../../src/.libs/libmdcore_single.a
 
+# Sources for jac_double_pseudoverlet
+jac_double_pseudoverlet_SOURCES = jac.c
+jac_double_pseudoverlet_CFLAGS = -DFPTYPE_DOUBLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
+jac_double_pseudoverlet_LDADD = ../../src/.libs/libmdcore.a
+
+# Using pairwise Verlet lists of the second kind
 # Sources for jac_double_pseudoverlet
 jac_double_pseudoverlet_SOURCES = jac.c
 jac_double_pseudoverlet_CFLAGS = -DFPTYPE_DOUBLE -DENGINE_FLAGS="engine_flag_verlet_pseudo" $(AM_CFLAGS)
