@@ -365,10 +365,6 @@ double potential_create_harmonic_dihedral_dfdr ( double r ) {
         return potential_create_harmonic_dihedral_K * ( potential_create_harmonic_dihedral_n*U[potential_create_harmonic_dihedral_n-1]*cosd + ( 2*r*U[potential_create_harmonic_dihedral_n-1] - potential_create_harmonic_dihedral_n*T[potential_create_harmonic_dihedral_n] ) * sind / sqrt(1.0 - r*r) );
     }
 
-double potential_create_harmonic_dihedral_d6fdr6 ( double r ) {
-    return 0.0;
-    }
-        
 /**
  * @brief Creates a harmonic dihedral #potential
  *
@@ -389,10 +385,10 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
     double a = -1.0, b = 1.0;
     
     /* Adjust end-points if delta is not a multiple of pi. */
-    if ( fmod( delta , M_PI ) != 0 ) {
-        a = -1.0 / (1.0 + sqrt(FPTYPE_EPSILON));
-        b = 1.0 / (1.0 + sqrt(FPTYPE_EPSILON));
-        }
+    // if ( fmod( delta , M_PI ) != 0 ) {
+    //     a = -1.0 / (1.0 + sqrt(FPTYPE_EPSILON));
+    //     b = 1.0 / (1.0 + sqrt(FPTYPE_EPSILON));
+    //     }
     
     /* allocate the potential */
     if ( posix_memalign( (void **)&p , 16 , sizeof( struct potential ) ) != 0 ) {
@@ -404,7 +400,7 @@ struct potential *potential_create_harmonic_dihedral ( double K , int n , double
     potential_create_harmonic_dihedral_K = K;
     potential_create_harmonic_dihedral_n = n;
     potential_create_harmonic_dihedral_delta = delta;
-    if ( potential_init( p , &potential_create_harmonic_dihedral_f , NULL , &potential_create_harmonic_dihedral_d6fdr6 , a , b , tol ) < 0 ) {
+    if ( potential_init( p , &potential_create_harmonic_dihedral_f , NULL , NULL , a , b , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -434,10 +430,6 @@ double potential_create_harmonic_angle_dfdr ( double r ) {
         return -2.0 * potential_create_harmonic_angle_K * ( acos(r) - potential_create_harmonic_angle_theta0 ) / sqrt( 1.0 - r2 );
     }
 
-double potential_create_harmonic_angle_d6fdr6 ( double r ) {
-    return 0.0;
-    }
-        
 /**
  * @brief Creates a harmonic angle #potential
  *
@@ -471,15 +463,15 @@ struct potential *potential_create_harmonic_angle ( double a , double b , double
         b = M_PI;
     left = cos(b);
     right = cos(a);
-    if ( left - fabs(left)*sqrt(FPTYPE_EPSILON) < -1.0 )
-        left = -1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
-    if ( right + fabs(right)*sqrt(FPTYPE_EPSILON) > 1.0 )
-        right = 1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
+    // if ( left - fabs(left)*sqrt(FPTYPE_EPSILON) < -1.0 )
+    //     left = -1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
+    // if ( right + fabs(right)*sqrt(FPTYPE_EPSILON) > 1.0 )
+    //     right = 1.0 / ( 1.0 + sqrt(FPTYPE_EPSILON) );
         
     /* fill this potential */
     potential_create_harmonic_angle_K = K;
     potential_create_harmonic_angle_theta0 = theta0;
-    if ( potential_init( p , &potential_create_harmonic_angle_f , NULL , &potential_create_harmonic_angle_d6fdr6 , left , right , tol ) < 0 ) {
+    if ( potential_init( p , &potential_create_harmonic_angle_f , NULL , NULL , left , right , tol ) < 0 ) {
         free(p);
         return NULL;
         }
@@ -970,7 +962,7 @@ void potential_clear ( struct potential *p ) {
 
 int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)( double ) , double (*f6p)( double ) , FPTYPE a , FPTYPE b , FPTYPE tol ) {
 
-    double alpha, w;
+    double alpha, w, err_b;
     int l = potential_ivalsa, r = potential_ivalsb, m;
     FPTYPE err_l, err_r, err_m;
     FPTYPE *xi_l, *xi_r, *xi_m;
@@ -983,21 +975,20 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     if ( p == NULL || f == NULL )
         return error(potential_err_null);
         
-    /* check if we have a user-specified 6th derivative or not. */
-    if ( f6p == NULL )
-        return error(potential_err_nyi);
-        
     /* Stretch the domain ever so slightly to accommodate for rounding
        error when computing the index. */
-    b += fabs(b) * sqrt(FPTYPE_EPSILON);
-    a -= fabs(a) * sqrt(FPTYPE_EPSILON);
+    // b += fabs(b) * sqrt(FPTYPE_EPSILON);
+    // a -= fabs(a) * sqrt(FPTYPE_EPSILON);
     // printf( "potential_init: setting a=%.16e, b=%.16e.\n" , a , b );
         
     /* set the boundaries */
     p->a = a; p->b = b;
     
     /* compute the optimal alpha for this potential */
-    alpha = potential_getalpha(f6p,a,b);
+    if ( f6p != NULL )
+        alpha = potential_getalpha(f6p,a,b);
+    else
+        alpha = 1.0;
     /* printf("potential_init: alpha is %22.16e\n",(double)alpha); fflush(stdout); */
     
     /* compute the interval transform */
@@ -1007,11 +998,6 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->alpha[2] = w - alpha*w;
     p->alpha[3] = 0.0;
     
-    /* Correct the transform to the right. */
-    w = 2*FPTYPE_EPSILON*(fabs(p->alpha[0])+fabs(p->alpha[1])+fabs(p->alpha[2]));
-    p->alpha[0] -= w*a/(a-b);
-    p->alpha[1] += w/(a-b);
-
     /* compute the smallest interpolation... */
     /* printf("potential_init: trying l=%i...\n",l); fflush(stdout); */
     xi_l = (FPTYPE *)malloc( sizeof(FPTYPE) * (l + 1) );
@@ -1060,6 +1046,16 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         for ( k = 3 ; k <= potential_degree ; k++ )
             p->c[potential_chunk-1-k] = 0.0;
                 
+        /* Correct the transform at the left and right edges. */
+        FPTYPE bee = FPTYPE_COPYSIGN( FPTYPE_SQRT( b*b ) , b );
+        FPTYPE aye = FPTYPE_COPYSIGN( FPTYPE_SQRT( a*a ) , a );
+        FPTYPE fbee = FPTYPE_FABS(bee);
+        err_b = (p->n+1) - (p->alpha[0] + bee*(p->alpha[1] + bee*p->alpha[2])) -
+            FPTYPE_EPSILON * (FPTYPE_FABS(p->alpha[0]) + fbee*(FPTYPE_FABS(p->alpha[1]) + fbee*FPTYPE_FABS(p->alpha[2])));
+        // err_a = 1.0 - (p->alpha[0] + aye*(p->alpha[1] + aye*p->alpha[2]));
+        p->alpha[0] += (err_b*aye) / (aye - bee);
+        p->alpha[1] += (-err_b) / (aye - bee);
+
         /* Clean up. */
         free(xi_l);
         
@@ -1157,6 +1153,16 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->alpha[0] *= p->n; p->alpha[1] *= p->n; p->alpha[2] *= p->n;
     p->alpha[0] += 1.0;
     
+    /* Correct the transform at the left and right edges. */
+    FPTYPE bee = FPTYPE_COPYSIGN( FPTYPE_SQRT( b*b ) , b );
+    FPTYPE aye = FPTYPE_COPYSIGN( FPTYPE_SQRT( a*a ) , a );
+    FPTYPE fbee = FPTYPE_FABS(bee);
+    err_b = (p->n+1) - (p->alpha[0] + bee*(p->alpha[1] + bee*p->alpha[2])) -
+        FPTYPE_EPSILON * (FPTYPE_FABS(p->alpha[0]) + fbee*(FPTYPE_FABS(p->alpha[1]) + fbee*FPTYPE_FABS(p->alpha[2])));
+    // err_a = 1.0 - (p->alpha[0] + aye*(p->alpha[1] + aye*p->alpha[2]));
+    p->alpha[0] += (err_b*aye) / (aye - bee);
+    p->alpha[1] += (-err_b) / (aye - bee);
+
     /* Make the first interval a linear continuation. */
     p->c[0] = a; p->c[1] = 1.0 / a;
     double coeffs[potential_degree], eff[potential_degree];

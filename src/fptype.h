@@ -33,6 +33,7 @@
         #define FPTYPE_FMAX fmax
         #define FPTYPE_FMIN fmin
         #define FPTYPE_FABS fabs
+        #define FPTYPE_COPYSIGN copysign
     #else
         /** The basic type is set to float. */
         typedef float FPTYPE;
@@ -44,6 +45,7 @@
         #define FPTYPE_FMAX fmaxf
         #define FPTYPE_FMIN fminf
         #define FPTYPE_FABS fabsf
+        #define FPTYPE_COPYSIGN copysignf
         #ifndef FPTYPE_SINGLE
             #define FPTYPE_SINGLE
         #endif
@@ -254,6 +256,120 @@ __attribute__ ((always_inline)) INLINE FPTYPE fptype_r2 ( FPTYPE *x1 , FPTYPE *x
     dx[1] = x1[1] - x2[1];
     dx[2] = x1[2] - x2[2];
     return dx[0]*dx[0] + dx[1]*dx[1] + dx[2]*dx[2];
+#endif
+
+    }
+    
+
+/**
+ * @brief Inlined function to compute the dot product of two vectors.
+ *
+ * @param x The firstvector.
+ * @param x2 The second vector.
+ *
+ * @return The dot product of @c x1 and @c x2.
+ *
+ * Depending on the processor features, this function will use
+ * SSE registers and horizontal adds.
+ */
+ 
+__attribute__ ((always_inline)) INLINE FPTYPE fptype_dprod ( FPTYPE *x1 , FPTYPE *x2 ) {
+
+#if defined(VECTORIZE) && defined(FPTYPE_SINGLE) && defined(__SSE4_1__)
+    union {
+        vector(4,float) v;
+        float f[4];
+        } a, b, d;
+        
+    /* Load x1 and x2 into a and b. */
+    a.v = _mm_load_ps( x1 );
+    b.v = _mm_load_ps( x2 );
+    
+    /* Use the built-in dot-product instruction. */
+    d.v = _mm_dp_ps( a.v , b.v , 0x71 );
+    
+    /* Return the sum of squares. */
+    return d.f[0];
+#elif defined(VECTORIZE) && defined(FPTYPE_SINGLE) && defined(__SSE3__)
+    union {
+        vector(4,float) v;
+        float f[4];
+        } a, b, d;
+        
+    /* Load x1 and x2 into a and b. */
+    a.v = _mm_load_ps( x1 );
+    b.v = _mm_load_ps( x2 );
+    
+    /* Square the entries. */
+    d.v = a.v * b.v;
+    
+    /* Add horizontally twice to get the sum of the four entries
+       in the lowest float. */
+    d.v = _mm_hadd_ps( d.v , d.v );
+    d.v = _mm_hadd_ps( d.v , d.v );
+    
+    /* Return the sum of squares. */
+    return d.f[0];
+#elif defined(VECTORIZE) && defined(FPTYPE_DOUBLE) && defined(__AVX__)
+    union {
+        __m256d v;
+        double f[4];
+        } a, b, d;
+        
+    /* Load x1 and x2 into a and b. */
+    a.v = _mm256_load_pd( x1 );
+    b.v = _mm256_load_pd( x2 );
+    
+    /* Square the entries (use a different register so that c can be stored). */
+    d.v = a.v * b.v;
+    
+    /* Add horizontally. */
+    d.v = _mm256_hadd_pd( d.v , d.v );
+    
+    /* Return the sum of squares. */
+    return d.f[0] + d.f[2];
+#elif defined(VECTORIZE) && defined(FPTYPE_DOUBLE) && defined(__SSE4_1__)
+    union {
+        vector(2,double) v;
+        double f[2];
+        } a1, a2, b1, b2, d1;
+        
+    /* Load x1 and x2 into a and b. */
+    a1.v = _mm_load_pd( x1 );
+    b1.v = _mm_load_pd( x2 );
+    a2.v = _mm_load_pd( &x1[2] );
+    b2.v = _mm_load_pd( &x2[2] );
+    
+    /* Use the built-in dot-product instruction. */
+    d1.v = _mm_dp_pd( a1.v , b1.v , 0x31 ) + a2.v * b2.v;
+    
+    /* Return the sum of squares. */
+    return d1.f[0];
+#elif defined(VECTORIZE) && defined(FPTYPE_DOUBLE) && defined(__SSE3__)
+    union {
+        vector(2,double) v;
+        double f[2];
+        } a1, a2, b1, b2, c1, c2, d1, d2;
+        
+    /* Load x1 and x2 into a and b. */
+    a1.v = _mm_load_pd( x1 );
+    b1.v = _mm_load_pd( x2 );
+    a2.v = _mm_load_pd( &x1[2] );
+    b2.v = _mm_load_pd( &x2[2] );
+    
+    /* Square the entries (use a different register so that c can be stored). */
+    d1.v = a1.v * b1.v;
+    d2.v = a2.v * b2.v;
+    
+    /* Add horizontally twice to get the sum of the four entries
+       in the lowest double. */
+    d1.v = _mm_hadd_pd( d1.v , d2.v );
+    d1.v = _mm_hadd_pd( d1.v , d1.v );
+    
+    /* Return the sum of squares. */
+    return d1.f[0];
+#else
+    return x1[0]*x2[0] + x1[1]*x2[1] + x1[2]*x2[2];
 #endif
 
     }

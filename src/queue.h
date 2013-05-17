@@ -41,8 +41,8 @@ struct queue {
     /* The queue data. */
     struct task *tasks;
         
-    /* The space in which this queue lives. */
-    struct space *space;
+    /* The engine in which this queue lives. */
+    struct engine *engine;
         
     /* The queue indices. */
     int *ind;
@@ -60,7 +60,7 @@ struct queue {
 
 
 /* Associated functions */
-int queue_init ( struct queue *q , int size , struct space *s , struct task *tasks );
+int queue_init ( struct queue *q , int size , struct engine *e , struct task *tasks );
 void queue_reset ( struct queue *q );
 int queue_insert ( struct queue *q , struct task *t );
 struct task *queue_get ( struct queue *q , int rid , int keep );

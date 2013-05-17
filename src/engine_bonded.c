@@ -43,6 +43,7 @@
 #include "errs.h"
 #include "fptype.h"
 #include "lock.h"
+#include "task.h"
 #include "part.h"
 #include "cell.h"
 #include "space.h"
@@ -63,6 +64,89 @@
 
 
 /**
+ * @brief Construct the bonded sets.
+ *
+ * @param e The #engine.
+ * @param grid The grid size, i.e. a vector of three ints, to use
+ *      for the bonded sets which will be superimposed on the cell grid.
+ *
+ * @return #engine_err_ok or < 0 on error (see #engine_err).
+ */
+ 
+int engine_bonded_makesets ( struct engine *e , int *grid ) {
+
+    int j, k, nr_sets;
+    double scale[3];
+    struct space *s = &e->s;
+    struct engine_set *set;
+
+    /* Check for bad inputs. */
+    for ( k = 0 ; k < 3 ; k++ )
+        if ( grid[k] > s->cdim[k] )
+            return error(engine_err_range);
+            
+    /* Set the nr of sets. */
+    nr_sets = grid[0] * grid[1] * grid[2];
+    
+    /* Allocate the sets. */
+    if ( ( e->sets = (struct engine_set *)malloc( sizeof(struct engine_set) * nr_sets ) ) == NULL )
+        return error(engine_err_malloc);
+        
+    /* Allocate and fill the set data. */
+    for ( k = 0 ; k < nr_sets ; k++ ) {
+        set = &e->sets[k];
+        set->id = k;
+        set->nr_bonds = 0;
+        set->nr_angles = 0;
+        set->nr_dihedrals = 0;
+        set->nr_exclusions = 0;
+        set->nr_cells = 0;
+        if ( ( set->bonds = malloc( sizeof(void *) * e->nr_bonds ) ) == NULL ||
+             ( set->angles = malloc( sizeof(void *) * e->nr_angles ) ) == NULL ||
+             ( set->dihedrals = malloc( sizeof(void *) * e->nr_dihedrals ) ) == NULL ||
+             ( set->exclusions = malloc( sizeof(void *) * e->nr_exclusions ) ) == NULL ||
+             ( set->cells = malloc( sizeof(void *) * s->nr_cells ) ) == NULL )
+            return error(engine_err_malloc);
+        for ( j = 0 ; j < e->nr_bonds ; j++ )
+            set->bonds[j] = &e->bonds[j];
+        for ( j = 0 ; j < e->nr_angles ; j++ )
+            set->angles[j] = &e->angles[j];
+        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
+            set->dihedrals[j] = &e->dihedrals[j];
+        for ( j = 0 ; j < e->nr_exclusions ; j++ )
+            set->exclusions[j] = &e->exclusions[j];
+        }
+        
+    /* Compute the scaling factor. */
+    for ( k = 0 ; k < 3 ; k++ )
+        scale[k] = ((double)grid[k]) / s->cdim[k];
+        
+    /* Run through the cells and set their setid. */
+    for ( k = 0 ; k < s->nr_cells ; k++ ) {
+        struct cell *c = &s->cells[k];
+        c->setID = (int)(c->loc[2]*scale[2]) + grid[2]*( (int)(c->loc[1]*scale[1]) + grid[1]*(int)(c->loc[0]*scale[0]) );
+        // printf( "engine_bonded_makesets: cell %i assigned to set %i.\n" , k , c->setID );
+        }
+        
+    /* Set the cells in the sets. */
+    for ( k = 0 ; k < s->nr_cells ; k++ ) {
+        set = &e->sets[ s->cells[k].setID ];
+        set->cells[ set->nr_cells ] = k;
+        set->nr_cells += 1;
+        }
+    
+    /* Make the tasks for each set. */
+    for ( k = 0 ; k < nr_sets ; k++ )
+        if ( space_addtask( s , task_type_bonded , task_subtype_none , 0 , k , 0 ) < 0 )
+            return error(engine_err_space);
+            
+    /* Killing me softly... */
+    return engine_err_ok;
+    
+    }
+
+
+/**
  * @brief Compute all bonded interactions stored in this engine.
  * 
  * @param e The #engine.
@@ -73,7 +157,8 @@
  * #engine_dihedral eval, yet all in one go to avoid excessive
  * updates of the particle forces.
  */
- 
+
+#ifdef DISABLED
 int engine_bonded_eval_sets ( struct engine *e ) {
 
     double epot_bond = 0.0, epot_angle = 0.0, epot_dihedral = 0.0, epot_exclusion = 0.0;
@@ -246,7 +331,7 @@ int engine_bonded_eval_sets ( struct engine *e ) {
     return engine_err_ok;
 
     }
-
+#endif
 
 /**
  * @brief Assemble non-conflicting sets of bonded interactions.
@@ -256,6 +341,7 @@ int engine_bonded_eval_sets ( struct engine *e ) {
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
  
+#ifdef DISABLED
 int engine_bonded_sets ( struct engine *e , int max_sets ) {
 
     struct {
@@ -1008,7 +1094,7 @@ int engine_bonded_sets ( struct engine *e , int max_sets ) {
     return engine_err_ok;
 
     }
-    
+#endif    
     
 
 /**

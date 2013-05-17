@@ -70,7 +70,7 @@ int engine_err = engine_err_ok;
 #define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[29] = {
+char *engine_err_msg[30] = {
 	"Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -100,6 +100,7 @@ char *engine_err_msg[29] = {
     "An error occured when evaluating a rigid constraint.",
     "Cell cutoff size doesn't work with METIS", 
     "METIS library undefined",
+    "Not yet implemented."
 	};
 
 
@@ -449,6 +450,26 @@ int engine_split ( struct engine *e ) {
 
             }
             
+        /* Bonded? */
+        else if ( s->tasks[i].type == task_type_bonded ) {
+        
+            /* Clean out the ghost cells. */
+            for ( k = 0 ; k < e->sets[ s->tasks[i].i ].nr_cells ; k++ )
+                if ( !( s->cells[ e->sets[ s->tasks[i].i ].cells[k] ].flags & cell_flag_marked ) )
+                    e->sets[ s->tasks[i].i ].cells[k--] = e->sets[ s->tasks[i].i ].cells[ --(e->sets[ s->tasks[i].i ].nr_cells) ];
+            
+            /* If there are no cells left, skip it. */
+            if ( e->sets[ s->tasks[i].i ].nr_cells == 0 )
+                s->tasks[i] = s->tasks[ --(s->nr_tasks) ];
+            else
+                i += 1;
+
+            }
+            
+        /* Otherwise? */
+        else
+            return error(engine_err_nyi);
+            
         }
         
     /* Clear all task dependencies and re-link each sort task with its cell. */
@@ -502,8 +523,9 @@ int engine_split ( struct engine *e ) {
     return engine_err_ok;
 
     }
+      
         
-    /**
+/**
 * @brief Split the computation domain over a number of nodes using METIS graph partitioning.
 *
 *@param e The #engine to split up.
@@ -512,7 +534,7 @@ int engine_split ( struct engine *e ) {
 *
 *@return #engine_err_ok or < 0 on error (see #engine_err).
 */        
-int engine_split_METIS ( struct engine *e, int N, int flags){
+int engine_split_METIS ( struct engine *e, int N, int flags ){
 #ifdef WITH_METIS
 //printf("Using METIS algorithm to split the space\n");
 int currentIndex, i,j,shiftDim,neighbor;
@@ -714,18 +736,10 @@ float CORNER = 0.036213f;
 		}
 	}else if ( flags == engine_split_GPU )
 	{
-		int part1 = 0;
-		int part2 = 0;
 		for( i = 0 ; i < e->s.nr_cells ; i++ )
 		{
 			e->s.cells[i].GPUID = part[i];
-			if(e->s.cells[i].GPUID == 0)
-				part1++;
-			else
-				part2++;
 		}
-		printf("%i  %i \n", part1, part2);
-
 
 	}
 
@@ -1656,10 +1670,6 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
 
         }
         
-    /* Is MPI really needed? */
-    if ( e->flags & engine_flag_mpi && e->nr_nodes == 1 )
-        e->flags &= ~engine_flag_mpi;
-        
     /* Do we even need runners? */
     if ( e->flags & engine_flag_cuda ) {
     
@@ -1685,7 +1695,7 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
         
         /* Initialize  and fill the queues. */
         for ( i = 0 ; i < e->nr_queues ; i++ )
-            if ( queue_init( &e->queues[i] , 2*s->nr_tasks/e->nr_queues , s , s->tasks ) != queue_err_ok )
+            if ( queue_init( &e->queues[i] , 2*s->nr_tasks/e->nr_queues , e , s->tasks ) != queue_err_ok )
                 return error(engine_err_queue);
         for ( i = 0 ; i < s->nr_tasks ; i++ )
             if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tasks[i] ) < 0 )
@@ -1960,6 +1970,7 @@ int engine_advance ( struct engine *e ) {
 
 int engine_step ( struct engine *e ) {
 
+    int k;
     ticks tic, tic_step = getticks();
 
     /* increase the time stepper */
@@ -1970,6 +1981,10 @@ int engine_step ( struct engine *e ) {
     if ( space_prepare( &e->s ) != space_err_ok )
         return error(engine_err_space);
     e->timers[engine_timer_prepare] += getticks() - tic;
+    
+    /* Clear the runner timers. */
+    for ( k = 0 ; k < runner_timer_count ; k++ )
+        runner_timers[k] = 0;
 
     /* Make sure the verlet lists are up to date. */
     if ( e->flags & engine_flag_verlet ) {
@@ -2035,16 +2050,14 @@ int engine_step ( struct engine *e ) {
         e->s.verlet_rebuild = 0;
             
     /* Do bonded interactions. */
-    tic = getticks();
-    if ( e->flags & engine_flag_sets ) {
-        if ( engine_bonded_eval_sets( e ) < 0 )
-            return error(engine_err);
-        }
-    else {
+    if ( !( e->flags & engine_flag_sets ) ) {
+        tic = getticks();
         if ( engine_bonded_eval( e ) < 0 )
             return error(engine_err);
+        e->timers[engine_timer_bonded] += getticks() - tic;
         }
-    e->timers[engine_timer_bonded] += getticks() - tic;
+    else
+        e->timers[engine_timer_bonded] += runner_timers[ runner_timer_bonded ];
 
     /* update the particle velocities and positions. */
     tic = getticks();
@@ -2265,8 +2278,9 @@ int engine_finalize ( struct engine *e ) {
         free( e->sets[k].angles );
         free( e->sets[k].dihedrals );
         free( e->sets[k].exclusions );
-        free( e->sets[k].confl );
+        free( e->sets[k].cells );
         }
+    free( e->sets );
         
     /* Clear all the counts and what not. */
     bzero( e , sizeof( struct engine ) );

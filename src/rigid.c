@@ -285,8 +285,8 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
     double dt, idt;
     double xp[3*rigid_maxparts], xp_old[3*rigid_maxparts], h[3];
     double res[rigid_maxconstr];
-    FPTYPE lambda, m[rigid_maxparts], tol, max_res;
-    FPTYPE vc[3*rigid_maxconstr*rigid_maxparts], dv[3];
+    double lambda, m[rigid_maxparts], tol, max_res;
+    double vc[3*rigid_maxconstr*rigid_maxparts], dv[3];
     // FPTYPE vcom[3];
 
     /* Check for bad input. */
@@ -346,7 +346,7 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
                 xp_old[ k*3 + j ] = xp[ k*3 + j ] - dt*p[k]->v[j];
                     
         /* Create the gradient vectors. */
-        bzero( vc , sizeof(FPTYPE) * 3 * nr_constr * nr_parts );
+        bzero( vc , sizeof(double) * 3 * nr_constr * nr_parts );
         for ( k = 0 ; k < nr_constr ; k++ ) {
             pid = r->constr[k].i;
             pjd = r->constr[k].j;
@@ -452,13 +452,12 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
                     a_new[ i*nr_constr + i ] = 1.0f;
                 }
                 
-            /* tmp = r->a * a_new. */
-            for ( i = 0 ; i < nr_constr ; i++ )
-                for ( j = 0 ; j < nr_constr ; j++ ) {
-                    tmp[ j*nr_constr + i ] = 0.0;
-                    for ( k = 0 ; k < nr_constr ; k++ )
+            /* tmp = r->a * a_new. Loops reordered for easier vectorization. */
+            bzero( tmp , sizeof(float) * nr_constr * nr_constr );
+            for ( j = 0 ; j < nr_constr ; j++ )
+                for ( k = 0 ; k < nr_constr ; k++ )
+                    for ( i = 0 ; i < nr_constr ; i++ )
                         tmp[ j*nr_constr + i ] += r->a[ k*nr_constr + i ] * a_new[ j*nr_constr + k ];
-                    }
             memcpy( r->a , tmp , sizeof(float) * nr_constr * nr_constr );
         
             }
@@ -484,11 +483,13 @@ int rigid_eval_pshake ( struct rigid *rs , int N , struct engine *e , int a_upda
                         shift = -1;
                     else if ( shift < -1 )
                         shift = 1;
+                    p[k]->f[j] += idt * idt * ( xp[3*k+j] - h[j]*shift - p[k]->x[j] ) * m[k];
                     p[k]->v[j] += idt * ( xp[3*k+j] - h[j]*shift - p[k]->x[j] );
                     p[k]->x[j] = xp[3*k+j] - h[j]*shift;
                     }
             else
                 for ( j = 0 ; j < 3 ; j++ ) {
+                    p[k]->f[j] += idt * idt * ( xp[3*k+j] - p[k]->x[j] ) * m[k];
                     p[k]->v[j] += idt * ( xp[3*k+j] - p[k]->x[j] );
                     p[k]->x[j] = xp[3*k+j];
                     }

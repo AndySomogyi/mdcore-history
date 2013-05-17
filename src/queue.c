@@ -83,8 +83,10 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
 
     int j, k, tid = -1, ind_best = -1, score, score_best = -1, hit = 0;
     struct task *t;
-    struct space *s = q->space;
+    struct engine *e = q->engine;
+    struct space *s = &e->s;
     char *cells_taboo = s->cells_taboo, *cells_owner = s->cells_owner;
+    struct engine_set *set;
 
     /* Check if the queue is empty first. */
     if ( q->next >= q->count )
@@ -113,6 +115,8 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
         /* Get this pair's score. */
         if ( t->type == task_type_sort || t->type == task_type_self )
             score = 2 * ( cells_owner[ t->i ] == rid );
+        else if ( t->type == task_type_bonded )
+            score = 2;
         else if ( t->type == task_type_pair )
             score = ( cells_owner[ t->i ] == rid ) + ( cells_owner[ t->j ] == rid );
         else
@@ -124,7 +128,7 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
 
         /* Is this pair ok? */
         if ( t->type == task_type_pair ) {
-            if ( rid & 1 ) {
+            // if ( rid & 1 ) {
                 if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
                     if ( __sync_val_compare_and_swap( &cells_taboo[ t->j ] , 0 , 1 ) == 0 ) {
                         if ( ind_best >= 0 ) {
@@ -142,7 +146,7 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
                     else
                         cells_taboo[ t->i ] = 0;
                     }
-                }
+            /*     }
             else {
                 if ( __sync_val_compare_and_swap( &cells_taboo[ t->j ] , 0 , 1 ) == 0 ) {
                     if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
@@ -161,10 +165,34 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
                     else
                         cells_taboo[ t->j ] = 0;
                     }
-                }
+                } */
             }
         else if ( t->type == task_type_sort || t->type == task_type_self ) {
             if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
+                if ( ind_best >= 0 ) {
+                    t = &q->tasks[ q->ind[ ind_best ] ];
+                    if ( t->type == task_type_self || t->type == task_type_sort )
+                        cells_taboo[ t->i ] = 0;
+                    else if ( t->type == task_type_pair ) {
+                        cells_taboo[ t->i ] = 0;
+                        cells_taboo[ t->j ] = 0;
+                        }
+                    }
+                score_best = score;
+                ind_best = k;
+                }
+            }
+        else if ( t->type == task_type_bonded ) {
+            set = &e->sets[ t->i ];
+            for ( j = 0 ; j < set->nr_cells ; j++ )
+                if ( __sync_val_compare_and_swap( &cells_taboo[ set->cells[j] ] , 0 , 1 ) != 0 )
+                    break;
+            if ( j < set->nr_cells ) {
+                for ( j -= 1 ; j >= 0 ; j-- )
+                    cells_taboo[ set->cells[j] ] = 0;
+                // printf( "queue_get[%i]: failed to lock bonded set %i.\n" , rid , set->id ); fflush(stdout);
+                }
+            else {
                 if ( ind_best >= 0 ) {
                     t = &q->tasks[ q->ind[ ind_best ] ];
                     if ( t->type == task_type_self || t->type == task_type_sort )
@@ -199,6 +227,11 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
         else if ( t->type == task_type_pair ) {
             cells_owner[ t->i ] = rid;
             cells_owner[ t->j ] = rid;
+            }
+        else if ( t->type == task_type_bonded ) {
+            set = &e->sets[ t->i ];
+            for ( j = 0 ; j < set->nr_cells ; j++ )
+                cells_owner[ set->cells[j] ] = rid;
             }
     
         /* Remove this entry from the queue? */
@@ -324,10 +357,10 @@ int queue_insert ( struct queue *q , struct task *t ) {
  * @sa #queue_tuples_init
  */
  
-int queue_init ( struct queue *q , int size , struct space *s , struct task *tasks ) {
+int queue_init ( struct queue *q , int size , struct engine *e , struct task *tasks ) {
 
     /* Sanity check. */
-    if ( q == NULL || s == NULL || tasks == NULL )
+    if ( q == NULL || e == NULL || tasks == NULL )
         return error(queue_err_null);
         
     /* Allocate the indices. */
@@ -335,7 +368,7 @@ int queue_init ( struct queue *q , int size , struct space *s , struct task *tas
         return error(queue_err_malloc);
         
     /* Init the queue data. */
-    q->space = s;
+    q->engine = e;
     q->size = size;
     q->next = 0;
     q->count = 0;

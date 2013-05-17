@@ -42,3 +42,4 @@ struct dihedral {
 /* associated functions */
 int dihedral_eval ( struct dihedral *d , int N , struct engine *e , double *epot_out );
 int dihedral_evalf ( struct dihedral *d , int N , struct engine *e , FPTYPE *f , double *epot_out );
+int dihedral_eval_set ( struct dihedral **d , int N , struct engine *e , int sid , double *epot_out );

@@ -315,6 +315,260 @@ int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out )
  * @param b Pointer to an array of #angle.
  * @param N Nr of angles in @c b.
  * @param e Pointer to the #engine in which these angles are evaluated.
+ * @param sid The ID of the set.
+ * @param epot_out Pointer to a double in which to aggregate the potential energy.
+ * 
+ * @return #angle_err_ok or <0 on error (see #angle_err)
+ */
+ 
+int angle_eval_set ( struct angle **a , int N , struct engine *e , int sid , double *epot_out ) {
+
+    int aid, pid, pjd, pkd, cid, cjd, ckd, k, l, *loci, *locj, *lock, shift;
+    double h[3], epot = 0.0;
+    struct space *s;
+    struct part *pi, *pj, *pk, **partlist;
+    struct cell **celllist;
+    struct cell *ci, *cj, *ck;
+    struct potential *pot;
+    FPTYPE xi[3], xj[3], xk[3], dxi[3] , dxk[3], ctheta, wi, wk;
+    FPTYPE rji[3], rjk[3], inji, injk, dprod;
+    struct potential **pots;
+#if defined(VECTORIZE)
+    struct potential *potq[VEC_SIZE];
+    int icount = 0;
+    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE], *effk[VEC_SIZE];
+    FPTYPE dummy[4];
+    FPTYPE cthetaq[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE ee[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE eff[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
+    FPTYPE diq[VEC_SIZE*3], dkq[VEC_SIZE*3];
+#else
+    FPTYPE ee, eff;
+#endif
+    
+    /* Get local copies of some variables. */
+    s = &e->s;
+    pots = e->p_angle;
+    partlist = s->partlist;
+    celllist = s->celllist;
+    for ( k = 0 ; k < 3 ; k++ )
+        h[k] = s->h[k];
+        
+    /* Loop over the angles. */
+    for ( aid = 0 ; aid < N ; aid++ ) {
+    
+        /* Get the particles involved. */
+        pid = a[aid]->i; pjd = a[aid]->j; pkd = a[aid]->k;
+        if ( ( pi = partlist[ pid] ) == NULL )
+            continue;
+        if ( ( pj = partlist[ pjd ] ) == NULL )
+            continue;
+        if ( ( pk = partlist[ pkd ] ) == NULL )
+            continue;
+        
+        /* Skip if all three are ghosts. */
+        if ( ( pi->flags & part_flag_ghost ) && ( pj->flags & part_flag_ghost ) && ( pk->flags & part_flag_ghost ) )
+            continue;
+            
+        /* Get the cells. */
+        ci = celllist[ pid ]; cid = ci->setID;
+        cj = celllist[ pjd ]; cjd = cj->setID;
+        ck = celllist[ pkd ]; ckd = ck->setID;
+            
+        /* Get the potential. */
+        if ( ( pot = pots[ a[aid]->pid ] ) == NULL )
+            continue;
+    
+        /* get the particle positions relative to pj's cell. */
+        loci = ci->loc;
+        locj = cj->loc;
+        lock = ck->loc;
+        for ( k = 0 ; k < 3 ; k++ ) {
+            xj[k] = pj->x[k];
+            shift = loci[k] - locj[k];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            xi[k] = pi->x[k] + shift*h[k];
+            shift = lock[k] - locj[k];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            xk[k] = pk->x[k] + shift*h[k];
+            }
+            
+        /* Get the angle rays. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            rji[k] = xi[k] - xj[k];
+            rjk[k] = xk[k] - xj[k];
+            }
+            
+        /* Compute some quantities we will re-use. */
+        dprod = rji[0]*rjk[0] + rji[1]*rjk[1] + rji[2]*rjk[2];
+        inji = FPTYPE_ONE / FPTYPE_SQRT( rji[0]*rji[0] + rji[1]*rji[1] + rji[2]*rji[2] );
+        injk = FPTYPE_ONE / FPTYPE_SQRT( rjk[0]*rjk[0] + rjk[1]*rjk[1] + rjk[2]*rjk[2] );
+        
+        /* Compute the cosine. */
+        ctheta = FPTYPE_FMAX( -FPTYPE_ONE , FPTYPE_FMIN( FPTYPE_ONE , dprod * inji * injk ) );
+        
+        /* Set the derivatives. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            dxi[k] = ( rjk[k]*injk - ctheta * rji[k]*inji ) * inji;
+            dxk[k] = ( rji[k]*inji - ctheta * rjk[k]*injk ) * injk;
+            }
+        
+        /* printf( "angle_eval: cos of angle %i (%s-%s-%s) is %e.\n" , aid ,
+            e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , ctheta ); */
+        /* printf( "angle_eval: ids are ( %i , %i , %i ).\n" , pi->id , pj->id , pk->id );
+        if ( e->s.celllist[pid] != e->s.celllist[pjd] )
+            printf( "angle_eval: pi and pj are in different cells!\n" );
+        if ( e->s.celllist[pkd] != e->s.celllist[pjd] )
+            printf( "angle_eval: pk and pj are in different cells!\n" );
+        printf( "angle_eval: xi-xj is [ %e , %e , %e ], ||xi-xj||=%e.\n" ,
+            xi[0]-xj[0] , xi[1]-xj[1] , xi[2]-xj[2] , sqrt( (xi[0]-xj[0])*(xi[0]-xj[0]) + (xi[1]-xj[1])*(xi[1]-xj[1]) + (xi[2]-xj[2])*(xi[2]-xj[2]) ) );
+        printf( "angle_eval: xk-xj is [ %e , %e , %e ], ||xk-xj||=%e.\n" ,
+            xk[0]-xj[0] , xk[1]-xj[1] , xk[2]-xj[2] , sqrt( (xk[0]-xj[0])*(xk[0]-xj[0]) + (xk[1]-xj[1])*(xk[1]-xj[1]) + (xk[2]-xj[2])*(xk[2]-xj[2]) ) ); */
+        /* printf( "angle_eval: dxi is [ %e , %e , %e ], ||dxi||=%e.\n" ,
+            dxi[0] , dxi[1] , dxi[2] , sqrt( dxi[0]*dxi[0] + dxi[1]*dxi[1] + dxi[2]*dxi[2] ) );
+        printf( "angle_eval: dxk is [ %e , %e , %e ], ||dxk||=%e.\n" ,
+            dxk[0] , dxk[1] , dxk[2] , sqrt( dxk[0]*dxk[0] + dxk[1]*dxk[1] + dxk[2]*dxk[2] ) ); */
+        if ( ctheta < pot->a || ctheta > pot->b ) {
+            printf( "angle_eval[%i]: angle %i (%s-%s-%s) out of range [%e,%e], ctheta=%e.\n" ,
+                e->nodeID , aid , e->types[pi->type].name , e->types[pj->type].name , e->types[pk->type].name , pot->a , pot->b , ctheta );
+            ctheta = FPTYPE_FMAX( pot->a , FPTYPE_FMIN( pot->b , ctheta ) );
+            }
+
+        #ifdef VECTORIZE
+            /* add this angle to the interaction queue. */
+            cthetaq[icount] = ctheta;
+            diq[icount*3] = dxi[0];
+            diq[icount*3+1] = dxi[1];
+            diq[icount*3+2] = dxi[2];
+            dkq[icount*3] = dxk[0];
+            dkq[icount*3+1] = dxk[1];
+            dkq[icount*3+2] = dxk[2];
+            effi[icount] = ( cid == sid ) ? pi->f : dummy;
+            effj[icount] = ( cjd == sid ) ? pj->f : dummy;
+            effk[icount] = ( ckd == sid ) ? pk->f : dummy;
+            potq[icount] = pot;
+            icount += 1;
+
+            /* evaluate the interactions if the queue is full. */
+            if ( icount == VEC_SIZE ) {
+
+                #if defined(FPTYPE_SINGLE)
+                    #if VEC_SIZE==8
+                    potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                    #else
+                    potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
+                    #endif
+                #elif defined(FPTYPE_DOUBLE)
+                    #if VEC_SIZE==4
+                    potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                    #else
+                    potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                    #endif
+                #endif
+
+                /* update the forces and the energy */
+                for ( l = 0 ; l < VEC_SIZE ; l++ ) {
+                    if ( effi[l] != dummy )
+                        epot += ee[l];
+                    for ( k = 0 ; k < 3 ; k++ ) {
+                        effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                        effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
+                        effj[l][k] += wi + wk;
+                        }
+                    }
+
+                /* re-set the counter. */
+                icount = 0;
+
+                }
+        #else
+            /* evaluate the angle */
+            #ifdef EXPLICIT_POTENTIALS
+                potential_eval_expl( pot , ctheta , &ee , &eff );
+            #else
+                potential_eval_r( pot , ctheta , &ee , &eff );
+            #endif
+            
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                wi = eff[l] * dxi[k];
+                wk = eff[l] * dxk[k];
+                if ( cid == sid )
+                    pi->f[k] -= wi;
+                if ( ckd == sid )
+                    pk->f[k] -= wk;
+                if ( cjd == sid )
+                    pj->f[k] += wi + wk;
+                }
+
+            /* tabulate the energy */
+            if ( cid == sid )
+                epot += ee;
+        #endif
+        
+        } /* loop over angles. */
+        
+        
+    #if defined(VECTORIZE)
+        /* are there any leftovers? */
+        if ( icount > 0 ) {
+
+            /* copy the first potential to the last entries */
+            for ( k = icount ; k < VEC_SIZE ; k++ ) {
+                potq[k] = potq[0];
+                cthetaq[k] = cthetaq[0];
+                }
+
+            /* evaluate the potentials */
+            #if defined(FPTYPE_SINGLE)
+                #if VEC_SIZE==8
+                potential_eval_vec_8single_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_4single_r( potq , cthetaq , ee , eff );
+                #endif
+            #elif defined(FPTYPE_DOUBLE)
+                #if VEC_SIZE==4
+                potential_eval_vec_4double_r( potq , cthetaq , ee , eff );
+                #else
+                potential_eval_vec_2double_r( potq , cthetaq , ee , eff );
+                #endif
+            #endif
+
+            /* for each entry, update the forces and energy */
+            for ( l = 0 ; l < icount ; l++ ) {
+                if ( effi[l] != dummy )
+                    epot += ee[l];
+                for ( k = 0 ; k < 3 ; k++ ) {
+                    effi[l][k] -= ( wi = eff[l] * diq[3*l+k] );
+                    effk[l][k] -= ( wk = eff[l] * dkq[3*l+k] );
+                    effj[l][k] += wi + wk;
+                    }
+                }
+
+            }
+    #endif
+    
+    /* Store the potential energy. */
+    *epot_out += epot;
+    
+    /* We're done here. */
+    return angle_err_ok;
+    
+    }
+
+
+/**
+ * @brief Evaluate a list of angleed interactions
+ *
+ * @param b Pointer to an array of #angle.
+ * @param N Nr of angles in @c b.
+ * @param e Pointer to the #engine in which these angles are evaluated.
  * @param epot_out Pointer to a double in which to aggregate the potential energy.
  *
  * This function differs from #angle_eval in that the forces are added to

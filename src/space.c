@@ -625,7 +625,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
         s->span[k] = ceil( cutoff * s->ih[k] );
         
     /* allocate the tasks array (pessimistic guess) */
-    s->tasks_size = s->nr_cells * ( (2*s->span[0] + 1) * (2*s->span[1] + 1) * (2*s->span[2] + 1) + 1 );
+    s->tasks_size = s->nr_cells * ( (2*s->span[0] + 1) * (2*s->span[1] + 1) * (2*s->span[2] + 1) + 2 );
     if ( ( s->tasks = (struct task *)malloc( sizeof(struct task) * s->tasks_size ) ) == NULL )
         return error(space_err_malloc);
     
@@ -770,6 +770,7 @@ int space_init ( struct space *s , const double *origin , const double *dim , do
     if ( pthread_mutex_init( &s->tasks_mutex , NULL ) != 0 ||
         pthread_cond_init( &s->tasks_avail , NULL ) != 0 )
         return error(space_err_pthread);
+    lock_init( &s->lock );
         
     /* Init the Verlet table (NULL for now). */
     s->verlet_rebuild = 1;

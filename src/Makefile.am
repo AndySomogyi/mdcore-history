@@ -31,7 +31,7 @@ include_HEADERS = cell.h part.h runner.h engine.h potential.h space.h fptype.h \
 SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
     bond.c angle.c reader.c rigid.c dihedral.c exclusion.c engine_io.c \
     engine_bonded.c engine_rigid.c engine_exchange.c \
-    runner_dopair.c queue.c runner_dosort.c \
+    runner_dopair.c queue.c runner_dosort.c runner_dobonded.c \
     task.c spme.c
 
 # CUDA sources

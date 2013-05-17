@@ -102,8 +102,11 @@ struct cell {
     /* Sorting task for this cell. */
     struct task *sort;
     
-    /*ID of the GPU this cell belongs to. */
+    /* ID of the GPU this cell belongs to. */
     int GPUID;
+    
+    /* ID of the bonded set this cell belongs to. */
+    int setID;
     
     };
     

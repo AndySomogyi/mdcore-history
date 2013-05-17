@@ -66,7 +66,7 @@ struct part {
     /** Particle flags */
     unsigned short int flags;
     
-    };
+    } __attribute__ ((aligned (64)));
     
 
 

@@ -57,6 +57,7 @@ enum {
     runner_timer_pair,
     runner_timer_self,
     runner_timer_sort,
+    runner_timer_bonded,
     runner_timer_count
     };
 extern ticks runner_timers[];
@@ -152,6 +153,9 @@ struct runner {
         };
 #endif
 
+/* Forward-delcare some parameters. */
+struct engine_set;
+
 /* associated functions */
 int runner_dopair_unsorted ( struct runner *r , struct cell *cell_i , struct cell *cell_j );
 int runner_init_SPU ( struct runner *r , struct engine *e , int id );
@@ -161,6 +165,7 @@ void runner_sort_ascending ( unsigned int *parts , int N );
 void runner_sort_descending ( unsigned int *parts , int N );
 int runner_verlet_eval ( struct runner *r , struct cell *c , FPTYPE *f_out );
 int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *cell_j , FPTYPE *pshift );
+int runner_dobonded ( struct runner *r , struct engine_set *set );
 int runner_dosort ( struct runner *r , struct cell *c , int flags );
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , int sid );
 int runner_doself ( struct runner *r , struct cell *cell_i );

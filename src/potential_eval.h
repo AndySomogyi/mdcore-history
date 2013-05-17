@@ -273,12 +273,12 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4single ( struct 
     ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha[0].v , _mm_mul_ps( r.v , _mm_add_ps( alpha[1].v , _mm_mul_ps( r.v , alpha[2].v ) ) ) ) ) );
     
     /* Check ranges. */
-    /* for ( j = 0 ; j < 4 ; j++ )
-        if ( ind.i[j] == 0 || ind.i[j] > p[j]->n ) {
+    /* for ( int j = 0 ; j < 4 ; j++ )
+        if ( ind.i[j] > p[j]->n ) {
             printf( "potential_eval_vec_4single: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
                 r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
                 p[j]->n , p[j]->a , p[j]->b );
-            fflush(stdout);
+            abort();
             } */
             
     /* Unpack/transpose the coefficient data. */
@@ -611,12 +611,12 @@ __attribute__ ((always_inline)) INLINE void potential_eval_vec_4single_r ( struc
     ind.m = _mm_cvttps_epi32( _mm_max_ps( _mm_setzero_ps() , _mm_add_ps( alpha0.v , _mm_mul_ps( r.v , _mm_add_ps( alpha1.v , _mm_mul_ps( r.v , alpha2.v ) ) ) ) ) );
     
     /* Check ranges. */
-    /* for ( j = 0 ; j < 4 ; j++ )
+    /* for ( int j = 0 ; j < 4 ; j++ )
         if ( ind.i[j] > p[j]->n ) {
-            printf( "potential_eval_vec_4single_r: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
+            printf( "potential_eval_vec_4single: r=%.9e (n=%.9e/%i) is not in [%.9e,%.9e].\n" ,
                 r.f[j] , p[j]->alpha[0] + r.f[j]*(p[j]->alpha[1] + r.f[j]*p[j]->alpha[2]) ,
                 p[j]->n , p[j]->a , p[j]->b );
-            fflush(stdout);
+            abort();
             } */
             
     /* get the table offset */

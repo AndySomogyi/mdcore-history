@@ -627,7 +627,7 @@ int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol
  * @return #engine_err_ok or < 0 on error (see #engine_err).
  */
 
-int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , int rigidH ) {
+int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , int rigidH , double switchlen ) {
 
     struct reader r;
     char buff[100], type1[100], type2[100], type3[100], type4[100], *endptr;
@@ -1163,7 +1163,7 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                     else
                         al = am;
                     }
-                if ( ( p = potential_create_LJ126_switch( al , e->s.cutoff , A , B , 0.7 , tol ) ) == NULL ) {
+                if ( ( p = potential_create_LJ126_switch( al , e->s.cutoff , A , B , switchlen , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e on [%e,%e].\n" ,
                     e->types[j].name , e->types[k].name , 
                     A , B , al , e->s.cutoff );
@@ -1200,7 +1200,7 @@ int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , i
                     else
                         al = am;
                     }
-                if ( ( p = potential_create_LJ126_Ewald_switch( al , e->s.cutoff , A , B , q , kappa , 0.7 , tol ) ) == NULL ) {
+                if ( ( p = potential_create_LJ126_Ewald_switch( al , e->s.cutoff , A , B , q , kappa , switchlen , tol ) ) == NULL ) {
                     printf( "engine_read_xplor: failed to create %s-%s potential with A=%e B=%e q=%e on [%e,%e].\n" ,
                     e->types[j].name , e->types[k].name , 
                     A , B , q ,

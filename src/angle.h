@@ -42,3 +42,4 @@ struct angle {
 /* associated functions */
 int angle_eval ( struct angle *a , int N , struct engine *e , double *epot_out );
 int angle_evalf ( struct angle *a , int N , struct engine *e , FPTYPE *f , double *epot_out );
+int angle_eval_set ( struct angle **a , int N , struct engine *e , int sid , double *epot_out );

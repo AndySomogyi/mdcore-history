@@ -48,6 +48,7 @@
 #define engine_err_rigid                 -26
 #define engine_err_cutoff		 		 -27
 #define engine_err_nometis				 -28
+#define engine_err_nyi   				 -29
 
 
 /* some constants */
@@ -116,6 +117,50 @@ extern int engine_err;
 extern char *engine_err_msg[];
 
 
+/**
+ * Structure storing grouped sets of bonded interactions.
+ */
+#ifdef DISBLED
+struct engine_set {
+
+    /* Counts of the different interaction types. */
+    int nr_bonds, nr_angles, nr_dihedrals, nr_exclusions, weight;
+    
+    /* Lists of ID of the relevant bonded types. */
+    struct bond *bonds;
+    struct angle *angles;
+    struct dihedral *dihedrals;
+    struct exclusion *exclusions;
+    
+    /* Nr of sets with which this set conflicts. */
+    int nr_confl;
+    
+    /* IDs of the sets with which this set conflicts. */
+    int *confl;
+    
+    /* The task associated with this set. */
+    struct task *task;
+
+    };
+#endif
+    
+struct engine_set {
+
+    /* Counts of the different interaction types. */
+    int id, nr_bonds, nr_angles, nr_dihedrals, nr_exclusions, nr_cells;
+    
+    /* Lists of ID of the relevant bonded types. */
+    struct bond **bonds;
+    struct angle **angles;
+    struct dihedral **dihedrals;
+    struct exclusion **exclusions;
+    
+    /* List of cells this set is attached to. */
+    int *cells;
+
+    };
+    
+    
 /** 
  * The #engine structure. 
  */
@@ -248,29 +293,6 @@ struct engine {
     
     
 /**
- * Structure storing grouped sets of bonded interactions.
- */
-struct engine_set {
-
-    /* Counts of the different interaction types. */
-    int nr_bonds, nr_angles, nr_dihedrals, nr_exclusions, weight;
-    
-    /* Lists of ID of the relevant bonded types. */
-    struct bond *bonds;
-    struct angle *angles;
-    struct dihedral *dihedrals;
-    struct exclusion *exclusions;
-    
-    /* Nr of sets with which this set conflicts. */
-    int nr_confl;
-    
-    /* IDs of the sets with which this set conflicts. */
-    int *confl;
-
-    };
-    
-    
-/**
  * Structure storing which cells to send/receive to/from another node.
  */
 struct engine_comm {
@@ -296,6 +318,7 @@ int engine_bond_add ( struct engine *e , int i , int j );
 int engine_bond_eval ( struct engine *e );
 int engine_bonded_eval ( struct engine *e );
 int engine_bonded_eval_sets ( struct engine *e );
+int engine_bonded_makesets ( struct engine *e , int *grid );
 int engine_bonded_sets ( struct engine *e , int max_sets );
 int engine_dihedral_add ( struct engine *e , int i , int j , int k , int l , int pid );
 int engine_dihedral_addpot ( struct engine *e , struct potential *p );
@@ -313,7 +336,7 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
 int engine_load_ghosts ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *q , unsigned int *flags , int N );
 int engine_load ( struct engine *e , double *x , double *v , int *type , int *pid , int *vid , double *charge , unsigned int *flags , int N );
 int engine_nonbond_eval ( struct engine *e );
-int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , int rigidH );
+int engine_read_cpf ( struct engine *e , int cpf , double kappa , double tol , int rigidH , double switchlen );
 int engine_read_psf ( struct engine *e , int psf , int pdb );
 int engine_read_xplor ( struct engine *e , int xplor , double kappa , double tol , int rigidH );
 int engine_rigid_add ( struct engine *e , int pid , int pjd , double d );

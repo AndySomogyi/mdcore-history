@@ -129,6 +129,9 @@ struct space {
     /** The maximum particle displacement over all cells. */
     FPTYPE maxdx;
     
+    /** General-purpose lock for the space. */
+    lock_type lock;
+    
     /** Potential energy collected by the space itself. */
     double epot, epot_nonbond, epot_bond, epot_angle, epot_dihedral, epot_exclusion;
 

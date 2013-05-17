@@ -666,6 +666,7 @@ int runner_run ( struct runner *r ) {
     int k, err = 0, acc = 0, naq, qid, myqid = e->nr_queues * r->id / e->nr_runners;
     struct task *t = NULL;
     struct queue *myq = &e->queues[ myqid ], *queues[ e->nr_queues ];
+    struct engine_set *set;
     unsigned int myseed = rand() + r->id;
     int count;
 
@@ -772,14 +773,16 @@ int runner_run ( struct runner *r ) {
                     if ( s->verlet_rebuild && !( e->flags & engine_flag_unsorted ) )
                         if ( runner_dosort( r , &s->cells[ t->i ] , t->flags ) < 0 )
                             return error(runner_err);
-                    s->cells_taboo[ t->i ] = 0;
+                    if ( lock_unlock( &s->cells_taboo[ t->i ] ) != 0 )
+                        abort();
                     TIMER_TOC(runner_timer_sort);
                     break;
                 case task_type_self:
                     TIMER_TIC_ND
                     if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
                         return error(runner_err);
-                    s->cells_taboo[ t->i ] = 0;
+                    if ( lock_unlock( &s->cells_taboo[ t->i ] ) != 0 )
+                        abort();
                     TIMER_TOC(runner_timer_self);
                     break;
                 case task_type_pair:
@@ -792,9 +795,20 @@ int runner_run ( struct runner *r ) {
                         if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
                             return error(runner_err);
                         }
-                    s->cells_taboo[ t->i ] = 0;
-                    s->cells_taboo[ t->j ] = 0;
+                    if ( lock_unlock( &s->cells_taboo[ t->i ] ) != 0 ||
+                         lock_unlock( &s->cells_taboo[ t->j ] ) != 0 )
+                        abort();
                     TIMER_TOC(runner_timer_pair);
+                    break;
+                case task_type_bonded:
+                    TIMER_TIC_ND
+                    set = &e->sets[ t->i ];
+                    if ( runner_dobonded( r , set ) < 0 )
+                        return error(runner_err);
+                    for ( k = 0 ; k < set->nr_cells ; k++ )
+                        if ( lock_unlock( &s->cells_taboo[ set->cells[k] ] ) != 0 )
+                            abort();
+                    TIMER_TOC(runner_timer_bonded);
                     break;
                 default:
                     return error(runner_err_tasktype);

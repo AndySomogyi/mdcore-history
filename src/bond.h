@@ -39,3 +39,4 @@ struct bond {
 /* associated functions */
 int bond_eval ( struct bond *b , int N , struct engine *e , double *epot_out );
 int bond_evalf ( struct bond *b , int N , struct engine *e , FPTYPE *f , double *epot_out );
+int bond_eval_set ( struct bond **b , int N , struct engine *e , int sid , double *epot_out );
