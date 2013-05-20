@@ -41,6 +41,7 @@
     #include <metis.h>
 #endif
 
+
 /* include local headers */
 #include "cycle.h"
 #include "errs.h"
@@ -67,11 +68,11 @@ int engine_err = engine_err_ok;
 
 
 /* the error macro. */
-#define error(id)				( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+#define error(id)                ( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
 char *engine_err_msg[30] = {
-	"Nothing bad happened.",
+    "Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
     "An error occured when calling a space function.",
@@ -101,7 +102,7 @@ char *engine_err_msg[30] = {
     "Cell cutoff size doesn't work with METIS", 
     "METIS library undefined",
     "Not yet implemented."
-	};
+    };
 
 
 /**
@@ -546,21 +547,21 @@ idx_t ew; //Temporary edge Weight store
 if(N==1)
 {
 if( flags == engine_split_MPI )
-	{
-		for(i = 0; i < e->s.nr_cells; i++ )
-		{
-			e->s.cells[i].nodeID = 0;
-			
-		}
+    {
+        for(i = 0; i < e->s.nr_cells; i++ )
+        {
+            e->s.cells[i].nodeID = 0;
+            
+        }
 }else if ( flags == engine_split_GPU )
-	{
-		for( i = 0 ; i < e->s.nr_cells ; i++ )
-		{
-			e->s.cells[i].GPUID = 0;
-		}
+    {
+        for( i = 0 ; i < e->s.nr_cells ; i++ )
+        {
+            e->s.cells[i].GPUID = 0;
+        }
 
 
-	}
+    }
 return engine_err_ok;
 }
 
@@ -572,190 +573,190 @@ float CORNER = 0.036213f;
 
     int nr_pairs = 0;
     for( i = 0; i < e->s.nr_tasks; i++ )
-	if(e->s.tasks[i].type == task_type_pair)
-		nr_pairs++;
+    if(e->s.tasks[i].type == task_type_pair)
+        nr_pairs++;
     nr_pairs *= 2;
     /* Check inputs. */
     if ( e == NULL )
         return error(engine_err_null);
 
-	/* Check cell size >= cutoff distance*/
-	if( e->s.h[0] < e->s.cutoff || e->s.h[1] < e->s.cutoff || e->s.h[2] < e->s.cutoff)
-		return error(engine_err_cutoff);
-	
-	//Need to include #include <metis.h>
-	/*Allocate memory required for METIS*/
-	/*Number of cells = number of nodes. */
-	idx_t *xadj = (idx_t*) malloc((e->s.nr_cells+1) * sizeof(idx_t));
-	if(xadj == NULL) return error(engine_err_malloc);
-	/*Number of edges = number of cellpairs */
-	idx_t *adjncy = (idx_t*) malloc (nr_pairs *2 * sizeof(idx_t));
-	if(adjncy == NULL) return error(engine_err_malloc);
-	/*Vertex Weights */
-	idx_t *vwgt = (idx_t*) malloc(e->s.nr_cells * sizeof(idx_t));
-	if(vwgt == NULL) return error(engine_err_malloc);
-	/*Edge Weights */
-	idx_t *adjwgt = (idx_t*) malloc(nr_pairs * 2 * sizeof(idx_t));
-	if(adjwgt == NULL) return error(engine_err_malloc);
-	/*Number vertices */
-	idx_t *nvtxs = (idx_t*) malloc(sizeof(idx_t));
-	if(nvtxs==NULL)return 1;
-	*nvtxs = e->s.nr_cells;
-	//Number constraints
-	idx_t *ncon = (idx_t*) malloc(sizeof(idx_t));
-	if(ncon==NULL)return 1;
-	*ncon = 1;
-	//Number partitions
-	idx_t *nparts = (idx_t*) malloc(sizeof(idx_t));
-	if(nparts==NULL)return 1;
-	*nparts = N;
+    /* Check cell size >= cutoff distance*/
+    if( e->s.h[0] < e->s.cutoff || e->s.h[1] < e->s.cutoff || e->s.h[2] < e->s.cutoff)
+        return error(engine_err_cutoff);
+    
+    //Need to include #include <metis.h>
+    /*Allocate memory required for METIS*/
+    /*Number of cells = number of nodes. */
+    idx_t *xadj = (idx_t*) malloc((e->s.nr_cells+1) * sizeof(idx_t));
+    if(xadj == NULL) return error(engine_err_malloc);
+    /*Number of edges = number of cellpairs */
+    idx_t *adjncy = (idx_t*) malloc (nr_pairs *2 * sizeof(idx_t));
+    if(adjncy == NULL) return error(engine_err_malloc);
+    /*Vertex Weights */
+    idx_t *vwgt = (idx_t*) malloc(e->s.nr_cells * sizeof(idx_t));
+    if(vwgt == NULL) return error(engine_err_malloc);
+    /*Edge Weights */
+    idx_t *adjwgt = (idx_t*) malloc(nr_pairs * 2 * sizeof(idx_t));
+    if(adjwgt == NULL) return error(engine_err_malloc);
+    /*Number vertices */
+    idx_t *nvtxs = (idx_t*) malloc(sizeof(idx_t));
+    if(nvtxs==NULL)return 1;
+    *nvtxs = e->s.nr_cells;
+    //Number constraints
+    idx_t *ncon = (idx_t*) malloc(sizeof(idx_t));
+    if(ncon==NULL)return 1;
+    *ncon = 1;
+    //Number partitions
+    idx_t *nparts = (idx_t*) malloc(sizeof(idx_t));
+    if(nparts==NULL)return 1;
+    *nparts = N;
 
-	/*results*/
-	idx_t *objval = (idx_t*) malloc(sizeof(idx_t));
-	if(objval==NULL)return 1;
-	idx_t *part = (idx_t*) malloc(e->s.nr_cells * (sizeof(idx_t)));
-	if(part==NULL)return 1;
+    /*results*/
+    idx_t *objval = (idx_t*) malloc(sizeof(idx_t));
+    if(objval==NULL)return 1;
+    idx_t *part = (idx_t*) malloc(e->s.nr_cells * (sizeof(idx_t)));
+    if(part==NULL)return 1;
 
-	//Loop over cell pairs and add to array if valid. Needs to be double loop.
-	currentIndex=0;
-	for(j=0; j<e->s.nr_cells; j++)
+    //Loop over cell pairs and add to array if valid. Needs to be double loop.
+    currentIndex=0;
+    for(j=0; j<e->s.nr_cells; j++)
 {
-	vw=0;
-	ew=0;
-	xadj[j]=currentIndex;
-	for(i=0; i<e->s.nr_tasks; i++)
-	{
-		if(e->s.tasks[i].type == task_type_sort)
-			continue;
-		shiftDim=0;
-		//If the pair involves cell j.
-		if(e->s.tasks[i].i==j || e->s.tasks[i].j==j)
-		{
-			
+    vw=0;
+    ew=0;
+    xadj[j]=currentIndex;
+    for(i=0; i<e->s.nr_tasks; i++)
+    {
+        if(e->s.tasks[i].type == task_type_sort)
+            continue;
+        shiftDim=0;
+        //If the pair involves cell j.
+        if(e->s.tasks[i].i==j || e->s.tasks[i].j==j)
+        {
+            
 
-			//If type = self this is a self interaction. All particles interact (n^2-n interactions)
-			//Increment vertex weight by e->s.cell[j].count ^ 2 - e->s.cell[j].count
-			if(e->s.tasks[i].type == task_type_self)
-			{
-				vw+= e->s.cells[j].count*e->s.cells[j].count - e->s.cells[j].count;
-			}else{
-			//Find neighbor cell index.
-				if(e->s.tasks[i].i==j)
-					neighbor = e->s.tasks[i].j;
-				else
-					neighbor = e->s.tasks[i].i;
+            //If type = self this is a self interaction. All particles interact (n^2-n interactions)
+            //Increment vertex weight by e->s.cell[j].count ^ 2 - e->s.cell[j].count
+            if(e->s.tasks[i].type == task_type_self)
+            {
+                vw+= e->s.cells[j].count*e->s.cells[j].count - e->s.cells[j].count;
+            }else{
+            //Find neighbor cell index.
+                if(e->s.tasks[i].i==j)
+                    neighbor = e->s.tasks[i].j;
+                else
+                    neighbor = e->s.tasks[i].i;
 
-				//Check how many shift==0.
-				if(e->s.cells[e->s.tasks[i].i].loc[0] == e->s.cells[e->s.tasks[i].j].loc[0])
-					shiftDim++;
-				if(e->s.cells[e->s.tasks[i].i].loc[1] == e->s.cells[e->s.tasks[i].j].loc[1])
-					shiftDim++;
-				if(e->s.cells[e->s.tasks[i].i].loc[2] == e->s.cells[e->s.tasks[i].j].loc[2])
-					shiftDim++;	
+                //Check how many shift==0.
+                if(e->s.cells[e->s.tasks[i].i].loc[0] == e->s.cells[e->s.tasks[i].j].loc[0])
+                    shiftDim++;
+                if(e->s.cells[e->s.tasks[i].i].loc[1] == e->s.cells[e->s.tasks[i].j].loc[1])
+                    shiftDim++;
+                if(e->s.cells[e->s.tasks[i].i].loc[2] == e->s.cells[e->s.tasks[i].j].loc[2])
+                    shiftDim++;    
 
-				//If shiftDim = 2 this is a face interaction. Add edge from j to i
-				//Edge has weight e->s.cell[j].count * e->s.cell[neighbor].count * FACE	(Estimated number of distance calculations)		
-				if(shiftDim==2)
-				{
-					ew = e->s.cells[j].count * e->s.cells[neighbor].count * FACE;
-					//Vertex Weights are the sum of edge weights + self interaction
-					vw+= ew;
-					//Add an edge and the edge weight to the graph
-					adjncy[currentIndex] = neighbor;
-					adjwgt[currentIndex] = ew;
-					currentIndex++;
-				}
-	
-				//If shiftDim = 1 this is an edge interaction. Add edge from j to i
-				//Edge has weight e->s.cell[j].count * e->s.cell[neightbor.count * EDGE (Estimated number of distance calculations)
-				if(shiftDim==1)
-				{
-					ew = e->s.cells[j].count * e->s.cells[neighbor].count * EDGE;
-					//Vertex Weights are the sum of edge weights + self interaction
-					vw+=ew;
-					//Add an edge and the edge weight to the graph
-					adjncy[currentIndex] = neighbor;
-					adjwgt[currentIndex] = ew;				
-					currentIndex++;
-				}
-	
-	
-				//If shiftDim = 0 this is an corner interaction. Add edge from j to i
-				//Edge has weight e->s.cell[j].count * e->s.cell[neightbor.count * CORNER (Estimated number of distance calculations)
-				if(shiftDim==0)
-				{
-					ew = e->s.cells[j].count * e->s.cells[neighbor].count * CORNER;
-					//Vertex Weights are the sum of edge weights + self interaction
-					vw+=ew;
-					//Add an edge and the edge weight to the graph
-					adjncy[currentIndex] = neighbor;
-					adjwgt[currentIndex] = ew;				
-					currentIndex++;
-				}			
-			}
-				
-			
-		}
-	}
-	//We now know vertex weight.
-	vwgt[j] = vw;
+                //If shiftDim = 2 this is a face interaction. Add edge from j to i
+                //Edge has weight e->s.cell[j].count * e->s.cell[neighbor].count * FACE    (Estimated number of distance calculations)        
+                if(shiftDim==2)
+                {
+                    ew = e->s.cells[j].count * e->s.cells[neighbor].count * FACE;
+                    //Vertex Weights are the sum of edge weights + self interaction
+                    vw+= ew;
+                    //Add an edge and the edge weight to the graph
+                    adjncy[currentIndex] = neighbor;
+                    adjwgt[currentIndex] = ew;
+                    currentIndex++;
+                }
+    
+                //If shiftDim = 1 this is an edge interaction. Add edge from j to i
+                //Edge has weight e->s.cell[j].count * e->s.cell[neightbor.count * EDGE (Estimated number of distance calculations)
+                if(shiftDim==1)
+                {
+                    ew = e->s.cells[j].count * e->s.cells[neighbor].count * EDGE;
+                    //Vertex Weights are the sum of edge weights + self interaction
+                    vw+=ew;
+                    //Add an edge and the edge weight to the graph
+                    adjncy[currentIndex] = neighbor;
+                    adjwgt[currentIndex] = ew;                
+                    currentIndex++;
+                }
+    
+    
+                //If shiftDim = 0 this is an corner interaction. Add edge from j to i
+                //Edge has weight e->s.cell[j].count * e->s.cell[neightbor.count * CORNER (Estimated number of distance calculations)
+                if(shiftDim==0)
+                {
+                    ew = e->s.cells[j].count * e->s.cells[neighbor].count * CORNER;
+                    //Vertex Weights are the sum of edge weights + self interaction
+                    vw+=ew;
+                    //Add an edge and the edge weight to the graph
+                    adjncy[currentIndex] = neighbor;
+                    adjwgt[currentIndex] = ew;                
+                    currentIndex++;
+                }            
+            }
+                
+            
+        }
+    }
+    //We now know vertex weight.
+    vwgt[j] = vw;
 }
 
-	//Need to add the final thing METIS needs to xadj
-	xadj[e->s.nr_cells]=currentIndex;
+    //Need to add the final thing METIS needs to xadj
+    xadj[e->s.nr_cells]=currentIndex;
 
-	//Setup METIS options
-	idx_t *options = (idx_t*) malloc(METIS_NOPTIONS * sizeof(idx_t));
-	if(options==NULL)return 1;
-	METIS_SetDefaultOptions(options);
-	options[METIS_OPTION_PTYPE]=METIS_PTYPE_KWAY;
-	options[METIS_OPTION_OBJTYPE]=METIS_OBJTYPE_CUT;
-	options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM;
-	options[METIS_OPTION_IPTYPE]=METIS_IPTYPE_GROW;
-	options[METIS_OPTION_NCUTS] = 1;
-	options[METIS_OPTION_NSEPS] = 1;
-	options[METIS_OPTION_NUMBERING] = 0; //C-style numbering :)
-	options[METIS_OPTION_NITER] = 10;
-	options[METIS_OPTION_SEED] = 1;
-	options[METIS_OPTION_CONTIG] = 1;
-	options[METIS_OPTION_UFACTOR] = 30;
-//	options[METIS_OPTION_DBGLVL] = METIS_DBG_INFO;
+    //Setup METIS options
+    idx_t *options = (idx_t*) malloc(METIS_NOPTIONS * sizeof(idx_t));
+    if(options==NULL)return 1;
+    METIS_SetDefaultOptions(options);
+    options[METIS_OPTION_PTYPE]=METIS_PTYPE_KWAY;
+    options[METIS_OPTION_OBJTYPE]=METIS_OBJTYPE_CUT;
+    options[METIS_OPTION_CTYPE] = METIS_CTYPE_SHEM;
+    options[METIS_OPTION_IPTYPE]=METIS_IPTYPE_GROW;
+    options[METIS_OPTION_NCUTS] = 1;
+    options[METIS_OPTION_NSEPS] = 1;
+    options[METIS_OPTION_NUMBERING] = 0; //C-style numbering :)
+    options[METIS_OPTION_NITER] = 10;
+    options[METIS_OPTION_SEED] = 1;
+    options[METIS_OPTION_CONTIG] = 1;
+    options[METIS_OPTION_UFACTOR] = 30;
+//    options[METIS_OPTION_DBGLVL] = METIS_DBG_INFO;
 
-	//Run METIS to partition the graph
-	METIS_PartGraphKway( nvtxs , ncon , xadj , adjncy , vwgt , NULL , adjwgt , nparts , NULL , NULL , options , objval , part );
-	if( flags == engine_split_MPI )
-	{
-		for(i = 0; i < e->s.nr_cells; i++ )
-		{
-			e->s.cells[i].nodeID = part[i];
-				//Not my cell? Mark as ghost.
-			if(part[i] != e->nodeID)
-				e->s.cells[i].flags |= cell_flag_ghost;
-			 e->nr_nodes = N;
-			
-		}
-	}else if ( flags == engine_split_GPU )
-	{
-		for( i = 0 ; i < e->s.nr_cells ; i++ )
-		{
-			e->s.cells[i].GPUID = part[i];
-		}
+    //Run METIS to partition the graph
+    METIS_PartGraphKway( nvtxs , ncon , xadj , adjncy , vwgt , NULL , adjwgt , nparts , NULL , NULL , options , objval , part );
+    if( flags == engine_split_MPI )
+    {
+        for(i = 0; i < e->s.nr_cells; i++ )
+        {
+            e->s.cells[i].nodeID = part[i];
+                //Not my cell? Mark as ghost.
+            if(part[i] != e->nodeID)
+                e->s.cells[i].flags |= cell_flag_ghost;
+             e->nr_nodes = N;
+            
+        }
+    }else if ( flags == engine_split_GPU )
+    {
+        for( i = 0 ; i < e->s.nr_cells ; i++ )
+        {
+            e->s.cells[i].GPUID = part[i];
+        }
 
-	}
+    }
 
 /* Store the number of nodes. */
    
-	/*Free memory used by METIS*/
-	free(xadj);
-	free(adjncy);
-	free(vwgt);
-	free(adjwgt);
-	free(nvtxs);
-	free(ncon);
-	free(nparts);
-	free(objval);
-	free(part);
-	free(options);
+    /*Free memory used by METIS*/
+    free(xadj);
+    free(adjncy);
+    free(vwgt);
+    free(adjwgt);
+    free(nvtxs);
+    free(ncon);
+    free(nparts);
+    free(objval);
+    free(part);
+    free(options);
 printf("Successfully split the space\n");
 
 /* Call it a day. */
@@ -1621,9 +1622,9 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
     if ( e->flags & engine_flag_async ) {
     
         /* Init the mutex and condition variable for the asynchronous communication. */
-	    if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
+        if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
              pthread_cond_init( &e->xchg_cond , NULL ) != 0 ||
-	         pthread_mutex_init( &e->xchg2_mutex , NULL ) != 0 ||
+             pthread_mutex_init( &e->xchg2_mutex , NULL ) != 0 ||
              pthread_cond_init( &e->xchg2_cond , NULL ) != 0 )
             return error(engine_err_pthread);
             
@@ -1748,7 +1749,7 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
     if ( e->flags & engine_flag_async ) {
     
         /* Init the mutex and condition variable for the asynchronous communication. */
-	    if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
+        if ( pthread_mutex_init( &e->xchg_mutex , NULL ) != 0 ||
              pthread_cond_init( &e->xchg_cond , NULL ) != 0 )
             return error(engine_err_pthread);
             
@@ -1917,9 +1918,9 @@ int engine_advance ( struct engine *e ) {
                             (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                             (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
 
-	                    pthread_mutex_lock(&c_dest->cell_mutex);
+                        pthread_mutex_lock(&c_dest->cell_mutex);
                         cell_add_incomming( c_dest , p );
-	                    pthread_mutex_unlock(&c_dest->cell_mutex);
+                        pthread_mutex_unlock(&c_dest->cell_mutex);
 
                         s->celllist[ p->id ] = c_dest;
                         c->count -= 1;
@@ -2128,40 +2129,40 @@ int engine_step ( struct engine *e ) {
 int engine_barrier ( struct engine *e ) {
 
     /* lock the barrier mutex */
-	if (pthread_mutex_lock(&e->barrier_mutex) != 0)
-		return error(engine_err_pthread);
-	
+    if (pthread_mutex_lock(&e->barrier_mutex) != 0)
+        return error(engine_err_pthread);
+    
     /* wait for the barrier to close */
-	while (e->barrier_count < 0)
-		if (pthread_cond_wait(&e->barrier_cond,&e->barrier_mutex) != 0)
-			return error(engine_err_pthread);
-	
+    while (e->barrier_count < 0)
+        if (pthread_cond_wait(&e->barrier_cond,&e->barrier_mutex) != 0)
+            return error(engine_err_pthread);
+    
     /* if i'm the last thread in, signal that the barrier is full */
-	if (++e->barrier_count == e->nr_runners) {
-		if (pthread_cond_signal(&e->done_cond) != 0)
-			return error(engine_err_pthread);
-		}
+    if (++e->barrier_count == e->nr_runners) {
+        if (pthread_cond_signal(&e->done_cond) != 0)
+            return error(engine_err_pthread);
+        }
 
     /* wait for the barrier to re-open */
-	while (e->barrier_count > 0)
-		if (pthread_cond_wait(&e->barrier_cond,&e->barrier_mutex) != 0)
-			return error(engine_err_pthread);
-				
+    while (e->barrier_count > 0)
+        if (pthread_cond_wait(&e->barrier_cond,&e->barrier_mutex) != 0)
+            return error(engine_err_pthread);
+                
     /* if i'm the last thread out, signal to those waiting to get back in */
-	if (++e->barrier_count == 0)
-		if (pthread_cond_broadcast(&e->barrier_cond) != 0)
-			return error(engine_err_pthread);
-			
+    if (++e->barrier_count == 0)
+        if (pthread_cond_broadcast(&e->barrier_cond) != 0)
+            return error(engine_err_pthread);
+            
     /* free the barrier mutex */
-	if (pthread_mutex_unlock(&e->barrier_mutex) != 0)
-		return error(engine_err_pthread);
-		
+    if (pthread_mutex_unlock(&e->barrier_mutex) != 0)
+        return error(engine_err_pthread);
+        
     /* all is well... */
-	return engine_err_ok;
-	
-	}
-	
-	
+    return engine_err_ok;
+    
+    }
+    
+    
 /**
  * @brief Initialize an #engine with the given data and MPI enabled.
  *
@@ -2437,10 +2438,10 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
     
     /* init the barrier variables */
     e->barrier_count = 0;
-	if ( pthread_mutex_init( &e->barrier_mutex , NULL ) != 0 ||
-		 pthread_cond_init( &e->barrier_cond , NULL ) != 0 ||
-		 pthread_cond_init( &e->done_cond , NULL ) != 0)
-		return error(engine_err_pthread);
+    if ( pthread_mutex_init( &e->barrier_mutex , NULL ) != 0 ||
+         pthread_cond_init( &e->barrier_cond , NULL ) != 0 ||
+         pthread_cond_init( &e->done_cond , NULL ) != 0)
+        return error(engine_err_pthread);
         
     /* init the barrier */
     if (pthread_mutex_lock(&e->barrier_mutex) != 0)

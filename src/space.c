@@ -51,11 +51,11 @@ int space_err = space_err_ok;
 
 
 /* the error macro. */
-#define error(id)				( space_err = errs_register( id , space_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
+#define error(id)            ( space_err = errs_register( id , space_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
 char *space_err_msg[9] = {
-	"Nothing bad happened.",
+    "Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
     "An error occured when calling a cell function.",
@@ -64,7 +64,7 @@ char *space_err_msg[9] = {
     "Too many pairs associated with a single particle in Verlet list.",
     "Task list too short.",
     "An error occured when calling a task function.",
-	};
+    };
     
     
 /** 
@@ -262,10 +262,10 @@ int space_shuffle ( struct space *s ) {
                     (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                     (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
 
-	            if ( c_dest->flags & cell_flag_marked ) {
+                if ( c_dest->flags & cell_flag_marked ) {
                     pthread_mutex_lock(&c_dest->cell_mutex);
                     cell_add_incomming( c_dest , p );
-	                pthread_mutex_unlock(&c_dest->cell_mutex);
+                    pthread_mutex_unlock(&c_dest->cell_mutex);
                     s->celllist[ p->id ] = c_dest;
                     }
                 else {
@@ -335,10 +335,10 @@ int space_shuffle_local ( struct space *s ) {
                     (c->loc[1] + delta[1] + s->cdim[1]) % s->cdim[1] , 
                     (c->loc[2] + delta[2] + s->cdim[2]) % s->cdim[2] ) ] );
 
-	            if ( c_dest->flags & cell_flag_marked ) {
+                if ( c_dest->flags & cell_flag_marked ) {
                     pthread_mutex_lock(&c_dest->cell_mutex);
                     cell_add_incomming( c_dest , p );
-	                pthread_mutex_unlock(&c_dest->cell_mutex);
+                    pthread_mutex_unlock(&c_dest->cell_mutex);
                     s->celllist[ p->id ] = c_dest;
                     }
                 else {

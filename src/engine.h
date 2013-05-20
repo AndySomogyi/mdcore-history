@@ -46,9 +46,9 @@
 #define engine_err_maxparts              -24
 #define engine_err_queue                 -25
 #define engine_err_rigid                 -26
-#define engine_err_cutoff		 		 -27
-#define engine_err_nometis				 -28
-#define engine_err_nyi   				 -29
+#define engine_err_cutoff                -27
+#define engine_err_nometis               -28
+#define engine_err_nyi                   -29
 
 
 /* some constants */
@@ -80,8 +80,8 @@
 #define engine_pshake_steps              20
 #define engine_maxKcutoff                2
 
-#define engine_split_MPI		1
-#define engine_split_GPU		2
+#define engine_split_MPI        1
+#define engine_split_GPU        2
 
 #define engine_bonded_maxnrthreads       16
 #define engine_bonded_nrthreads          ((omp_get_num_threads()<engine_bonded_maxnrthreads)?omp_get_num_threads():engine_bonded_maxnrthreads)
@@ -193,9 +193,9 @@ struct engine {
     struct potential *ep;
     
     /** Mutexes, conditions and counters for the barrier */
-	pthread_mutex_t barrier_mutex;
-	pthread_cond_t barrier_cond;
-	pthread_cond_t done_cond;
+    pthread_mutex_t barrier_mutex;
+    pthread_cond_t barrier_cond;
+    pthread_cond_t done_cond;
     int barrier_count;
     
     /** Nr of runners */
@@ -375,7 +375,7 @@ int engine_verlet_update ( struct engine *e );
         extern "C" int engine_cuda_unload_parts ( struct engine *e );
         extern "C" int engine_cuda_setdevice ( struct engine *e , int id );
         extern "C" int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
-	extern "C" int engine_split_METIS ( struct engine *e, int N, int flags);
+    extern "C" int engine_split_METIS ( struct engine *e, int N, int flags);
     #else
         int engine_nonbond_cuda ( struct engine *e );
         int engine_cuda_load ( struct engine *e );
@@ -383,8 +383,8 @@ int engine_verlet_update ( struct engine *e );
         int engine_cuda_unload_parts ( struct engine *e );
         int engine_cuda_setdevice ( struct engine *e , int id );
         int engine_cuda_setdevices ( struct engine *e , int nr_devices , int *ids );
-	int engine_split_METIS ( struct engine *e, int N, int flags);
+    int engine_split_METIS ( struct engine *e, int N, int flags);
     #endif
 #else
-	int engine_split_METIS ( struct engine *e, int N, int flags);
+    int engine_split_METIS ( struct engine *e, int N, int flags);
 #endif

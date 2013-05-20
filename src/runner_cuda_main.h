@@ -61,15 +61,15 @@ int k, threadID;
         #endif
     #endif
 
-	TIMER_TIC2
+    TIMER_TIC2
     
     /* Get the block and thread ids. */
     threadID = threadIdx.x;
 
     /* Main loop... */
     while ( 1 ) {
-    	
-    	if ( threadID == 0 ) {
+        
+        if ( threadID == 0 ) {
             TIMER_TIC
              tid = runner_cuda_gettask_nolock( &cuda_queues[0] , 0 );
             TIMER_TOC(tid_gettask)
@@ -82,11 +82,11 @@ int k, threadID;
         
             
         if(tid < 0)
-        	break;
-	
+            break;
+    
         /* Switch task type. */
         if ( cuda_tasks[tid].type == task_type_pair ) {
-	        
+            
             /* Get a hold of the pair cells. */
             
             
@@ -95,11 +95,11 @@ int k, threadID;
             /*Left interaction*/
             /* Get the shift and dshift vector for this pair. */
             if ( threadID == 0 ) {
-	    #ifdef TASK_TIMERS
-		NAMD_timers[tid].x = blockIdx.x;
-		NAMD_timers[tid].y = task_type_pair;
-		NAMD_timers[tid].z = clock();
-    	    #endif
+        #ifdef TASK_TIMERS
+        NAMD_timers[tid].x = blockIdx.x;
+        NAMD_timers[tid].y = task_type_pair;
+        NAMD_timers[tid].z = clock();
+            #endif
                 for ( k = 0 ; k < 3 ; k++ ) {
                     shift[k] = cuda_corig[ 3*cjd + k ] - cuda_corig[ 3*cid + k ];
                     if ( 2*shift[k] > cuda_dim[k] )
@@ -185,21 +185,21 @@ int k, threadID;
                         &epot );
                 #endif
 
-		#ifdef TASK_TIMERS
-	    if(threadID==0)
-			NAMD_timers[tid].w = clock();
-    	    #endif
+        #ifdef TASK_TIMERS
+        if(threadID==0)
+            NAMD_timers[tid].w = clock();
+            #endif
                 __syncthreads();                    
             }
         else if ( cuda_tasks[tid].type == task_type_self ) {
         
-		#ifdef TASK_TIMERS
-	    if(threadID==0){
+        #ifdef TASK_TIMERS
+        if(threadID==0){
                 NAMD_timers[tid].x = blockIdx.x;
-		NAMD_timers[tid].y = task_type_self;
-		NAMD_timers[tid].z = clock();
-		}
-    	    #endif
+        NAMD_timers[tid].y = task_type_self;
+        NAMD_timers[tid].z = clock();
+        }
+            #endif
             /* Get a hold of the cell id. */
             cid = cuda_tasks[tid].i;
             
@@ -222,22 +222,22 @@ int k, threadID;
                     runner_doself_cuda( parts_j , counts[cid] , forces_i , &epot );
                 #endif
 
-		#ifdef TASK_TIMERS
-	    if(threadID==0)
-            	NAMD_timers[tid].w = clock();
-    	    #endif
+        #ifdef TASK_TIMERS
+        if(threadID==0)
+                NAMD_timers[tid].w = clock();
+            #endif
                 __syncthreads();
             }
             
         /* Only do sorts if we have to re-build the pseudo-verlet lists. */
         else if ( /*0 &&*/ cuda_tasks[tid].type == task_type_sort && verlet_rebuild ) {
-        	#ifdef TASK_TIMERS
-	    if(threadID==0){
+            #ifdef TASK_TIMERS
+        if(threadID==0){
                 NAMD_timers[tid].x = blockIdx.x;
-				NAMD_timers[tid].y = task_type_sort;
-            	NAMD_timers[tid].z = clock();
-		}
-    	    #endif
+                NAMD_timers[tid].y = task_type_sort;
+                NAMD_timers[tid].z = clock();
+        }
+            #endif
             /* Get a hold of the cell id. */
             cid = cuda_tasks[tid].i;
             
@@ -274,15 +274,15 @@ int k, threadID;
                 
                 
                 __syncthreads();
-	    
+        
                 }
-		#ifdef TASK_TIMERS
-	    if(threadID==0)
-			NAMD_timers[tid].w = clock();
-    	    #endif
+        #ifdef TASK_TIMERS
+        if(threadID==0)
+            NAMD_timers[tid].w = clock();
+            #endif
                 /*if(threadID ==0)
-			   	  cuda_taboo[cid] = 0;*/
-        		
+                     cuda_taboo[cid] = 0;*/
+                
             }
 
             
@@ -295,44 +295,44 @@ int k, threadID;
         } /* main loop. */
         
     /* Accumulate the potential energy. */
-    	epot = epot * 0.5f ;
-	/* Accumulate the potential energy. */
+        epot = epot * 0.5f ;
+    /* Accumulate the potential energy. */
     atomicAdd( &cuda_epot , epot );
 
     /* Make a notch on the barrier, last one out cleans up the mess... */
 
-	if ( threadID == 0 )
-		tid = ( atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 );
-	__syncthreads();
+    if ( threadID == 0 )
+        tid = ( atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 );
+    __syncthreads();
     if ( tid  ) {
-	TIMER_TIC
-    	if ( threadID == 0 ) {
+    TIMER_TIC
+        if ( threadID == 0 ) {
         cuda_barrier = 0;
         cuda_epot_out = cuda_epot;
         cuda_epot = 0.0f;
-	volatile int *temp = cuda_queues[0].data; cuda_queues[0].data = cuda_queues[0].rec_data; cuda_queues[0].rec_data = temp;
+    volatile int *temp = cuda_queues[0].data; cuda_queues[0].data = cuda_queues[0].rec_data; cuda_queues[0].rec_data = temp;
             cuda_queues[0].first = 0;
             cuda_queues[0].last = cuda_queues[0].count;
             cuda_queues[0].rec_count = 0;
-	//printf("%i \n", cuda_maxtype);
+    //printf("%i \n", cuda_maxtype);
         }
         //NAMD_barrier=0;
-      	for ( int j = threadID ; j < cuda_nr_tasks /*myq->count*/ ; j+= blockDim.x )
+          for ( int j = threadID ; j < cuda_nr_tasks /*myq->count*/ ; j+= blockDim.x )
             for ( k = 0 ; k < cuda_tasks[j].nr_unlock ; k++ )
                 atomicAdd( (int *) &cuda_tasks[ cuda_tasks[j].unlock[k] ].wait , 1);
 
-	
-	TIMER_TOC(tid_cleanup)
+    
+    TIMER_TOC(tid_cleanup)
         }
     /*if(threadID==0)
-    	tid = atomicAdd((int *) &NAMD_barrier , 1);
+        tid = atomicAdd((int *) &NAMD_barrier , 1);
     
     __syncthreads();
     if(tid == gridDim.x-1)
     {
-    	for( cid = threadID ; cid < cuda_nr_tasks; cid+= blockDim.x )
-    		for ( k = 0; k < cuda_tasks[tid].nr_unlock ; k++ )
-    			atomicAdd( (int* ) &cuda_tasks[cuda_tasks[cid].unlock[k] ].wait , 1 );
+        for( cid = threadID ; cid < cuda_nr_tasks; cid+= blockDim.x )
+            for ( k = 0; k < cuda_tasks[tid].nr_unlock ; k++ )
+                atomicAdd( (int* ) &cuda_tasks[cuda_tasks[cid].unlock[k] ].wait , 1 );
     }*/
     TIMER_TOC2(tid_total)
 
