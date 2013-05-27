@@ -168,4 +168,6 @@ int runner_verlet_fill ( struct runner *r , struct cell *cell_i , struct cell *c
 int runner_dobonded ( struct runner *r , struct engine_set *set );
 int runner_dosort ( struct runner *r , struct cell *c , int flags );
 int runner_dopair ( struct runner *r , struct cell *cell_i , struct cell *cell_j , int sid );
+int runner_dopair_vec ( struct runner *r , struct cell *cell_i , struct cell *cell_j , int sid );
 int runner_doself ( struct runner *r , struct cell *cell_i );
+int runner_doself_vec ( struct runner *r , struct cell *cell_i );
