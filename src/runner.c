@@ -779,8 +779,13 @@ int runner_run ( struct runner *r ) {
                     break;
                 case task_type_self:
                     TIMER_TIC_ND
-                    if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
-                        return error(runner_err);
+                    #if defined(VECTORIZE) && defined(FPTYPE_SINGLE)
+                        if ( runner_doself_vec( r , &s->cells[ t->i ] ) < 0 )
+                            return error(runner_err);
+                    #else
+                        if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
+                            return error(runner_err);
+                    #endif
                     if ( lock_unlock( &s->cells_taboo[ t->i ] ) != 0 )
                         abort();
                     TIMER_TOC(runner_timer_self);
@@ -792,8 +797,13 @@ int runner_run ( struct runner *r ) {
                             return error(runner_err);
                         }
                     else {
-                        if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
-                            return error(runner_err);
+                        #if defined(VECTORIZE) && defined(FPTYPE_SINGLE)
+                            if ( runner_dopair_vec( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
+                                return error(runner_err);
+                        #else
+                            if ( runner_dopair( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
+                                return error(runner_err);
+                        #endif
                         }
                     if ( lock_unlock( &s->cells_taboo[ t->i ] ) != 0 ||
                          lock_unlock( &s->cells_taboo[ t->j ] ) != 0 )

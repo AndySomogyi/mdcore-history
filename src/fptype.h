@@ -71,10 +71,18 @@
         #define VEC_SIZE 8
         #define VEC_ALIGN 32
         #define VECTORIZE
+        #define VEC_TYPE __m256
+        #define VEC_LOAD(a) _mm256_load_ps(a)
+        #define VEC_SET1(a) _mm256_set1_ps(a)
+        #define VEC_SET(a,b,c,d,e,f,g,h) _mm256_set_ps(h,g,f,e,d,c,b,a)
     #elif ( defined(__SSE__) || defined(__ALTIVEC__) )
         #define VEC_SINGLE
         #define VEC_SIZE 4
         #define VEC_ALIGN 16
+        #define VEC_TYPE __m128
+        #define VEC_LOAD(a) _mm_load_ps(a)
+        #define VEC_SET1(a) _mm_set1_ps(a)
+        #define VEC_SET(a,b,c,d) _mm_set_ps(d,c,b,a)
         #define VECTORIZE
     #endif
 #else
@@ -82,11 +90,19 @@
         #define VEC_DOUBLE
         #define VEC_SIZE 4
         #define VEC_ALIGN 32
+        #define VEC_TYPE __m256d
+        #define VEC_LOAD(a) _mm256_load_pd(a)
+        #define VEC_SET1(a) _mm256_set1_pd(a)
+        #define VEC_SET(a,b,c,d) _mm256_set_pd(d,c,b,a)
         #define VECTORIZE
     #elif defined(__SSE2__)
         #define VEC_DOUBLE
         #define VEC_SIZE 4
         #define VEC_ALIGN 16
+        #define VEC_TYPE __m128d[2]
+        #define VEC_LOAD(a) _mm_load_pd(a)
+        #define VEC_SET1(a) _mm_set1_pd(a)
+        #define VEC_SET(a,b) _mm_set_pd(b,a)
         #define VECTORIZE
     #endif
 #endif
