@@ -1671,6 +1671,13 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
 
         }
         
+    /* Set-up the bonded tasks if needed. */
+    if ( e->flags & engine_flag_parbonded ) {
+        int grid[3] = { e->s.cdim[0] / 2 , e->s.cdim[1] / 2 , e->s.cdim[2] / 2 };
+        if ( engine_bonded_makesets( e , grid ) < 0 )
+            return error(engine_err);
+        }
+        
     /* Do we even need runners? */
     if ( e->flags & engine_flag_cuda ) {
     
