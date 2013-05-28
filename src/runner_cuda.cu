@@ -56,6 +56,10 @@
 #include "space.h"
 #include "task.h"
 #include "potential.h"
+#include "bond.h"
+#include "exclusion.h"
+#include "angle.h"
+#include "dihedral.h"
 #include "engine.h"
 #include "runner_cuda.h"
 
@@ -75,13 +79,12 @@ __constant__ int cuda_nr_cells = 0;
 __constant__ float4 *cuda_parts;
 __constant__ int cuda_nr_parts;
 
-/* Diagonal entries and potential index lookup table. */
+/* Potential index lookup tables. */
 __constant__ unsigned int *cuda_pind;
+__constant__ unsigned int *cuda_pind_bond;
 
 /* The mutex for accessing the cell pair list. */
-__device__ int cuda_cell_mutex = 0;
 __device__ int cuda_barrier = 0;
-__device__ volatile int NAMD_barrier = 0;
 
 /* The index of the next free cell pair. */
 __device__ int cuda_pair_next = 0;
@@ -91,7 +94,7 @@ __constant__ struct cellpair_cuda *cuda_pairs;
 __device__ int *cuda_taboo;
 #ifdef TASK_TIMERS
 /*x = block y = type z = start w = end*/
-__device__ int4 NAMD_timers[26*10000];
+__device__ int4 cuda_task_timers[26*10000];
 #endif
 
 /* The list of tasks. */
@@ -122,6 +125,16 @@ texture< float4 , cudaTextureType2D > tex_parts;
 
 /* Other textures. */
 texture< int , cudaTextureType1D > tex_pind;
+texture< int , cudaTextureType1D > tex_pind_bond;
+
+/* Bond, angle, dihedral, and exclusion lists. */
+__constant__ int *cuda_bonds;
+__constant__ int *cuda_exclusions;
+__constant__ int *cuda_angles;
+__constant__ int *cuda_dihedrals;
+__constant__ int cuda_nrbonds, cuda_nrangles, cuda_nrdihedrals, cuda_nrexclusions;
+__constant__ int *cuda_partlist;
+__constant__ int *cuda_celllist;
 
 /* Arrays to hold the textures. */
 cudaArray *cuda_coeffs;
@@ -903,6 +916,434 @@ __device__ inline void potential_eval_cuda ( struct potential *p , float r2 , fl
 
 
 /**
+ * @brief Evaluate a list of bonded interactoins
+ *
+ * @param b Pointer to an array of bond indices.
+ * @param count Nr of bonds in @c b.
+ * @param forces Pointer to an array with the global particle forces.
+ * @param epot_out Potential energy aggregator.
+ */
+ 
+__device__ void runner_dobond_cuda ( int *b , int count , float *forces , float *epot_out ) {
+
+    int bid, pid, pjd, cid, cjd, k;
+    float epot = 0.0f;
+    float4 pi, pj;
+    float r2, w;
+    float ee, eff, dx[3];
+    int pot;
+    
+    /* Loop over the bonds. */
+    for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
+    
+        /* Get the particles involved. */
+        if ( ( pid = cuda_partlist[ b[ 2*bid + 0 ] ] ) < 0 ||
+             ( pjd = cuda_partlist[ b[ 2*bid + 1 ] ] ) < 0 )
+            continue;
+            
+        /* Get the cell IDs. */
+        cid = cuda_celllist[ b[ 2*bid + 0 ] ];
+        cjd = cuda_celllist[ b[ 2*bid + 1 ] ];
+            
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , pid % cuda_maxparts , cid );
+            pj = tex2D( tex_parts , pjd % cuda_maxparts , cjd );
+        #else
+            pi = cuda_parts[ pid ];
+            pj = cuda_parts[ pjd ];
+        #endif
+        
+        /* Try to get the potential. */
+        if ( ( pot = cuda_pind_bond[ ((int)pi.w)*cuda_maxtype + (int)pj.w ] ) <= 0 )
+            continue;
+            
+        /* Compute the shift for the particle cells. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            dx[k] = cuda_corig[ 3*cjd + k ] - cuda_corig[ 3*cid + k ];
+            if ( 2*dx[k] > cuda_dim[k] )
+                dx[k] -= cuda_dim[k];
+            else if ( 2*dx[k] < -cuda_dim[k] )
+                dx[k] += cuda_dim[k];
+            }
+            
+        /* Get the interparticle distance. */
+        dx[0] += pi.x - pj.x;
+        dx[1] += pi.y - pj.y;
+        dx[2] += pi.z - pj.z;
+        r2 = dx[0]*dx[0] + dx[1]*dx[1] + dx[2]*dx[2];
+                    
+        /* evaluate the bonded potential. */
+        potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+
+        /* update the forces */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            w = eff * dx[k];
+            atomicAdd( &forces[ 3*pid + k ] , -w );
+            atomicAdd( &forces[ 3*pjd + k ] , w );
+            }
+
+        /* tabulate the energy */
+        epot += ee;
+
+        } /* loop over bonds. */
+        
+    /* Store the potential energy. */
+    *epot_out += epot;
+    
+    }
+
+
+
+/**
+ * @brief Evaluate a list of angle interactoins
+ *
+ * @param b Pointer to an array of angle indices.
+ * @param count Nr of angles in @c b.
+ * @param forces Pointer to an array with the global particle forces.
+ * @param epot_out Potential energy aggregator.
+ */
+ 
+__device__ void runner_doangle_cuda ( int *b , int count , float *forces , float *epot_out ) {
+
+    int bid, pid, pjd, pkd, cid, cjd, ckd, k;
+    float epot = 0.0f;
+    float4 pi, pj, pk;
+    float ee, eff;
+    float shift, rji[3], rjk[3];
+    float dprod, inji, injk, ctheta;
+    float dxi[3], dxk[3], wi, wk;
+    
+    /* Loop over the angles. */
+    for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
+    
+        /* Get the particles involved. */
+        if ( ( pid = cuda_partlist[ b[ 4*bid + 0 ] ] ) < 0 ||
+             ( pjd = cuda_partlist[ b[ 4*bid + 1 ] ] ) < 0 ||
+             ( pkd = cuda_partlist[ b[ 4*bid + 2 ] ] ) < 0 )
+            continue;
+            
+        /* Get the cell IDs. */
+        cid = cuda_celllist[ b[ 4*bid + 0 ] ];
+        cjd = cuda_celllist[ b[ 4*bid + 1 ] ];
+        ckd = cuda_celllist[ b[ 4*bid + 2 ] ];
+            
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , pid % cuda_maxparts , cid );
+            pj = tex2D( tex_parts , pjd % cuda_maxparts , cjd );
+            pk = tex2D( tex_parts , pkd % cuda_maxparts , ckd );
+        #else
+            pi = cuda_parts[ pid ];
+            pj = cuda_parts[ pjd ];
+            pk = cuda_parts[ pkd ];
+        #endif
+        
+        /* Compute the shift for the particle cells. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            shift = cuda_corig[ 3*cid + k ] - cuda_corig[ 3*cjd + k ];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            rji[k] = shift*cuda_dim[k];
+            shift = cuda_corig[ 3*ckd + k ] - cuda_corig[ 3*cjd + k ];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            rjk[k] = shift*cuda_dim[k];
+            }
+            
+        /* Get the interparticle distances. */
+        rji[0] += pi.x - pj.x;
+        rji[1] += pi.y - pj.y;
+        rji[2] += pi.z - pj.z;
+        rjk[0] += pk.x - pj.x;
+        rjk[1] += pk.y - pj.y;
+        rjk[2] += pk.z - pj.z;
+                    
+        /* Compute some quantities we will re-use. */
+        dprod = rji[0]*rjk[0] + rji[1]*rjk[1] + rji[2]*rjk[2];
+        inji = rsqrt( rji[0]*rji[0] + rji[1]*rji[1] + rji[2]*rji[2] );
+        injk = rsqrt( rjk[0]*rjk[0] + rjk[1]*rjk[1] + rjk[2]*rjk[2] );
+        
+        /* Compute the cosine. */
+        ctheta = fmaxf( -1.0f , fminf( 1.0f , dprod * inji * injk ) );
+        
+        /* Set the derivatives. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            dxi[k] = ( rjk[k]*injk - ctheta * rji[k]*inji ) * inji;
+            dxk[k] = ( rji[k]*inji - ctheta * rjk[k]*injk ) * injk;
+            }
+        
+        /* evaluate the angleed potential. */
+        potential_eval_cuda_tex( b[ 4*bid + 3 ] , ctheta , &ee , &eff );
+
+        /* update the forces */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            wi = eff * dxi[k];
+            wk = eff * dxk[k];
+            atomicAdd( &forces[ 3*pid + k ] , -wi );
+            atomicAdd( &forces[ 3*pjd + k ] , wi + wk );
+            atomicAdd( &forces[ 3*pkd + k ] , -wk );
+            }
+
+        /* tabulate the energy */
+        epot += ee;
+
+        } /* loop over angles. */
+        
+    /* Store the potential energy. */
+    *epot_out += epot;
+    
+    }
+
+
+/**
+ * @brief Evaluate a list of dihedral interactoins
+ *
+ * @param b Pointer to an array of dihedral indices.
+ * @param count Nr of dihedrals in @c b.
+ * @param forces Pointer to an array with the global particle forces.
+ * @param epot_out Potential energy aggregator.
+ */
+ 
+__device__ void runner_dodihedral_cuda ( int *b , int count , float *forces , float *epot_out ) {
+
+    int bid, pid, pjd, pkd, pld, cid, cjd, ckd, cld, k;
+    float epot = 0.0f;
+    float4 pi, pj, pk, pl;
+    float cphi, ee, eff;
+    float shift, rji[3], rjk[3], rjl[3];
+    float dxi[3], dxj[3], dxl[3], wi, wj, wl;
+    float t1, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21,
+        t22, t24, t26, t3, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40,
+        t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
+        t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
+    
+    /* Loop over the dihedrals. */
+    for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
+    
+        /* Get the particles involved. */
+        if ( ( pid = cuda_partlist[ b[ 5*bid + 0 ] ] ) < 0 ||
+             ( pjd = cuda_partlist[ b[ 5*bid + 1 ] ] ) < 0 ||
+             ( pkd = cuda_partlist[ b[ 5*bid + 2 ] ] ) < 0 ||
+             ( pld = cuda_partlist[ b[ 5*bid + 3 ] ] ) < 0 )
+            continue;
+            
+        /* Get the cell IDs. */
+        cid = cuda_celllist[ b[ 5*bid + 0 ] ];
+        cjd = cuda_celllist[ b[ 5*bid + 1 ] ];
+        ckd = cuda_celllist[ b[ 5*bid + 2 ] ];
+        cld = cuda_celllist[ b[ 5*bid + 3 ] ];
+            
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , pid % cuda_maxparts , cid );
+            pj = tex2D( tex_parts , pjd % cuda_maxparts , cjd );
+            pk = tex2D( tex_parts , pkd % cuda_maxparts , ckd );
+            pl = tex2D( tex_parts , pld % cuda_maxparts , cld );
+        #else
+            pi = cuda_parts[ pid ];
+            pj = cuda_parts[ pjd ];
+            pk = cuda_parts[ pkd ];
+            pl = cuda_parts[ pld ];
+        #endif
+        
+        /* Compute the shift for the particle cells. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            shift = cuda_corig[ 3*cid + k ] - cuda_corig[ 3*cjd + k ];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            rji[k] = shift*cuda_dim[k];
+            shift = cuda_corig[ 3*ckd + k ] - cuda_corig[ 3*cjd + k ];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            rjk[k] = shift*cuda_dim[k];
+            shift = cuda_corig[ 3*cld + k ] - cuda_corig[ 3*cjd + k ];
+            if ( shift > 1 )
+                shift = -1;
+            else if ( shift < -1 )
+                shift = 1;
+            rjl[k] = shift*cuda_dim[k];
+            }
+            
+        /* Shift the particles accordingly. */
+        pi.x += rji[0]; pi.y += rji[1]; pi.z += rji[2];
+        pk.x += rjk[0]; pk.y += rjk[1]; pk.z += rjk[2];
+        pl.x += rjl[0]; pl.y += rjl[1]; pl.z += rjl[2];
+                    
+        /* This is Maple-generated code, see "dihedral.maple" for details. */
+        t16 = pl.z-pk.z;
+        t17 = pl.y-pk.y;
+        t18 = pl.x-pk.x;
+        t2 = t18*t18;
+        t4 = t17*t17;
+        t23 = t16*t16;
+        t10 = t2+t4+t23;
+        t19 = pk.z-pj.z;
+        t20 = pk.y-pj.y;
+        t21 = pk.x-pj.x;
+        t25 = t21*t21;
+        t27 = t20*t20;
+        t28 = t19*t19;
+        t11 = t25+t27+t28;
+        t7 = t18*t21+t17*t20+t16*t19;
+        t51 = t7*t7;
+        t5 = t11*t10-t51;
+        t22 = pi.z-pj.z;
+        t24 = pi.y-pj.y;
+        t26 = pi.x-pj.x;
+        t52 = t26*t26;
+        t53 = t24*t24;
+        t54 = t22*t22;
+        t12 = t52+t53+t54;
+        t9 = -t26*t21-t24*t20-t22*t19;
+        t59 = t9*t9;
+        t6 = t12*t11-t59;
+        t3 = t6*t5;
+        t1 = rsqrt(t3);
+        t8 = -t26*t18-t24*t17-t22*t16;
+        t47 = (t9*t7-t8*t11)*t1;
+        t46 = 2.0f*t8;
+        t45 = t6*t7;
+        t44 = t9*t5;
+        t43 = t6*t10;
+        t42 = -t9-t11;
+        t41 = t22*t11;
+        t40 = t24*t11;
+        t39 = t26*t11;
+        t38 = t47/t3;
+        t37 = -t7*t19+t16*t11;
+        t36 = -t7*t20+t17*t11;
+        t35 = -t7*t21+t18*t11;
+        t34 = t9*t19+t41;
+        t33 = t9*t20+t40;
+        t32 = t9*t21+t39;
+        t31 = t5*t38;
+        t30 = t6*t38;
+        t15 = pk.x-2.0f*pj.x+pi.x;
+        t14 = pk.y-2.0f*pj.y+pi.y;
+        t13 = pk.z-2.0f*pj.z+pi.z;
+        dxi[0] = t35*t1-t32*t31;
+        dxi[1] = t36*t1-t33*t31;
+        dxi[2]= t37*t1-t34*t31;
+        dxj[0] = (t15*t7+t21*t46+t42*t18)*t1-(-t15*t44+t18*t45+(-t39-t12*t21)*t5-t21*t43)*t38;
+        dxj[1] = (t14*t7+t20*t46+t42*t17)*t1-(-t14*t44+t17*t45+(-t40-t12*t20)*t5-t20*t43)*t38;
+        dxj[2] = (t13*t7+t19*t46+t42*t16)*t1-(-t13*t44+t16*t45+(-t41-t12*t19)*t5-t19*t43)*t38;
+        dxl[0] = t32*t1-t35*t30;
+        dxl[1] = t33*t1-t36*t30;
+        dxl[2] = t34*t1-t37*t30;
+        cphi = fmaxf( -1.0f , fminf( 1.0f , t47 ) );
+        
+        /* evaluate the dihedraled potential. */
+        potential_eval_cuda_tex( b[ 5*bid + 4 ] , cphi , &ee , &eff );
+
+        /* update the forces */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            wi = eff * dxi[k];
+            wj = eff * dxj[k];
+            wl = eff * dxl[k];
+            atomicAdd( &forces[ 3*pid + k ] , -wi );
+            atomicAdd( &forces[ 3*pjd + k ] , -wj );
+            atomicAdd( &forces[ 3*pkd + k ] , wi+wj+wl );
+            atomicAdd( &forces[ 3*pld + k ] , -wl );
+            }
+
+        /* tabulate the energy */
+        epot += ee;
+
+        } /* loop over dihedrals. */
+        
+    /* Store the potential energy. */
+    *epot_out += epot;
+    
+    }
+
+
+
+/**
+ * @brief Evaluate a list of exclusions
+ *
+ * @param b Pointer to an array of bond indices.
+ * @param count Nr of bonds in @c b.
+ * @param forces Pointer to an array with the global particle forces.
+ * @param epot_out Potential energy aggregator.
+ */
+ 
+__device__ void runner_doexclusion_cuda ( int *b , int count , float *forces , float *epot_out ) {
+
+    int bid, pid, pjd, cid, cjd, k;
+    float epot = 0.0f;
+    float4 pi, pj;
+    float r2, w;
+    float ee, eff, dx[3];
+    int pot;
+    
+    /* Loop over the bonds. */
+    for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
+    
+        /* Get the particles involved. */
+        if ( ( pid = cuda_partlist[ b[ 2*bid + 0 ] ] ) < 0 ||
+             ( pjd = cuda_partlist[ b[ 2*bid + 1 ] ] ) < 0 )
+            continue;
+            
+        /* Get the cell IDs. */
+        cid = cuda_celllist[ b[ 2*bid + 0 ] ];
+        cjd = cuda_celllist[ b[ 2*bid + 1 ] ];
+            
+        #ifdef PARTS_TEX
+            pi = tex2D( tex_parts , pid % cuda_maxparts , cid );
+            pj = tex2D( tex_parts , pjd % cuda_maxparts , cjd );
+        #else
+            pi = cuda_parts[ pid ];
+            pj = cuda_parts[ pjd ];
+        #endif
+        
+        /* Try to get the potential. */
+        if ( ( pot = cuda_pind[ ((int)pi.w)*cuda_maxtype + (int)pj.w ] ) <= 0 )
+            continue;
+            
+        /* Compute the shift for the particle cells. */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            dx[k] = cuda_corig[ 3*cjd + k ] - cuda_corig[ 3*cid + k ];
+            if ( 2*dx[k] > cuda_dim[k] )
+                dx[k] -= cuda_dim[k];
+            else if ( 2*dx[k] < -cuda_dim[k] )
+                dx[k] += cuda_dim[k];
+            }
+            
+        /* Get the interparticle distance. */
+        dx[0] += pi.x - pj.x;
+        dx[1] += pi.y - pj.y;
+        dx[2] += pi.z - pj.z;
+        r2 = dx[0]*dx[0] + dx[1]*dx[1] + dx[2]*dx[2];
+                    
+        /* evaluate the bonded potential. */
+        potential_eval_cuda_tex( pot , r2 , &ee , &eff );
+
+        /* update the forces */
+        for ( k = 0 ; k < 3 ; k++ ) {
+            w = eff * dx[k];
+            atomicAdd( &forces[ 3*pid + k ] , w );
+            atomicAdd( &forces[ 3*pjd + k ] , -w );
+            }
+
+        /* tabulate the energy */
+        epot += ee;
+
+        } /* loop over bonds. */
+        
+    /* Store the potential energy. */
+    *epot_out -= epot;
+    
+    }
+
+
+
+/**
  * @brief Compute the pairwise interactions for the given pair on a CUDA device.
  *
  * @param icid Array of parts in the first cell.
@@ -1378,7 +1819,7 @@ __device__ void runner_dopair_cuda ( float4 *parts_i , int count_i , float4 *par
     }
     
     
-    /**
+/**
  * @brief Compute the pairwise interactions for the given pair on a CUDA device.
  *
  * @param icid Array of parts in the first cell.
@@ -1496,7 +1937,7 @@ __device__  void runner_dopair_left_cuda ( float4 *parts_i , int count_i , float
 
     
     
-       /**
+/**
  * @brief Compute the pairwise interactions for the given pair on a CUDA device.
  *
  * @param icid Array of parts in the first cell.
@@ -1610,7 +2051,8 @@ __device__ void runner_dopair_right_cuda ( float4 *parts_i , int count_i , float
     
     }
     
-    /**
+    
+/**
  * @brief Compute the self interactions for the given cell on a CUDA device.
  *
  * @param iparts Array of parts in this cell.
@@ -1804,7 +2246,7 @@ __global__ void cuda_memset_float ( float *data , float val , int N ) {
  
 extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
-    dim3 nr_threads( 4*cuda_frame , 1 );
+    dim3 nr_threads( cuda_frames_per_block*cuda_frame , 1 );
     dim3 nr_blocks( e->nr_runners , 1 );
     int k, cid, did, pid, maxcount = 0;
     cudaStream_t stream;
@@ -1812,6 +2254,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     float ms_load, ms_run, ms_unload;
     struct part *p;
     float4 *parts_cuda = (float4 *)e->parts_cuda_local, *buff4;
+    int *partlist = e->partlist_cuda_local;
     struct space *s = &e->s;
     FPTYPE maxdist = s->cutoff + 2*s->maxdx;
     int *counts = e->counts_cuda_local[ 0 ], *inds = e->ind_cuda_local[ 0 ];
@@ -1877,6 +2320,10 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     inds[0] = 0;
     for ( k = 1 ; k < e->cells_cuda_nr[did] ; k++ )
         inds[k] = inds[k-1] + counts[k-1];
+        
+    /* Init the partlist. */
+    for ( k = 0 ; k < s->nr_parts ; k++ )
+        partlist[k] = -1;
 
     /* Loop over the marked cells. */
     for ( k = 0 ; k < e->cells_cuda_nr[did] ; k++ ) {
@@ -1896,6 +2343,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             buff4[ pid ].y = p->x[1];
             buff4[ pid ].z = p->x[2];
             buff4[ pid ].w = p->type;
+            partlist[ p->id ] = parts_cuda - &buff4[ pid ];
             }
 
         }
@@ -1908,7 +2356,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         tex_parts.normalized = false;
     #endif
 
-    /* Start by setting the maxdist on the device. */
+	    /* Start by setting the maxdist on the device. */
         if ( cudaMemcpyToSymbolAsync( cuda_maxdist , &maxdist , sizeof(float) , 0 , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
 
@@ -1928,6 +2376,13 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             if ( cudaMemcpyAsync( e->parts_cuda[did] , parts_cuda , sizeof(float4) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
                 return cuda_error(engine_err_cuda);
         #endif
+        
+        /* Finally, copy the partlist. */
+        if ( cudaMemcpyAsync( e->partlist_cuda[did] , partlist , sizeof(int) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyAsync( e->celllist_cuda[did] , s->celllist , sizeof(int) * s->nr_parts , cudaMemcpyHostToDevice , stream ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+            
     /* Start the clock. */
     // tic = getticks();
     }
@@ -2047,11 +2502,11 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #endif
 
     #ifdef TASK_TIMERS
-        int4 NAMD_timers_local[26*cuda_maxcells*3];
-        if(cudaMemcpyFromSymbol( NAMD_timers_local, NAMD_timers, sizeof(int4)*26*cuda_maxcells*3 , 0 , cudaMemcpyDeviceToHost) != cudaSuccess )
-            return cuda_error(engine_err_cuda);    
-        for(int i = 0; i < e->s.nr_tasks ; i++)
-        printf("Task: %i %i %i %i\n", NAMD_timers_local[i].x, NAMD_timers_local[i].y, NAMD_timers_local[i].z, NAMD_timers_local[i].w);
+		int4 cuda_task_timers_local[26*cuda_maxcells*3];
+		if(cudaMemcpyFromSymbol( cuda_task_timers_local, cuda_task_timers, sizeof(int4)*26*cuda_maxcells*3 , 0 , cudaMemcpyDeviceToHost) != cudaSuccess )
+			return cuda_error(engine_err_cuda);	
+		for(int i = 0; i < e->s.nr_tasks ; i++)
+		printf("Task: %i %i %i %i\n", cuda_task_timers_local[i].x, cuda_task_timers_local[i].y, cuda_task_timers_local[i].z, cuda_task_timers_local[i].w);
 
     #endif
     
@@ -2432,20 +2887,25 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     
     int i, j, k, nr_pots, nr_coeffs, nr_tasks, max_coeffs = 0, c1 ,c2;
     int did, *cellsorts;
-    int pind[ e->max_type * e->max_type ], *pind_cuda[ engine_maxgpu ];
+    int pind[ e->max_type * e->max_type ], pind_bond[ e->max_type * e->max_type ];
+    int pind_angle[ e->nr_anglepots ], pind_dihedral[ e->nr_dihedralpots ];
+    int *pind_cuda[ engine_maxgpu ], *pind_bond_cuda[ engine_maxgpu ];
     struct space *s = &e->s;
     int nr_devices = e->nr_devices;
-    struct potential *pots[ e->nr_types * (e->nr_types + 1) / 2 + 1 ];
+    struct potential **pots;
     struct task_cuda *tasks_cuda, *tc, *ts;
     struct task *t;
     float *finger, *coeffs_cuda;
     float cutoff = e->s.cutoff, cutoff2 = e->s.cutoff2, dscale; //, buff[ e->nr_types ];
-    cudaArray *cuArray_coeffs[ engine_maxgpu ], *cuArray_pind[ engine_maxgpu ];
+    cudaArray *cuArray_coeffs[ engine_maxgpu ], *cuArray_pind[ engine_maxgpu ], *cuArray_pind_bond[ engine_maxgpu ];
     cudaChannelFormatDesc channelDesc_int = cudaCreateChannelDesc<int>();
     cudaChannelFormatDesc channelDesc_float = cudaCreateChannelDesc<float>();
     cudaChannelFormatDesc channelDesc_float4 = cudaCreateChannelDesc<float4>();
     float h[3], dim[3], *corig;
     void *dummy[ engine_maxgpu ];
+    int *bonds_cuda, *exclusions_cuda;
+    int *angles_cuda;
+    int *dihedrals_cuda;
 
     /*Split the space over the available GPUs*/
     engine_split_METIS( e , nr_devices , engine_split_GPU  );
@@ -2460,6 +2920,10 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     tex_pind.addressMode[0] = cudaAddressModeClamp;
     tex_pind.filterMode = cudaFilterModePoint;
     tex_pind.normalized = false;
+    
+    /* Allocate the pots array. */
+    if ( ( pots = (struct potential **)malloc( sizeof(void *) * ( e->nr_types * (e->nr_types + 1 ) + e->nr_anglepots + e->nr_dihedralpots ) ) ) == NULL )
+        return error(engine_err_malloc);
 
     /* Init the null potential. */
     if ( ( pots[0] = (struct potential *)alloca( sizeof(struct potential) ) ) == NULL )
@@ -2473,25 +2937,71 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     bzero( pots[0]->c , sizeof(float) * potential_chunk );
     nr_pots = 1; nr_coeffs = 1;
     
-    /* Start by identifying the unique potentials in the engine. */
+    /* Start by identifying the unique bonded/non-bonded potentials in the engine. */
     for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
     
-        /* Skip if there is no potential or no parts of this type. */
-        if ( e->p[i] == NULL )
-            continue;
+        /* Skip if there is no non-bonded potential or no parts of this type. */
+        if ( e->p[i] != NULL ) {
             
-        /* Check this potential against previous potentials. */
-        for ( j = 0 ; j < nr_pots && e->p[i] != pots[j] ; j++ );
-        if ( j < nr_pots )
-            continue;
+            /* Check this potential against previous potentials. */
+            for ( j = 0 ; j < nr_pots && e->p[i] != pots[j] ; j++ );
+            if ( j == nr_pots ) {
+
+                /* Store this potential and the number of coefficient entries it has. */
+                pots[nr_pots] = e->p[i];
+                nr_pots += 1;
+                nr_coeffs += e->p[i]->n + 1;
+                if ( e->p[i]->n + 1 > max_coeffs )
+                    max_coeffs = e->p[i]->n + 1;
+
+                }
+            pind[i] = j;
             
-        /* Store this potential and the number of coefficient entries it has. */
-        pots[nr_pots] = e->p[i];
-        nr_pots += 1;
-        nr_coeffs += e->p[i]->n + 1;
-        if ( e->p[i]->n + 1 > max_coeffs )
-            max_coeffs = e->p[i]->n + 1;
+            }
+        else
+            pind[i] = 0;
     
+        /* Skip if there is no bonded potential or no parts of this type. */
+        if ( e->p_bond[i] != NULL ) {
+            
+            /* Check this potential against previous potentials. */
+            for ( j = 0 ; j < nr_pots && e->p_bond[i] != pots[j] ; j++ );
+            if ( j == nr_pots ) {
+
+                /* Store this potential and the number of coefficient entries it has. */
+                pots[nr_pots] = e->p_bond[i];
+                nr_pots += 1;
+                nr_coeffs += e->p_bond[i]->n + 1;
+                if ( e->p_bond[i]->n + 1 > max_coeffs )
+                    max_coeffs = e->p_bond[i]->n + 1;
+
+                }
+            pind_bond[i] = j;
+            
+            }
+        else
+            pind_bond[i] = 0;
+    
+        }
+        
+    /* Collect the angular potentials. */
+    for ( i = 0 ; i < e->nr_anglepots ; i++ ) {
+        pots[nr_pots] = e->p_angle[i];
+        pind_angle[i] = nr_pots;
+        nr_pots += 1;
+        nr_coeffs += e->p_angle[i]->n + 1;
+        if ( e->p_angle[i]->n + 1 > max_coeffs )
+            max_coeffs = e->p_angle[i]->n + 1;
+        }
+        
+    /* Collect the angular potentials. */
+    for ( i = 0 ; i < e->nr_dihedralpots ; i++ ) {
+        pots[nr_pots] = e->p_dihedral[i];
+        pind_dihedral[i] = nr_pots;
+        nr_pots += 1;
+        nr_coeffs += e->p_dihedral[i]->n + 1;
+        if ( e->p_dihedral[i]->n + 1 > max_coeffs )
+            max_coeffs = e->p_dihedral[i]->n + 1;
         }
        
     /* Copy eps and rmin to the device. */
@@ -2504,17 +3014,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
     if ( cudaMemcpyToSymbol( "cuda_rmin" , buff , sizeof(float) * e->nr_types , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
         return cuda_error(engine_err_cuda); */
 
-    /* Pack the potential matrix. */
-    for ( i = 0 ; i < e->max_type * e->max_type ; i++ ) {
-        if ( e->p[i] == NULL ) {
-            pind[i] = 0;
-            }
-        else {
-            for ( j = 0 ; j < nr_pots && pots[j] != e->p[i] ; j++ );
-            pind[i] = j;
-            }
-        }
-        
+
     /* Pack the coefficients before shipping them off to the device. */
     if ( ( coeffs_cuda = (float *)malloc( sizeof(float4) * (2*max_coeffs + 2) * nr_pots ) ) == NULL )
         return error(engine_err_malloc);
@@ -2530,6 +3030,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         finger = &finger[ (pots[i]->n + 1) * potential_chunk ];
         } */
     printf( "engine_cuda_load: packed %i potentials with %i coefficient chunks (%i kB).\n" , nr_pots , max_coeffs , (int)(sizeof(float4)*(2*max_coeffs+2)*nr_pots)/1024 ); fflush(stdout);
+    free( pots );
         
     /* Bind the potential coefficients to a texture. */
     for ( did = 0 ; did < nr_devices ; did++ ) {
@@ -2541,6 +3042,111 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             return cuda_error(engine_err_cuda);
         }
     free( coeffs_cuda );
+    
+    /* Copy the bond lists to the device. */
+    if ( ( bonds_cuda = (int *)malloc( sizeof(int) * e->nr_bonds * 2 ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( k = 0 ; k < e->nr_bonds ; k++ ) {
+        bonds_cuda[ k*2 + 0 ] = e->bonds[k].i;
+        bonds_cuda[ k*2 + 1 ] = e->bonds[k].j;
+        }
+    for ( did = 0 ; did < nr_devices ; did++ ) {
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &dummy[did] , sizeof(int) * e->nr_bonds * 2 ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( dummy[did] , bonds_cuda , sizeof(int) * e->nr_bonds * 2 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_bonds , &dummy[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_nrbonds , &e->nr_bonds , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
+    free( bonds_cuda );
+    
+    /* Copy the exclusion lists to the device. */
+    if ( ( exclusions_cuda = (int *)malloc( sizeof(int) * e->nr_exclusions * 2 ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( k = 0 ; k < e->nr_exclusions ; k++ ) {
+        exclusions_cuda[ k*2 + 0 ] = e->exclusions[k].i;
+        exclusions_cuda[ k*2 + 1 ] = e->exclusions[k].j;
+        }
+    for ( did = 0 ; did < nr_devices ; did++ ) {
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &dummy[did] , sizeof(int) * e->nr_exclusions * 2 ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( dummy[did] , exclusions_cuda , sizeof(int) * e->nr_exclusions * 2 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_exclusions , &dummy[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_nrexclusions , &e->nr_exclusions , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
+    free( exclusions_cuda );
+    
+    /* Copy the angle lists to the device. */
+    if ( ( angles_cuda = (int *)malloc( sizeof(int) * e->nr_angles * 4 ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( k = 0 ; k < e->nr_angles ; k++ ) {
+        angles_cuda[ k*4 + 0 ] = e->angles[k].i;
+        angles_cuda[ k*4 + 1 ] = e->angles[k].j;
+        angles_cuda[ k*4 + 2 ] = e->angles[k].k;
+        angles_cuda[ k*4 + 3 ] = pind_angle[ e->angles[k].pid ];
+        }
+    for ( did = 0 ; did < nr_devices ; did++ ) {
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &dummy[did] , sizeof(int) * e->nr_angles * 4 ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( dummy[did] , angles_cuda , sizeof(int) * e->nr_angles * 4 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_angles , &dummy[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_nrangles , &e->nr_angles , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
+    free( angles_cuda );
+    free( pind_angle );
+    
+    /* Copy the dihedral lists to the device. */
+    if ( ( dihedrals_cuda = (int *)malloc( sizeof(int) * e->nr_dihedrals * 5 ) ) == NULL )
+        return error(engine_err_malloc);
+    for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
+        dihedrals_cuda[ k*4 + 0 ] = e->dihedrals[k].i;
+        dihedrals_cuda[ k*4 + 1 ] = e->dihedrals[k].j;
+        dihedrals_cuda[ k*4 + 2 ] = e->dihedrals[k].k;
+        dihedrals_cuda[ k*4 + 2 ] = e->dihedrals[k].l;
+        dihedrals_cuda[ k*4 + 3 ] = pind_dihedral[ e->dihedrals[k].pid ];
+        }
+    for ( did = 0 ; did < nr_devices ; did++ ) {
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &dummy[did] , sizeof(int) * e->nr_dihedrals * 5 ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( dummy[did] , dihedrals_cuda , sizeof(int) * e->nr_dihedrals * 5 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_dihedrals , &dummy[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_nrdihedrals , &e->nr_dihedrals , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
+    free( dihedrals_cuda );
+    free( pind_dihedral );
+    
+    /* Allocate the partlist on the device. */
+    for ( did = 0 ; did < nr_devices ; did++ ) {
+        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &e->partlist_cuda[did] , sizeof(int) * s->nr_parts ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_partlist , &e->partlist_cuda[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &e->celllist_cuda[did] , sizeof(int) * s->nr_parts ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_celllist , &e->celllist_cuda[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        }
     
     /* Copy the cell edge lengths to the device. */
     h[0] = s->h[0]*s->span[0];
@@ -2576,7 +3182,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
     free( corig );
     
-    /* Copy the potential indices to the device. */
+    /* Copy the bonded/non-bonded potential indices to the device. */
     for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
@@ -2584,9 +3190,13 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToArray( cuArray_pind[did] , 0 , 0 , pind , sizeof(int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
+        if ( cudaMallocArray( &cuArray_pind_bond[did] , &channelDesc_int , e->max_type * e->max_type , 1 ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToArray( cuArray_pind_bond[did] , 0 , 0 , pind_bond , sizeof(int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
         }
     
-    /* Store pind as a constant too. */
+    /* Store pind and pind_bond as a constants too. */
     for ( did = 0 ;did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
@@ -2595,6 +3205,12 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         if ( cudaMemcpy( pind_cuda[did] , pind , sizeof(unsigned int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_pind , &pind_cuda[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMalloc( &pind_bond_cuda[did] , sizeof(unsigned int) * e->max_type * e->max_type ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpy( pind_bond_cuda[did] , pind_bond , sizeof(unsigned int) * e->max_type * e->max_type , cudaMemcpyHostToDevice ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaMemcpyToSymbol( cuda_pind_bond , &pind_bond_cuda[did] , sizeof(void *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         }
             
@@ -2605,6 +3221,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         if ( cudaBindTextureToArray( tex_coeffs , cuArray_coeffs[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaBindTextureToArray( tex_pind , cuArray_pind[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
+        if ( cudaBindTextureToArray( tex_pind_bond , cuArray_pind_bond[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         }
         
@@ -2622,7 +3240,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_maxtype , &(e->max_type) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
-    printf("%i \n", e->max_type);
         if ( cudaMemcpyToSymbol( cuda_dscale , &dscale , sizeof(float) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_nr_cells , &(s->nr_cells) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -2630,16 +3247,28 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         }
         
     /* Allocate and fill the task list. */
-    if ( ( tasks_cuda = (struct task_cuda *)malloc( sizeof(struct task_cuda) * s->nr_tasks ) ) == NULL )
+    int tot_tasks = s->nr_tasks;
+    if ( e->flags & engine_flag_parbonded ) {
+        tot_tasks += ( e->nr_bonds + ( cuda_frame * cuda_frames_per_block - 1 ) ) / ( cuda_frame * cuda_frames_per_block );
+        tot_tasks += ( e->nr_angles + ( cuda_frame * cuda_frames_per_block - 1 ) ) / ( cuda_frame * cuda_frames_per_block );
+        tot_tasks += ( e->nr_dihedrals + ( cuda_frame * cuda_frames_per_block - 1 ) ) / ( cuda_frame * cuda_frames_per_block );
+        tot_tasks += ( e->nr_exclusions + ( cuda_frame * cuda_frames_per_block - 1 ) ) / ( cuda_frame * cuda_frames_per_block );
+        }
+    if ( ( tasks_cuda = (struct task_cuda *)malloc( sizeof(struct task_cuda) * tot_tasks ) ) == NULL )
         return error(engine_err_malloc);
-    if ( ( cellsorts = (int *)malloc( sizeof(int) * s->nr_tasks ) ) == NULL )
+    if ( ( cellsorts = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL )
         return error(engine_err_malloc);
     for ( did = 0 ;did < nr_devices ; did++ ) {
-    if( (e->cells_cuda_local[did] = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL)
-        return error(engine_err_malloc);
+    
+        /* Allocate the list of cells local to the device. */
+	    if( (e->cells_cuda_local[did] = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL)
+	        return error(engine_err_malloc);
         e->cells_cuda_nr[did]=0;
+        
+        /* Set the device. */
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
+            
         /* Select the tasks for each device ID. */  
         for ( nr_tasks = 0 , i = 0 ; i < s->nr_tasks ; i++ ) {
             
@@ -2706,6 +3335,62 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         for ( i = 0 ; i < nr_tasks ; i++ )
             for ( k = 0 ; k < tasks_cuda[i].nr_unlock ; k++ )
                 tasks_cuda[ tasks_cuda[i].unlock[k] ].wait += 1;
+                
+        if ( e->flags & engine_flag_parbonded ) {
+                
+            /* Generate the bond tasks. */
+            int count = ( e->nr_bonds + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
+            for ( k = 0 ; k < count ; k++ ) {
+                tc = &tasks_cuda[ nr_tasks ];
+                nr_tasks += 1;
+                tc->type = task_type_bonded;
+                tc->subtype = task_subtype_bond;
+                tc->i = k*cuda_bondspertask;
+                tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_bonds - k*cuda_bondspertask ;
+                tc->wait = 0;
+                tc->nr_unlock = 0;
+                }
+
+            /* Generate the angle tasks. */
+            count = ( e->nr_angles + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
+            for ( k = 0 ; k < count ; k++ ) {
+                tc = &tasks_cuda[ nr_tasks ];
+                nr_tasks += 1;
+                tc->type = task_type_bonded;
+                tc->subtype = task_subtype_angle;
+                tc->i = k;
+                tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_angles - k*cuda_bondspertask ;
+                tc->wait = 0;
+                tc->nr_unlock = 0;
+                }
+
+            /* Generate the dihedral tasks. */
+            count = ( e->nr_dihedrals + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
+            for ( k = 0 ; k < count ; k++ ) {
+                tc = &tasks_cuda[ nr_tasks ];
+                nr_tasks += 1;
+                tc->type = task_type_bonded;
+                tc->subtype = task_subtype_dihedral;
+                tc->i = k;
+                tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_dihedrals - k*cuda_bondspertask ;
+                tc->wait = 0;
+                tc->nr_unlock = 0;
+                }
+
+            /* Generate the exclusion tasks. */
+            count = ( e->nr_exclusions + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
+            for ( k = 0 ; k < count ; k++ ) {
+                tc = &tasks_cuda[ nr_tasks ];
+                nr_tasks += 1;
+                tc->type = task_type_bonded;
+                tc->subtype = task_subtype_exclusion;
+                tc->i = k;
+                tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_exclusions - k*cuda_bondspertask ;
+                tc->wait = 0;
+                tc->nr_unlock = 0;
+                }
+                
+            }
 
         /* Allocate and fill the tasks list on the device. */
         if ( cudaMemcpyToSymbol( cuda_nr_tasks , &nr_tasks , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
@@ -2770,6 +3455,8 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         if ( ( e->parts_cuda_local = (float4 *)malloc( sizeof( float4 ) * s->nr_parts ) ) == NULL )
             return error(engine_err_malloc);
     #endif
+    if ( ( e->partlist_cuda_local = (int *)malloc( sizeof(int) * s->nr_parts ) ) == NULL )
+        return error(engine_err_malloc);
 
     /* Allocate the particle and force data. */
     for ( did = 0 ;did < nr_devices ; did++ ) {

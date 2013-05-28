@@ -33,14 +33,12 @@
     
 __global__ void runner_run_cuda(cuda_nparts) ( float *forces , int *counts , int *ind , int verlet_rebuild ) {
     
-int k, threadID;
+    int k, threadID;
     int cid, cjd, sid;
     float epot = 0.0f;
     volatile __shared__ int tid;
     __shared__ float shift[3];
     __shared__ unsigned int dshift;
-  //  struct queue_cuda *myq /*, *queues[ cuda_maxqueues ]*/;
-//    unsigned int seed = 6178 + blockIdx.x;
     #ifdef FORCES_LOCAL
         __shared__ __align__(16) int buff[ 8*cuda_nparts ];
         float *forces_i = (float *)&buff[ 0 ];
@@ -75,12 +73,10 @@ int k, threadID;
             TIMER_TOC(tid_gettask)
             }
             
-            /*Everyone wait for us to get a task id*/
-            __syncthreads();
+        /*Everyone wait for us to get a task id*/
+        __syncthreads();
             
         /* Exit if we didn't get a valid task. */
-        
-            
         if(tid < 0)
             break;
     
@@ -88,18 +84,19 @@ int k, threadID;
         if ( cuda_tasks[tid].type == task_type_pair ) {
             
             /* Get a hold of the pair cells. */
-            
-            
             cid = cuda_tasks[tid].i;
             cjd = cuda_tasks[tid].j;
+            
             /*Left interaction*/
             /* Get the shift and dshift vector for this pair. */
             if ( threadID == 0 ) {
-        #ifdef TASK_TIMERS
-        NAMD_timers[tid].x = blockIdx.x;
-        NAMD_timers[tid].y = task_type_pair;
-        NAMD_timers[tid].z = clock();
-            #endif
+            
+                #ifdef TASK_TIMERS
+                cuda_task_timers[tid].x = blockIdx.x;
+                cuda_task_timers[tid].y = task_type_pair;
+                cuda_task_timers[tid].z = clock();
+                #endif
+                
                 for ( k = 0 ; k < 3 ; k++ ) {
                     shift[k] = cuda_corig[ 3*cjd + k ] - cuda_corig[ 3*cid + k ];
                     if ( 2*shift[k] > cuda_dim[k] )
@@ -114,130 +111,136 @@ int k, threadID;
             
             
             /* Put a finger on the forces. */
-                forces_i = &forces[ 3*ind[cid] ];
-                forces_j = &forces[ 3*ind[cjd] ];
+            forces_i = &forces[ 3*ind[cid] ];
+            forces_j = &forces[ 3*ind[cjd] ];
                 
-                /* Load the sorted indices. */
-
-                cuda_memcpy( sort_i , &cuda_sortlists[ 13*ind[cid] + counts[cid]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cid] );
-                cuda_memcpy( sort_j , &cuda_sortlists[ 13*ind[cjd] + counts[cjd]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cjd] );
-                __syncthreads();
-                /* Copy the particle data into the local buffers. */
-                #ifndef PARTS_TEX
-                    #ifdef PARTS_LOCAL
-                        parts_i = &cuda_parts[ ind[cid] ];
-                        cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
-                        // __threadfence_block();
-                    #else
-                        parts_i = &cuda_parts[ ind[cid] ];
-                        parts_j = &cuda_parts[ ind[cjd] ];
-                    #endif
-                #endif
-                
-                /*Set to left interaction*/
-                /* Compute the cell pair interactions. */
-                #ifdef PARTS_TEX
-                    runner_dopair_left_cuda(
-                        cid , counts[cid] ,
-                        cjd , counts[cjd] ,
-                        forces_i , forces_j , 
-                        sort_i , sort_j ,
-                        shift , dshift ,
-                        &epot );
+            /* Load the sorted indices. */
+            cuda_memcpy( sort_i , &cuda_sortlists[ 13*ind[cid] + counts[cid]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cid] );
+            cuda_memcpy( sort_j , &cuda_sortlists[ 13*ind[cjd] + counts[cjd]*cuda_tasks[tid].flags ] , sizeof(int)*counts[cjd] );
+            __syncthreads();
+            
+            /* Copy the particle data into the local buffers. */
+            #ifndef PARTS_TEX
+                #ifdef PARTS_LOCAL
+                    parts_i = &cuda_parts[ ind[cid] ];
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
+                    // __threadfence_block();
                 #else
-                    runner_dopair_left_cuda(
-                        parts_i , counts[cid] ,
-                        parts_j , counts[cjd] ,
-                        forces_i , forces_j , 
-                        sort_i , sort_j ,
-                        shift , dshift ,
-                        &epot );
+                    parts_i = &cuda_parts[ ind[cid] ];
+                    parts_j = &cuda_parts[ ind[cjd] ];
                 #endif
-                /* Copy the particle data into the local buffers. */
-                #ifndef PARTS_TEX
-                    #ifdef PARTS_LOCAL
-                        parts_i = &cuda_parts[ ind[cid] ];
-                        cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
-                        // __threadfence_block();
-                    #else
-                        parts_i = &cuda_parts[ ind[cjd] ];
-                        parts_j = &cuda_parts[ ind[cid] ];
-                    #endif
-                #endif
-                
-                /*Set to right interaction*/
-                /* Compute the cell pair interactions. */
-                #ifdef PARTS_TEX
-                    runner_dopair_right_cuda(
-                        cid , counts[cid] ,
-                        cjd , counts[cjd] ,
-                        forces_i , forces_j , 
-                        sort_i , sort_j ,
-                        shift , dshift ,
-                        &epot );
-                #else
-                    runner_dopair_right_cuda(
-                        parts_i , counts[cjd] ,
-                        parts_j , counts[cid] ,
-                        forces_j , forces_i , 
-                        sort_j , sort_i ,
-                        shift , dshift ,
-                        &epot );
-                #endif
-
-        #ifdef TASK_TIMERS
-        if(threadID==0)
-            NAMD_timers[tid].w = clock();
             #endif
-                __syncthreads();                    
+
+            /*Set to left interaction*/
+            /* Compute the cell pair interactions. */
+            #ifdef PARTS_TEX
+                runner_dopair_left_cuda(
+                    cid , counts[cid] ,
+                    cjd , counts[cjd] ,
+                    forces_i , forces_j , 
+                    sort_i , sort_j ,
+                    shift , dshift ,
+                    &epot );
+            #else
+                runner_dopair_left_cuda(
+                    parts_i , counts[cid] ,
+                    parts_j , counts[cjd] ,
+                    forces_i , forces_j , 
+                    sort_i , sort_j ,
+                    shift , dshift ,
+                    &epot );
+            #endif
+            /* Copy the particle data into the local buffers. */
+            #ifndef PARTS_TEX
+                #ifdef PARTS_LOCAL
+                    parts_i = &cuda_parts[ ind[cid] ];
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cjd] ] , sizeof(float4) * counts[cjd] );
+                    // __threadfence_block();
+                #else
+                    parts_i = &cuda_parts[ ind[cjd] ];
+                    parts_j = &cuda_parts[ ind[cid] ];
+                #endif
+            #endif
+
+            /*Set to right interaction*/
+            /* Compute the cell pair interactions. */
+            #ifdef PARTS_TEX
+                runner_dopair_right_cuda(
+                    cid , counts[cid] ,
+                    cjd , counts[cjd] ,
+                    forces_i , forces_j , 
+                    sort_i , sort_j ,
+                    shift , dshift ,
+                    &epot );
+            #else
+                runner_dopair_right_cuda(
+                    parts_i , counts[cjd] ,
+                    parts_j , counts[cid] ,
+                    forces_j , forces_i , 
+                    sort_j , sort_i ,
+                    shift , dshift ,
+                    &epot );
+            #endif
+
+            #ifdef TASK_TIMERS
+            if(threadID==0)
+                cuda_task_timers[tid].w = clock();
+            #endif
+            __syncthreads();
+                        
             }
+            
         else if ( cuda_tasks[tid].type == task_type_self ) {
         
-        #ifdef TASK_TIMERS
-        if(threadID==0){
-                NAMD_timers[tid].x = blockIdx.x;
-        NAMD_timers[tid].y = task_type_self;
-        NAMD_timers[tid].z = clock();
-        }
+            #ifdef TASK_TIMERS
+            if(threadID==0){
+                cuda_task_timers[tid].x = blockIdx.x;
+                cuda_task_timers[tid].y = task_type_self;
+                cuda_task_timers[tid].z = clock();
+                }
             #endif
+            
             /* Get a hold of the cell id. */
             cid = cuda_tasks[tid].i;
             
-                /* Put a finger on the forces. */
-                forces_i = &forces[ 3*ind[cid] ];
-                
-                /* Copy the particle data into the local buffers. */
-                #ifndef PARTS_TEX
-                    #ifdef PARTS_LOCAL
-                        cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
-                    #else
-                        parts_j = &cuda_parts[ ind[cid] ];
-                    #endif
-                #endif
-                
-                /* Compute the cell self interactions. */
-                #ifdef PARTS_TEX
-                    runner_doself_cuda( cid , counts[cid] , forces_i , &epot );
-                #else
-                    runner_doself_cuda( parts_j , counts[cid] , forces_i , &epot );
-                #endif
+            /* Put a finger on the forces. */
+            forces_i = &forces[ 3*ind[cid] ];
 
-        #ifdef TASK_TIMERS
-        if(threadID==0)
-                NAMD_timers[tid].w = clock();
+            /* Copy the particle data into the local buffers. */
+            #ifndef PARTS_TEX
+                #ifdef PARTS_LOCAL
+                    cuda_memcpy( parts_j , &cuda_parts[ ind[cid] ] , sizeof(float4) * counts[cid] );
+                #else
+                    parts_j = &cuda_parts[ ind[cid] ];
+                #endif
             #endif
-                __syncthreads();
+
+            /* Compute the cell self interactions. */
+            #ifdef PARTS_TEX
+                runner_doself_cuda( cid , counts[cid] , forces_i , &epot );
+            #else
+                runner_doself_cuda( parts_j , counts[cid] , forces_i , &epot );
+            #endif
+
+            #ifdef TASK_TIMERS
+            if(threadID==0)
+                cuda_task_timers[tid].w = clock();
+            #endif
+            __syncthreads();
+            
             }
             
         /* Only do sorts if we have to re-build the pseudo-verlet lists. */
-        else if ( /*0 &&*/ cuda_tasks[tid].type == task_type_sort && verlet_rebuild ) {
+        else if ( cuda_tasks[tid].type == task_type_sort && verlet_rebuild ) {
+            
             #ifdef TASK_TIMERS
-        if(threadID==0){
-                NAMD_timers[tid].x = blockIdx.x;
-                NAMD_timers[tid].y = task_type_sort;
-                NAMD_timers[tid].z = clock();
-        }
+            if ( threadID == 0 ) {
+                cuda_task_timers[tid].x = blockIdx.x;
+                cuda_task_timers[tid].y = task_type_sort;
+                cuda_task_timers[tid].z = clock();
+                }
             #endif
+            
             /* Get a hold of the cell id. */
             cid = cuda_tasks[tid].i;
             
@@ -255,34 +258,75 @@ int k, threadID;
             
             /* Loop over the different sort IDs. */
             if( cuda_tasks[tid].flags != 0 )
-            for ( sid = 0 ; sid < 13 ; sid++ ) {
-            
-                /* Is this sid selected? */
-                if (0 && !( cuda_tasks[tid].flags & (1 << sid) ) )
-                    continue;
+                for ( sid = 0 ; sid < 13 ; sid++ ) {
+
+                    /* Is this sid selected? */
+                    if ( !( cuda_tasks[tid].flags & (1 << sid) ) )
+                        continue;
+
+                    /* Call the sorting function with the buffer. */
+                    #ifdef PARTS_TEX
+                        runner_dosort_cuda( cid , counts[cid] , sort_i , sid );
+                    #else
+                        runner_dosort_cuda( parts_j , counts[cid] , sort_i , sid );
+                    #endif
+                    __syncthreads();
                     
-                /* Call the sorting function with the buffer. */
-                #ifdef PARTS_TEX
-                    runner_dosort_cuda( cid , counts[cid] , sort_i , sid );
-                #else
-                    runner_dosort_cuda( parts_j , counts[cid] , sort_i , sid );
-                #endif
-                __syncthreads();
-                /* Copy the local shared memory back to the global memory. */
-                
-                cuda_memcpy( &cuda_sortlists[ 13*ind[cid] + sid*counts[cid] ] , sort_i , sizeof(unsigned int) * counts[cid] );
-                
-                
-                __syncthreads();
-        
-                }
-        #ifdef TASK_TIMERS
-        if(threadID==0)
-            NAMD_timers[tid].w = clock();
+                    /* Copy the local shared memory back to the global memory. */
+                    cuda_memcpy( &cuda_sortlists[ 13*ind[cid] + sid*counts[cid] ] , sort_i , sizeof(unsigned int) * counts[cid] );
+                    __syncthreads();
+
+                    }
+                    
+            #ifdef TASK_TIMERS
+            if(threadID==0)
+                cuda_task_timers[tid].w = clock();
             #endif
-                /*if(threadID ==0)
-                     cuda_taboo[cid] = 0;*/
                 
+            }
+            
+        /* Bonded interactions. */
+        else if ( cuda_tasks[tid].type == task_type_bonded ) {
+        
+            /* Which type of bonded interaction is this? */
+            if ( cuda_tasks[tid].subtype == task_subtype_bond ) {
+            
+                /* Call the bonded interactions function. */
+                runner_dobond_cuda( &cuda_bonds[ 2*cuda_tasks[tid].i ] ,
+                    cuda_tasks[tid].j ,
+                    forces ,
+                    &epot );
+            
+                }
+            else if ( cuda_tasks[tid].subtype == task_subtype_angle ) {
+            
+                /* Call the angle interactions function. */
+                runner_doangle_cuda( &cuda_angles[ 2*cuda_tasks[tid].i ] ,
+                    cuda_tasks[tid].j ,
+                    forces ,
+                    &epot );
+            
+                }
+            else if ( cuda_tasks[tid].subtype == task_subtype_dihedral ) {
+            
+                /* Call the dihedral interactions function. */
+                runner_dodihedral_cuda( &cuda_dihedrals[ 2*cuda_tasks[tid].i ] ,
+                    cuda_tasks[tid].j ,
+                    forces ,
+                    &epot );
+                    
+                }
+            
+            else if ( cuda_tasks[tid].subtype == task_subtype_exclusion ) {
+            
+                /* Call the exclusions function. */
+                runner_doexclusion_cuda( &cuda_exclusions[ 2*cuda_tasks[tid].i ] ,
+                    cuda_tasks[tid].j ,
+                    forces ,
+                    &epot );
+            
+                }
+        
             }
 
             
@@ -295,8 +339,7 @@ int k, threadID;
         } /* main loop. */
         
     /* Accumulate the potential energy. */
-        epot = epot * 0.5f ;
-    /* Accumulate the potential energy. */
+    epot = epot * 0.5f ;
     atomicAdd( &cuda_epot , epot );
 
     /* Make a notch on the barrier, last one out cleans up the mess... */
@@ -305,42 +348,24 @@ int k, threadID;
         tid = ( atomicAdd( &cuda_barrier , 1 ) == gridDim.x-1 );
     __syncthreads();
     if ( tid  ) {
-    TIMER_TIC
+        TIMER_TIC
         if ( threadID == 0 ) {
-        cuda_barrier = 0;
-        cuda_epot_out = cuda_epot;
-        cuda_epot = 0.0f;
-    volatile int *temp = cuda_queues[0].data; cuda_queues[0].data = cuda_queues[0].rec_data; cuda_queues[0].rec_data = temp;
+            cuda_barrier = 0;
+            cuda_epot_out = cuda_epot;
+            cuda_epot = 0.0f;
+            volatile int *temp = cuda_queues[0].data; cuda_queues[0].data = cuda_queues[0].rec_data; cuda_queues[0].rec_data = temp;
             cuda_queues[0].first = 0;
             cuda_queues[0].last = cuda_queues[0].count;
             cuda_queues[0].rec_count = 0;
-    //printf("%i \n", cuda_maxtype);
-        }
-        //NAMD_barrier=0;
-          for ( int j = threadID ; j < cuda_nr_tasks /*myq->count*/ ; j+= blockDim.x )
+            }
+        for ( int j = threadID ; j < cuda_nr_tasks ; j+= blockDim.x )
             for ( k = 0 ; k < cuda_tasks[j].nr_unlock ; k++ )
-                atomicAdd( (int *) &cuda_tasks[ cuda_tasks[j].unlock[k] ].wait , 1);
-
-    
-    TIMER_TOC(tid_cleanup)
+                atomicAdd( (int *) &cuda_tasks[ cuda_tasks[j].unlock[k] ].wait , 1 );
+        TIMER_TOC(tid_cleanup)
         }
-    /*if(threadID==0)
-        tid = atomicAdd((int *) &NAMD_barrier , 1);
     
-    __syncthreads();
-    if(tid == gridDim.x-1)
-    {
-        for( cid = threadID ; cid < cuda_nr_tasks; cid+= blockDim.x )
-            for ( k = 0; k < cuda_tasks[tid].nr_unlock ; k++ )
-                atomicAdd( (int* ) &cuda_tasks[cuda_tasks[cid].unlock[k] ].wait , 1 );
-    }*/
     TIMER_TOC2(tid_total)
 
-
-
-
-
-
-
-}
+    
+    }
 

@@ -22,12 +22,14 @@
 #define cuda_maxdiags                       352
 #define cuda_ndiags                         ( ( (cuda_maxdiags - 1) * cuda_maxdiags ) / 2 )
 #define cuda_frame                          32
+#define cuda_frames_per_block               4
 #define cuda_maxpots                        100
 #define max_fingers                         1
 #define cuda_maxblocks                      64
 #define cuda_memcpy_chunk                   6
 #define cuda_sum_chunk                      3
 #define cuda_maxqueues                      30
+#define cuda_bondspertask                   (cuda_frame*cuda_frames_per_block*4)
 
 
 /* Some flags that control optional behaviour */

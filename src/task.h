@@ -44,7 +44,11 @@ enum {
     task_subtype_none = 0,
     task_subtype_real,
     task_subtype_spme,
-    task_subtype_count
+    task_subtype_count,
+    task_subtype_bond,
+    task_subtype_angle,
+    task_subtype_dihedral,
+    task_subtype_exclusion
     };
 
 
