@@ -112,7 +112,6 @@ __constant__ float cuda_cutoff2 = 0.0f;
 __constant__ float cuda_cutoff = 0.0f;
 __constant__ float cuda_dscale = 0.0f;
 __constant__ float cuda_maxdist = 0.0f;
-__constant__ struct potential **cuda_p;
 __constant__ int cuda_maxtype = 0;
 __constant__ struct potential *cuda_pots;
 
@@ -941,6 +940,9 @@ __device__ void runner_dobond_cuda ( int *b , int count , float *forces , float 
              ( pjd = cuda_partlist[ b[ 2*bid + 1 ] ] ) < 0 )
             continue;
             
+        if ( threadIdx.x == 0 )
+            printf( "runner_dobond_cuda: working on bonded pair pid=%i, pjd=%d.\n" , pid , pjd );
+            
         /* Get the cell IDs. */
         cid = cuda_celllist[ b[ 2*bid + 0 ] ];
         cjd = cuda_celllist[ b[ 2*bid + 1 ] ];
@@ -1665,8 +1667,6 @@ __device__ inline void runner_dosort_cuda ( float4 *parts_i , int count_i , unsi
     shiftn[1] = cuda_shiftn[ 3*sid + 1 ];
     shiftn[2] = cuda_shiftn[ 3*sid + 2 ];
 
-
-
     /* Pack the parts into the sort arrays. */
     for ( k = threadID ; k < count_i ; k += blockDim.x ) {
         #ifdef PARTS_TEX
@@ -1679,6 +1679,7 @@ __device__ inline void runner_dosort_cuda ( float4 *parts_i , int count_i , unsi
 
     TIMER_TOC(tid_pack)
     __syncthreads();
+    
     /* Sort using normalized bitonic sort. */
     cuda_sort_descending( sort_i , count_i );
 
@@ -3107,17 +3108,16 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             return cuda_error(engine_err_cuda);
         }
     free( angles_cuda );
-    free( pind_angle );
     
     /* Copy the dihedral lists to the device. */
     if ( ( dihedrals_cuda = (int *)malloc( sizeof(int) * e->nr_dihedrals * 5 ) ) == NULL )
         return error(engine_err_malloc);
     for ( k = 0 ; k < e->nr_dihedrals ; k++ ) {
-        dihedrals_cuda[ k*4 + 0 ] = e->dihedrals[k].i;
-        dihedrals_cuda[ k*4 + 1 ] = e->dihedrals[k].j;
-        dihedrals_cuda[ k*4 + 2 ] = e->dihedrals[k].k;
-        dihedrals_cuda[ k*4 + 2 ] = e->dihedrals[k].l;
-        dihedrals_cuda[ k*4 + 3 ] = pind_dihedral[ e->dihedrals[k].pid ];
+        dihedrals_cuda[ k*5 + 0 ] = e->dihedrals[k].i;
+        dihedrals_cuda[ k*5 + 1 ] = e->dihedrals[k].j;
+        dihedrals_cuda[ k*5 + 2 ] = e->dihedrals[k].k;
+        dihedrals_cuda[ k*5 + 3 ] = e->dihedrals[k].l;
+        dihedrals_cuda[ k*5 + 4 ] = pind_dihedral[ e->dihedrals[k].pid ];
         }
     for ( did = 0 ; did < nr_devices ; did++ ) {
         if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
@@ -3132,7 +3132,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             return cuda_error(engine_err_cuda);
         }
     free( dihedrals_cuda );
-    free( pind_dihedral );
     
     /* Allocate the partlist on the device. */
     for ( did = 0 ; did < nr_devices ; did++ ) {
@@ -3258,7 +3257,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         return error(engine_err_malloc);
     if ( ( cellsorts = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL )
         return error(engine_err_malloc);
-    for ( did = 0 ;did < nr_devices ; did++ ) {
+    for ( did = 0 ; did < nr_devices ; did++ ) {
     
         /* Allocate the list of cells local to the device. */
 	    if( (e->cells_cuda_local[did] = (int *)malloc( sizeof(int) * s->nr_cells ) ) == NULL)
@@ -3275,6 +3274,10 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
             /* Get local pointers. */
             t = &s->tasks[i];
             tc = &tasks_cuda[nr_tasks];
+            
+            /* Skip bonded tasks. */
+            if ( t->type == task_type_bonded )
+                continue;
         
             /* Skip pairs and self with wrong cid, keep all sorts. */
             if ( ( t->type == task_type_pair && e->s.cells[t->i].GPUID != did  /*t->i % nr_devices != did */) ||
@@ -3296,20 +3299,22 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
                 cellsorts[ t->i ] = nr_tasks;
                 }
 
-        /*Add the cell to list of cells for this GPU if needed*/
-          c1=1; c2=1;
-        for(int i = 0; i < e->cells_cuda_nr[did] ; i++ )
-        {
-        /* Check cell is valid */
-        if(t->i < 0 || t->i == e->cells_cuda_local[did][i])
-            c1 = 0;
-        if(t->j < 0 || t->j == e->cells_cuda_local[did][i])
-            c2 = 0;
-           }
-        if( c1 )
-        e->cells_cuda_local[did][e->cells_cuda_nr[did]++] = t->i;
-        if( c2 )
-        e->cells_cuda_local[did][e->cells_cuda_nr[did]++] = t->j;                    
+            /*Add the cell to list of cells for this GPU if needed*/
+            c1=1; c2=1;
+            for(int i = 0; i < e->cells_cuda_nr[did] ; i++ ) {
+            
+                /* Check cell is valid */
+                if(t->i < 0 || t->i == e->cells_cuda_local[did][i])
+                    c1 = 0;
+                if(t->j < 0 || t->j == e->cells_cuda_local[did][i])
+                    c2 = 0;
+                   }
+                   
+            if( c1 )
+                e->cells_cuda_local[did][e->cells_cuda_nr[did]++] = t->i;
+            if( c2 )
+                e->cells_cuda_local[did][e->cells_cuda_nr[did]++] = t->j;                    
+                
             /* Add one task. */
             nr_tasks += 1;
         
@@ -3318,7 +3323,6 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
         /* Link each pair task to its sorts. */
         for ( i = 0 ; i < nr_tasks ; i++ ) {
             tc = &tasks_cuda[i];
-    
             if ( tc->type == task_type_pair ) {
                 ts = &tasks_cuda[ cellsorts[ tc->i ] ];
                 ts->flags |= (1 << tc->flags);
@@ -3358,7 +3362,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
                 nr_tasks += 1;
                 tc->type = task_type_bonded;
                 tc->subtype = task_subtype_angle;
-                tc->i = k;
+                tc->i = k*cuda_bondspertask;
                 tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_angles - k*cuda_bondspertask ;
                 tc->wait = 0;
                 tc->nr_unlock = 0;
@@ -3371,7 +3375,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
                 nr_tasks += 1;
                 tc->type = task_type_bonded;
                 tc->subtype = task_subtype_dihedral;
-                tc->i = k;
+                tc->i = k*cuda_bondspertask;
                 tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_dihedrals - k*cuda_bondspertask ;
                 tc->wait = 0;
                 tc->nr_unlock = 0;
@@ -3384,20 +3388,20 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
                 nr_tasks += 1;
                 tc->type = task_type_bonded;
                 tc->subtype = task_subtype_exclusion;
-                tc->i = k;
+                tc->i = k*cuda_bondspertask;
                 tc->j = ( k < count-1 ) ? cuda_bondspertask : e->nr_exclusions - k*cuda_bondspertask ;
                 tc->wait = 0;
                 tc->nr_unlock = 0;
                 }
-                
+               
             }
 
         /* Allocate and fill the tasks list on the device. */
         if ( cudaMemcpyToSymbol( cuda_nr_tasks , &nr_tasks , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
-        if ( cudaMalloc( &dummy[did] , sizeof(struct task_cuda) * s->nr_tasks ) != cudaSuccess )
+        if ( cudaMalloc( &dummy[did] , sizeof(struct task_cuda) * nr_tasks ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
-        if ( cudaMemcpy( dummy[did] , tasks_cuda , sizeof(struct task_cuda) * s->nr_tasks , cudaMemcpyHostToDevice ) != cudaSuccess )
+        if ( cudaMemcpy( dummy[did] , tasks_cuda , sizeof(struct task_cuda) * nr_tasks , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
         if ( cudaMemcpyToSymbol( cuda_tasks , &dummy[did] , sizeof(struct task_cuda *) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);

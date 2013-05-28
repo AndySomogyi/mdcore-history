@@ -2051,7 +2051,7 @@ int engine_step ( struct engine *e ) {
         e->s.verlet_rebuild = 0;
             
     /* Do bonded interactions. */
-    if ( !( e->flags & engine_flag_sets ) ) {
+    if ( !( e->flags & engine_flag_parbonded ) ) {
         tic = getticks();
         if ( engine_bonded_eval( e ) < 0 )
             return error(engine_err);

@@ -67,7 +67,6 @@
 #define engine_flag_mpi                  2048
 #define engine_flag_parbonded            4096
 #define engine_flag_async                8192
-#define engine_flag_sets                 16384
 #define engine_flag_nullpart             32768
 
 #define engine_bonds_chunk               100

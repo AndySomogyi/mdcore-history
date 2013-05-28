@@ -301,7 +301,7 @@ __global__ void runner_run_cuda(cuda_nparts) ( float *forces , int *counts , int
             else if ( cuda_tasks[tid].subtype == task_subtype_angle ) {
             
                 /* Call the angle interactions function. */
-                runner_doangle_cuda( &cuda_angles[ 2*cuda_tasks[tid].i ] ,
+                runner_doangle_cuda( &cuda_angles[ 4*cuda_tasks[tid].i ] ,
                     cuda_tasks[tid].j ,
                     forces ,
                     &epot );
@@ -310,7 +310,7 @@ __global__ void runner_run_cuda(cuda_nparts) ( float *forces , int *counts , int
             else if ( cuda_tasks[tid].subtype == task_subtype_dihedral ) {
             
                 /* Call the dihedral interactions function. */
-                runner_dodihedral_cuda( &cuda_dihedrals[ 2*cuda_tasks[tid].i ] ,
+                runner_dodihedral_cuda( &cuda_dihedrals[ 5*cuda_tasks[tid].i ] ,
                     cuda_tasks[tid].j ,
                     forces ,
                     &epot );
