@@ -335,18 +335,6 @@ int main ( int argc , char *argv[] ) {
     printf( "main[%i]: generated %i exclusions.\n" , myrank , e.nr_exclusions ); fflush(stdout);
     
     
-    /* Make the bonded sets. */
-    if ( e.flags & engine_flag_parbonded ) {
-        printf( "main[%i]: computing bonded sets...\n" , myrank ); fflush(stdout);
-        int grid[3] = { 3 , 3 , 3 };
-        if ( engine_bonded_makesets( &e , grid ) < 0 ) {
-            printf("main[%i]: engine_bonded_makesets failed with engine_err=%i.\n",myrank,engine_err);
-            errs_dump(stdout);
-            abort();
-            }
-        }    
-        
-    
     /* Assign all particles a random initial velocity. */
     vcom[0] = 0.0; vcom[1] = 0.0; vcom[2] = 0.0; mass_tot = 0.0;
     for ( k = 0 ; k < e.s.nr_parts ; k++ ) {
