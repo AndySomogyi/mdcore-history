@@ -275,7 +275,8 @@ struct engine {
         int cells_cuda_nr[ engine_maxgpu ];
         int *counts_cuda[ engine_maxgpu ], *counts_cuda_local[ engine_maxgpu ];
         int *ind_cuda[ engine_maxgpu ], *ind_cuda_local[ engine_maxgpu ];
-        int *partlist_cuda_local, *partlist_cuda[ engine_maxgpu ], *celllist_cuda[ engine_maxgpu ];
+        int *partlist_cuda_local[ engine_maxgpu ], *celllist_cuda_local[ engine_maxgpu ];
+        int *partlist_cuda[ engine_maxgpu ], *celllist_cuda[ engine_maxgpu ];
         struct task_cuda *tasks_cuda[ engine_maxgpu ];
         int *taboo_cuda[ engine_maxgpu ];
         int nrtasks_cuda[ engine_maxgpu ];

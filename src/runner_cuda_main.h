@@ -316,7 +316,6 @@ __global__ void runner_run_cuda(cuda_nparts) ( float *forces , int *counts , int
                     &epot );
                     
                 }
-            
             else if ( cuda_tasks[tid].subtype == task_subtype_exclusion ) {
             
                 /* Call the exclusions function. */
