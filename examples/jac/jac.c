@@ -163,7 +163,7 @@ int main ( int argc , char *argv[] ) {
 #ifdef WITH_MPI
     if ( engine_init_mpi( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_async , MPI_COMM_WORLD , myrank ) != 0 ) {
 #else
-    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_sets | engine_flag_affinity ) != 0 ) {
+    if ( engine_init( &e , origin , dim , L , cutoff , space_periodic_full , 100 , ENGINE_FLAGS | engine_flag_parbonded | engine_flag_affinity ) != 0 ) {
 #endif
         printf( "main[%i]: engine_init failed with engine_err=%i.\n" , myrank , engine_err );
         errs_dump(stdout);
@@ -183,7 +183,7 @@ int main ( int argc , char *argv[] ) {
     fflush(stdout);
     
     #ifdef WITH_CUDA
-        if ( engine_cuda_setdevices( &e , 2 , devices ) != 0 ) {
+        if ( engine_cuda_setdevices( &e , 1 , devices ) != 0 ) {
             printf( "main[%i]: engine_cuda_setdevice failed with engine_err=%i.\n" , myrank , engine_err );
             errs_dump(stdout);
             abort();
@@ -336,7 +336,7 @@ int main ( int argc , char *argv[] ) {
     
     
     /* Make the bonded sets. */
-    if ( e.flags & engine_flag_sets ) {
+    if ( e.flags & engine_flag_parbonded ) {
         printf( "main[%i]: computing bonded sets...\n" , myrank ); fflush(stdout);
         int grid[3] = { 3 , 3 , 3 };
         if ( engine_bonded_makesets( &e , grid ) < 0 ) {
@@ -569,7 +569,7 @@ int main ( int argc , char *argv[] ) {
         if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );
         if ( e.flags & engine_flag_parbonded ) printf( " engine_flag_parbonded" );
         if ( e.flags & engine_flag_async ) printf( " engine_flag_async" );
-        if ( e.flags & engine_flag_sets ) printf( " engine_flag_sets" );
+        if ( e.flags & engine_flag_nullpart ) printf( " engine_flag_nullpart" );
         printf( "\n" );
         }
        
