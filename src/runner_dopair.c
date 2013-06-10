@@ -105,19 +105,7 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     FPTYPE *pif;
     int pid, count_i, count_j;
     double epot = 0.0;
-#if defined(VECTORIZE)
-    struct potential *potq[VEC_SIZE];
-    int icount = 0, l;
-    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE dxq[3*VEC_SIZE];
-#else
     FPTYPE e, f, dx[4], pix[4];
-#endif
     
     /* break early if one of the cells is empty */
     if ( cell_i->count == 0 || cell_j->count == 0 )
@@ -197,109 +185,23 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
                 continue;
             // runner_rcount += 1;
 
-            #if defined(VECTORIZE)
-                /* add this interaction to the interaction queue. */
-                r2q[icount] = r2;
-                dxq[icount*3] = dx[0];
-                dxq[icount*3+1] = dx[1];
-                dxq[icount*3+2] = dx[2];
-                effi[icount] = pif;
-                effj[icount] = part_j->f;
-                potq[icount] = pot;
-                icount += 1;
+            /* evaluate the interaction */
+            potential_eval( pot , r2 , &e , &f );
 
-                /* evaluate the interactions if the queue is full. */
-                if ( icount == VEC_SIZE ) {
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                w = f * dx[k];
+                part_j->f[k] -= w;
+                pif[k] += w;
+                }
 
-                    #if defined(FPTYPE_SINGLE)
-                        #if VEC_SIZE==8
-                        potential_eval_vec_8single( potq , r2q , e , f );
-                        #else
-                        potential_eval_vec_4single( potq , r2q , e , f );
-                        #endif
-                    #elif defined(FPTYPE_DOUBLE)
-                        #if VEC_SIZE==4
-                        potential_eval_vec_4double( potq , r2q , e , f );
-                        #else
-                        potential_eval_vec_2double( potq , r2q , e , f );
-                        #endif
-                    #endif
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < VEC_SIZE ; l++ ) {
-                        epot += e[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = f[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #else
-                /* evaluate the interaction */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
-                #else
-                    potential_eval( pot , r2 , &e , &f );
-                #endif
-
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f * dx[k];
-                    part_j->f[k] -= w;
-                    pif[k] += w;
-                    }
-
-                /* tabulate the energy */
-                epot += e;
-            #endif
+            /* tabulate the energy */
+            epot += e;
 
             }
 
         } /* loop over all particles */
             
-        
-    #if defined(VECTORIZE)
-        /* are there any leftovers? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < VEC_SIZE ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            #if defined(VEC_SINGLE)
-                #if VEC_SIZE==8
-                potential_eval_vec_8single( potq , r2q , e , f );
-                #else
-                potential_eval_vec_4single( potq , r2q , e , f );
-                #endif
-            #elif defined(VEC_DOUBLE)
-                #if VEC_SIZE==4
-                potential_eval_vec_4double( potq , r2q , e , f );
-                #else
-                potential_eval_vec_2double( potq , r2q , e , f );
-                #endif
-            #endif
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += e[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
-                    }
-                }
-
-            }
-    #endif
         
     /* Store the potential energy to cell_i. */
     if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
@@ -345,12 +247,12 @@ __attribute__ ((flatten)) int runner_dopair_vec ( struct runner *r , struct cell
     unsigned int *iparts, *jparts;
     FPTYPE dscale;
     FPTYPE shift[3], nshift, bias;
-    FPTYPE *pif;
+    FPTYPE pif[3];
     int pid, count_i, count_j;
     double epot = 0.0;
     struct potential *potq[VEC_SIZE];
     int icount = 0, fill;
-    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
@@ -406,7 +308,8 @@ __attribute__ ((flatten)) int runner_dopair_vec ( struct runner *r , struct cell
         pix[1].v = VEC_SET1( part_i->x[1] - shift[1] );
         pix[2].v = VEC_SET1( part_i->x[2] - shift[2] );
         pioff = part_i->type * emt;
-        pif = &( part_i->f[0] );
+        pif[0] = 0.0f; pif[1] = 0.0f; pif[2] = 0.0f;
+        icount = 0;
 
         /* loop over the left particles */
         for ( j = count_j-1 ; j >= 0 && (jparts[j] & 0xffff) + dnshift - (iparts[i] & 0xffff) < dmaxdist ; j -= VEC_SIZE ) {
@@ -457,7 +360,6 @@ __attribute__ ((flatten)) int runner_dopair_vec ( struct runner *r , struct cell
                 dxq[icount*3] = dx[0].f[kk];
                 dxq[icount*3+1] = dx[1].f[kk];
                 dxq[icount*3+2] = dx[2].f[kk];
-                effi[icount] = pif;
                 effj[icount] = part_j[kk]->f;
                 potq[icount] = pot[kk];
                 icount += 1;
@@ -484,7 +386,7 @@ __attribute__ ((flatten)) int runner_dopair_vec ( struct runner *r , struct cell
                         epot += e[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = f[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
+                            pif[k] -= w;
                             effj[l][k] += w;
                             }
                         }
@@ -498,44 +400,23 @@ __attribute__ ((flatten)) int runner_dopair_vec ( struct runner *r , struct cell
 
             }
 
-        } /* loop over all particles */
-            
-        
-    /* are there any leftovers? */
-    if ( icount > 0 ) {
-
-        /* copy the first potential to the last entries */
-        for ( k = icount ; k < VEC_SIZE ; k++ ) {
-            potq[k] = potq[0];
-            r2q[k] = r2q[0];
-            }
-
-        /* evaluate the potentials */
-        #if defined(VEC_SINGLE)
-            #if VEC_SIZE==8
-            potential_eval_vec_8single( potq , r2q , e , f );
-            #else
-            potential_eval_vec_4single( potq , r2q , e , f );
-            #endif
-        #elif defined(VEC_DOUBLE)
-            #if VEC_SIZE==4
-            potential_eval_vec_4double( potq , r2q , e , f );
-            #else
-            potential_eval_vec_2double( potq , r2q , e , f );
-            #endif
-        #endif
-
-        /* for each entry, update the forces and energy */
+        /* are there any leftovers? */
         for ( l = 0 ; l < icount ; l++ ) {
-            epot += e[l];
+            potential_eval( potq[l] , r2q[l] , e , f );
+            epot += e[0];
             for ( k = 0 ; k < 3 ; k++ ) {
-                w = f[l] * dxq[l*3+k];
-                effi[l][k] -= w;
+                w = f[0] * dxq[l*3+k];
+                pif[k] -= w;
                 effj[l][k] += w;
                 }
             }
-
-        }
+            
+        /* Store the force. */
+        for ( k = 0 ; k < 3 ; k++ )
+            part_i->f[k] += pif[k];
+        
+        } /* loop over all particles */
+            
         
     /* Store the potential energy to cell_i. */
     if ( cell_j->flags & cell_flag_ghost || cell_i->flags & cell_flag_ghost )
@@ -577,19 +458,7 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
     int emt, pioff;
     FPTYPE cutoff2, r2, w;
     FPTYPE *pif;
-#if defined(VECTORIZE)
-    struct potential *potq[VEC_SIZE];
-    int icount = 0, l;
-    FPTYPE dx[4] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE pix[4] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
-    FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
-    FPTYPE dxq[VEC_SIZE*3];
-#else
     FPTYPE e, f, dx[4], pix[4];
-#endif
     
     /* break early if one of the cells is empty */
     count = c->count;
@@ -642,110 +511,23 @@ __attribute__ ((flatten)) int runner_doself ( struct runner *r , struct cell *c 
                 continue;
             // runner_rcount += 1;
 
-            #if defined(VECTORIZE)
-                /* add this interaction to the interaction queue. */
-                r2q[icount] = r2;
-                dxq[icount*3] = dx[0];
-                dxq[icount*3+1] = dx[1];
-                dxq[icount*3+2] = dx[2];
-                effi[icount] = pif;
-                effj[icount] = part_j->f;
-                potq[icount] = pot;
-                icount += 1;
+            /* evaluate the interaction */
+            potential_eval( pot , r2 , &e , &f );
 
-                /* evaluate the interactions if the queue is full. */
-                if ( icount == VEC_SIZE ) {
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                w = f * dx[k];
+                pif[k] -= w;
+                part_j->f[k] += w;
+                }
 
-                    /* evaluate the potentials */
-                    #if defined(FPTYPE_SINGLE)
-                        #if VEC_SIZE==8
-                        potential_eval_vec_8single( potq , r2q , e , f );
-                        #else
-                        potential_eval_vec_4single( potq , r2q , e , f );
-                        #endif
-                    #elif defined(FPTYPE_DOUBLE)
-                        #if VEC_SIZE==4
-                        potential_eval_vec_4double( potq , r2q , e , f );
-                        #else
-                        potential_eval_vec_2double( potq , r2q , e , f );
-                        #endif
-                    #endif
-
-                    /* update the forces and the energy */
-                    for ( l = 0 ; l < VEC_SIZE ; l++ ) {
-                        epot += e[l];
-                        for ( k = 0 ; k < 3 ; k++ ) {
-                            w = f[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
-                            effj[l][k] += w;
-                            }
-                        }
-
-                    /* re-set the counter. */
-                    icount = 0;
-
-                    }
-            #else
-                /* evaluate the interaction */
-                #ifdef EXPLICIT_POTENTIALS
-                    potential_eval_expl( pot , r2 , &e , &f );
-                #else
-                    potential_eval( pot , r2 , &e , &f );
-                #endif
-
-                /* update the forces */
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f * dx[k];
-                    pif[k] -= w;
-                    part_j->f[k] += w;
-                    }
-
-                /* tabulate the energy */
-                epot += e;
-            #endif
+            /* tabulate the energy */
+            epot += e;
 
             } /* loop over all other particles */
 
         } /* loop over all particles */
         
-
-    #if defined(VECTORIZE)
-        /* are there any leftovers? */
-        if ( icount > 0 ) {
-
-            /* copy the first potential to the last entries */
-            for ( k = icount ; k < VEC_SIZE ; k++ ) {
-                potq[k] = potq[0];
-                r2q[k] = r2q[0];
-                }
-
-            /* evaluate the potentials */
-            #if defined(FPTYPE_SINGLE)
-                #if VEC_SIZE==8
-                potential_eval_vec_8single( potq , r2q , e , f );
-                #elif VEC_SIZE==4
-                potential_eval_vec_4single( potq , r2q , e , f );
-                #endif
-            #elif defined(FPTYPE_DOUBLE)
-                #if VEC_SIZE==4
-                potential_eval_vec_4double( potq , r2q , e , f );
-                #elif VEC_SIZE==2
-                potential_eval_vec_2double( potq , r2q , e , f );
-                #endif
-            #endif
-
-            /* for each entry, update the forces and energy */
-            for ( l = 0 ; l < icount ; l++ ) {
-                epot += e[l];
-                for ( k = 0 ; k < 3 ; k++ ) {
-                    w = f[l] * dxq[l*3+k];
-                    effi[l][k] -= w;
-                    effj[l][k] += w;
-                    }
-                }
-
-            }
-    #endif
         
     /* Write local data back if needed. */
     if ( r->e->flags & engine_flag_localparts ) {
@@ -782,10 +564,10 @@ __attribute__ ((flatten)) int runner_doself_vec ( struct runner *r , struct cell
     struct engine *eng;
     int emt, pioff;
     FPTYPE cutoff2, w;
-    FPTYPE *pif;
+    FPTYPE pif[3];
     struct potential *potq[VEC_SIZE];
     int icount = 0, l;
-    FPTYPE *effi[VEC_SIZE], *effj[VEC_SIZE];
+    FPTYPE *effj[VEC_SIZE];
     FPTYPE r2q[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE e[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
     FPTYPE f[VEC_SIZE] __attribute__ ((aligned (VEC_ALIGN)));
@@ -817,7 +599,8 @@ __attribute__ ((flatten)) int runner_doself_vec ( struct runner *r , struct cell
         pix[1].v = VEC_SET1( part_i->x[1] );
         pix[2].v = VEC_SET1( part_i->x[2] );
         pioff = part_i->type * emt;
-        pif = &( part_i->f[0] );
+        pif[0] = FPTYPE_ZERO; pif[1] = FPTYPE_ZERO; pif[2] = FPTYPE_ZERO;
+        icount = 0;
 
         /* loop over all other particles */
         for ( j = 0 ; j < i ; j += VEC_SIZE ) {
@@ -867,7 +650,6 @@ __attribute__ ((flatten)) int runner_doself_vec ( struct runner *r , struct cell
                 dxq[icount*3] = dx[0].f[kk];
                 dxq[icount*3+1] = dx[1].f[kk];
                 dxq[icount*3+2] = dx[2].f[kk];
-                effi[icount] = pif;
                 effj[icount] = part_j[kk]->f;
                 potq[icount] = pot[kk];
                 icount += 1;
@@ -895,7 +677,7 @@ __attribute__ ((flatten)) int runner_doself_vec ( struct runner *r , struct cell
                         epot += e[l];
                         for ( k = 0 ; k < 3 ; k++ ) {
                             w = f[l] * dxq[l*3+k];
-                            effi[l][k] -= w;
+                            pif[k] -= w;
                             effj[l][k] += w;
                             }
                         }
@@ -909,45 +691,24 @@ __attribute__ ((flatten)) int runner_doself_vec ( struct runner *r , struct cell
 
             } /* loop over all other particles */
 
-        } /* loop over all particles */
-        
-
-    /* are there any leftovers? */
-    if ( icount > 0 ) {
-
-        /* copy the first potential to the last entries */
-        for ( k = icount ; k < VEC_SIZE ; k++ ) {
-            potq[k] = potq[0];
-            r2q[k] = r2q[0];
-            }
-
-        /* evaluate the potentials */
-        #if defined(FPTYPE_SINGLE)
-            #if VEC_SIZE==8
-            potential_eval_vec_8single( potq , r2q , e , f );
-            #elif VEC_SIZE==4
-            potential_eval_vec_4single( potq , r2q , e , f );
-            #endif
-        #elif defined(FPTYPE_DOUBLE)
-            #if VEC_SIZE==4
-            potential_eval_vec_4double( potq , r2q , e , f );
-            #elif VEC_SIZE==2
-            potential_eval_vec_2double( potq , r2q , e , f );
-            #endif
-        #endif
-
-        /* for each entry, update the forces and energy */
+        /* are there any leftovers? */
         for ( l = 0 ; l < icount ; l++ ) {
-            epot += e[l];
+            potential_eval( potq[l] , r2q[l] , e , f );
+            epot += e[0];
             for ( k = 0 ; k < 3 ; k++ ) {
-                w = f[l] * dxq[l*3+k];
-                effi[l][k] -= w;
+                w = f[0] * dxq[l*3+k];
+                pif[k] -= w;
                 effj[l][k] += w;
                 }
             }
-
-        }
+            
+        /* Store the force. */
+        for ( k = 0 ; k < 3 ; k++ )
+            part_i->f[k] += pif[k];
         
+        } /* loop over all particles */
+        
+
     /* Store the potential energy to c. */
     c->epot += epot;
         
