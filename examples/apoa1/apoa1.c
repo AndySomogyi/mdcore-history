@@ -454,7 +454,7 @@ int main ( int argc , char *argv[] ) {
         if ( e.flags & engine_flag_mpi ) printf( " engine_flag_mpi" );
         if ( e.flags & engine_flag_parbonded ) printf( " engine_flag_parbonded" );
         if ( e.flags & engine_flag_async ) printf( " engine_flag_async" );
-        if ( e.flags & engine_flag_sets ) printf( " engine_flag_sets" );
+        if ( e.flags & engine_flag_nullpart ) printf( " engine_flag_nullpart" );
         printf( "\n" );
         }
        
