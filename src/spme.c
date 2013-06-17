@@ -37,8 +37,10 @@
 #endif
 
 /* I will need fftw for this. */
-#include <complex.h>
-#include <fftw3.h>
+#ifdef HAVE_FFTW3
+    #include <complex.h>
+    #include <fftw3.h>
+#endif
 
 /* include local headers */
 #include "errs.h"
