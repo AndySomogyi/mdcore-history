@@ -437,6 +437,8 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
     c->count = 0;
     c->oldx_size = 0;
     c->oldx = NULL;
+    c->vproj_size = 0;
+    c->vproj = NULL;
     if ( ( c->sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * c->size ) ) == NULL )
         return error(cell_err_malloc);
     
@@ -445,6 +447,9 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
         return error(cell_err_malloc);
     c->incomming_size = cell_incr;
     c->incomming_count = 0;
+    
+    /* Init this cell's seed from the bits in the memory address. */
+    c->seed = (size_t)c;
         
     /* all is well... */
     return cell_err_ok;

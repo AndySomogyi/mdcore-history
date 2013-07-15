@@ -101,6 +101,9 @@ struct space {
     /** Array of tasks. */
     struct task *tasks;
     
+    /* Task order. */
+    int *tasks_ind;
+    
     /** Condition/mutex to signal task availability. */
     pthread_mutex_t tasks_mutex;
     pthread_cond_t tasks_avail;
@@ -134,6 +137,7 @@ struct space {
     
     /** Potential energy collected by the space itself. */
     double epot, epot_nonbond, epot_bond, epot_angle, epot_dihedral, epot_exclusion;
+    double ekin;
 
     };
     

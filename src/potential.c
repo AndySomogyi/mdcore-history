@@ -1028,7 +1028,8 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
         p->alpha[0] += 1;
         
         /* Fix the first interval. */
-        p->c[0] = a; p->c[1] = 1.0 / a;
+        p->c[0] = a;
+        p->c[1] = ( a == 0 ) ? 1.0 : 1.0 / a;
         double coeffs[potential_degree], eff[potential_degree];
         for ( k = 0 ; k < potential_degree ; k++ ) {
             coeffs[k] = p->c[2*potential_chunk-1-k];
@@ -1164,7 +1165,8 @@ int potential_init ( struct potential *p , double (*f)( double ) , double (*fp)(
     p->alpha[1] += (-err_b) / (aye - bee);
 
     /* Make the first interval a linear continuation. */
-    p->c[0] = a; p->c[1] = 1.0 / a;
+    p->c[0] = a;
+    p->c[1] = ( a == 0.0 ) ? 1.0 : 1.0 / a;
     double coeffs[potential_degree], eff[potential_degree];
     for ( k = 0 ; k < potential_degree ; k++ ) {
         coeffs[k] = p->c[2*potential_chunk-1-k];

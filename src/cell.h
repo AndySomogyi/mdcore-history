@@ -26,7 +26,7 @@
 
 
 /* some constants */
-#define cell_default_size               64
+#define cell_default_size               10
 #define cell_incr                       10
 
 /** Alignment when allocating parts. */
@@ -93,6 +93,10 @@ struct cell {
     FPTYPE *oldx;
     int oldx_size;
     
+    /* Projected particle velocities for dpd. */
+    FPTYPE *vproj;
+    int vproj_size;
+    
     /* ID of the node this cell belongs to. */
     int nodeID;
     
@@ -107,6 +111,9 @@ struct cell {
     
     /* ID of the bonded set this cell belongs to. */
     int setID;
+    
+    /* Seed for random parts of the DPD interaction. */
+    unsigned int seed;
     
     };
     

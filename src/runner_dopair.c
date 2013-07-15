@@ -73,6 +73,311 @@ extern unsigned int runner_rcount;
 
 
 /**
+ * @brief Rational approximation for inverf.
+ */
+ 
+inline float invndist ( float x ) {
+    float xp = 2 * fabsf( x - 0.5f );
+    float s = copysignf( M_SQRT2 , x - 0.5f );
+    return s * 
+        ((((((-4.305322784612908e-02*xp + 1.437964951099291e-02)*xp + 1.347179662670975e-01)*xp - 6.453457250071062e-01)*xp + 1.131146515368456e+00)*xp - 5.921099753875319e-01)*xp - 6.245992421211825e-06) /
+        ((-6.186894481555618e-01*xp + 1.287412264927493e+00)*xp - 6.688177594499652e-01);
+    }
+
+
+/**
+ * @brief Compute the self-interactions for the given cell.
+ *
+ * @param r The #runner computing the pair.
+ * @param cell_i The first cell.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err)
+ */
+
+__attribute__ ((flatten)) int runner_doself_dpd ( struct runner *ru , struct cell *c ) {
+
+    struct part *part_i, *part_j;
+    struct space *s;
+    int count = 0;
+    int i, j, k;
+    struct part *parts;
+    struct engine *eng;
+    int emt, pioff;
+    unsigned int *seed;
+    float *dpd_a, *dpd_g, alpha, gamma;
+    FPTYPE cutoff2, icutoff, r2, r, ir, dprod, w;
+    FPTYPE *pif;
+    FPTYPE f, dx[4], vx[4], pix[4], piv[4];
+    FPTYPE irmax, isqrtdt, Z;
+    FPTYPE *vproj = c->vproj;
+    
+    /* break early if one of the cells is empty */
+    count = c->count;
+    if ( count == 0 )
+        return runner_err_ok;
+    
+    /* get some useful data */
+    eng = ru->e;
+    emt = eng->max_type;
+    dpd_a = eng->dpd_a;
+    dpd_g = eng->dpd_g;
+    s = &(eng->s);
+    icutoff = FPTYPE_ONE / s->cutoff;
+    cutoff2 = s->cutoff2;
+    pix[3] = FPTYPE_ZERO;
+    vx[3] = FPTYPE_ZERO;
+    seed = &c->seed;
+    irmax = FPTYPE_ONE / RAND_MAX;
+    isqrtdt = M_SQRT2 / FPTYPE_SQRT( eng->dt );
+    
+    /* Make local copies of the parts if requested. */
+    if ( ru->e->flags & engine_flag_localparts ) {
+        parts = (struct part *)alloca( sizeof(struct part) * count );
+        memcpy( parts , c->parts , sizeof(struct part) * count );
+        }
+    else
+        parts = c->parts;
+        
+    /* loop over all particles */
+    for ( i = 1 ; i < count ; i++ ) {
+
+        /* get the particle */
+        part_i = &(parts[i]);
+        pix[0] = part_i->x[0];
+        pix[1] = part_i->x[1];
+        pix[2] = part_i->x[2];
+        piv[0] = vproj[ 4*i + 0 ];
+        piv[1] = vproj[ 4*i + 1 ];
+        piv[2] = vproj[ 4*i + 2 ];
+        pioff = part_i->type * emt;
+        pif = &( part_i->f[0] );
+
+        /* loop over all other particles */
+        for ( j = 0 ; j < i ; j++ ) {
+
+            /* get the other particle */
+            part_j = &(parts[j]);
+
+            /* get the distance between both particles */
+            r2 = fptype_r2( pix , part_j->x , dx );
+
+            /* is this within cutoff? */
+            if ( r2 > cutoff2 )
+                continue;
+
+            /* evaluate the interaction */
+            ir = FPTYPE_ONE / sqrt( r2 );
+            r = r2 * ir;
+            w = FPTYPE_ONE - r * icutoff;
+            alpha = dpd_a[ pioff + part_j->type ];
+            gamma = dpd_g[ pioff + part_j->type ];
+            vx[0] = piv[0] - vproj[ 4*j + 0 ];
+            vx[1] = piv[1] - vproj[ 4*j + 1 ];
+            vx[2] = piv[2] - vproj[ 4*j + 2 ];
+            dprod = fptype_dprod( dx , vx );
+            Z = invndist( rand_r( seed ) * irmax );
+            f = ( (-gamma * w * dprod * ir + isqrtdt * Z ) * gamma + alpha ) * w * ir;
+
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                w = f * dx[k];
+                part_j->f[k] -= w;
+                pif[k] += w;
+                }
+
+            } /* loop over all other particles */
+
+        } /* loop over all particles */
+        
+        
+    /* Write local data back if needed. */
+    if ( ru->e->flags & engine_flag_localparts ) {
+    
+        /* copy the particle data back */
+        for ( i = 0 ; i < count ; i++ ) {
+            c->parts[i].f[0] = parts[i].f[0];
+            c->parts[i].f[1] = parts[i].f[1];
+            c->parts[i].f[2] = parts[i].f[2];
+            }
+            
+        }
+        
+    /* since nothing bad happened to us... */
+    return runner_err_ok;
+
+    }
+
+
+/**
+ * @brief Compute the pairwise interactions for the given pair.
+ *
+ * @param r The #runner computing the pair.
+ * @param cell_i The first cell.
+ * @param cell_j The second cell.
+ * @param shift A pointer to an array of three floating point values containing
+ *      the vector separating the centers of @c cell_i and @c cell_j.
+ *
+ * @return #runner_err_ok or <0 on error (see #runner_err)
+ *
+ * Computes the DPD interactions between all the particles in @c cell_i and all
+ * the paritcles in @c cell_j. @c cell_i and @c cell_j may be the same cell.
+ *
+ * @sa #runner_sortedpair.
+ */
+
+__attribute__ ((flatten)) int runner_dopair_dpd ( struct runner *ru , struct cell *cell_i , struct cell *cell_j , int sid ) {
+
+    struct part *part_i, *part_j;
+    struct space *s;
+    int i, j, k;
+    struct part *parts_i, *parts_j;
+    float *dpd_a, *dpd_g, alpha, gamma;
+    unsigned int *seed;
+    struct engine *eng;
+    int emt, pioff, dmaxdist, dnshift;
+    FPTYPE cutoff, cutoff2, icutoff, r2, r, ir, dprod, w;
+    FPTYPE irmax, Z, isqrtdt;
+    unsigned int *iparts, *jparts;
+    FPTYPE dscale;
+    FPTYPE shift[3], nshift, bias;
+    FPTYPE *pif;
+    int pid, pjd, count_i, count_j;
+    FPTYPE f, dx[4], vx[4], pix[4], piv[4];
+    FPTYPE *vproj_i, *vproj_j;
+    
+    /* break early if one of the cells is empty */
+    if ( cell_i->count == 0 || cell_j->count == 0 )
+        return runner_err_ok;
+    
+    /* get the space and cutoff */
+    eng = ru->e;
+    emt = eng->max_type;
+    s = &(eng->s);
+    dpd_a = eng->dpd_a;
+    dpd_g = eng->dpd_g;
+    cutoff = s->cutoff;
+    icutoff = FPTYPE_ONE / s->cutoff;
+    cutoff2 = cutoff*cutoff;
+    bias = sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
+    dscale = (FPTYPE)SHRT_MAX / (2 * bias );
+    dmaxdist = 2 + dscale * (cutoff + 2*s->maxdx);
+    pix[3] = FPTYPE_ZERO;
+    vx[3] = FPTYPE_ZERO;
+    seed = &cell_i->seed;
+    irmax = FPTYPE_ONE / RAND_MAX;
+    isqrtdt = M_SQRT2 / FPTYPE_SQRT( eng->dt );
+    
+    /* Get the sort ID. */
+    sid = space_getsid( s , &cell_i , &cell_j , shift );
+    
+    /* Get the counts. */
+    count_i = cell_i->count;
+    count_j = cell_j->count;
+    vproj_i = cell_i->vproj;
+    vproj_j = cell_j->vproj;
+    
+    /* Make local copies of the parts if requested. */
+    if ( ru->e->flags & engine_flag_localparts ) {
+        parts_i = (struct part *)alloca( sizeof(struct part) * count_i );
+        memcpy( parts_i , cell_i->parts , sizeof(struct part) * count_i );
+        parts_j = (struct part *)alloca( sizeof(struct part) * count_j );
+        memcpy( parts_j , cell_j->parts , sizeof(struct part) * count_j );
+        }
+    else {
+        parts_i = cell_i->parts;
+        parts_j = cell_j->parts;
+        }
+        
+    /* Get the discretized shift norm. */
+    nshift = sqrt( shift[0]*shift[0] + shift[1]*shift[1] + shift[2]*shift[2] );
+    dnshift = dscale * nshift;
+
+    /* Get the pointers to the left and right particle data. */
+    iparts = &cell_i->sortlist[ count_i * sid ];
+    jparts = &cell_j->sortlist[ count_j * sid ];
+
+    /* loop over the sorted list of particles in i */
+    for ( i = 0 ; i < count_i ; i++ ) {
+
+        /* Quit early? */
+        if ( (jparts[count_j-1] & 0xffff) + dnshift - (iparts[i] & 0xffff) > dmaxdist )
+            break;
+
+        /* get a handle on this particle */
+        pid = iparts[i] >> 16;
+        part_i = &( parts_i[pid] );
+        pix[0] = part_i->x[0] - shift[0];
+        pix[1] = part_i->x[1] - shift[1];
+        pix[2] = part_i->x[2] - shift[2];
+        piv[0] = vproj_i[ 4*pid + 0 ];
+        piv[1] = vproj_i[ 4*pid + 1 ];
+        piv[2] = vproj_i[ 4*pid + 2 ];
+        pioff = part_i->type * emt;
+        pif = &( part_i->f[0] );
+
+        /* loop over the left particles */
+        for ( j = count_j-1 ; j >= 0 && (jparts[j] & 0xffff) + dnshift - (iparts[i] & 0xffff) < dmaxdist ; j-- ) {
+
+            /* get a handle on the second particle */
+            pjd = jparts[j] >> 16;
+            part_j = &( parts_j[ pjd ] );
+
+            /* get the distance between both particles */
+            r2 = fptype_r2( pix , part_j->x , dx );
+
+            /* is this within cutoff? */
+            if ( r2 > cutoff2 )
+                continue;
+
+            /* evaluate the interaction */
+            ir = FPTYPE_ONE / sqrt( r2 );
+            r = r2 * ir;
+            w = FPTYPE_ONE - r * icutoff;
+            alpha = dpd_a[ pioff + part_j->type ];
+            gamma = dpd_g[ pioff + part_j->type ];
+            vx[0] = piv[0] - vproj_j[ 4*pjd + 0 ];
+            vx[1] = piv[1] - vproj_j[ 4*pjd + 1 ];
+            vx[2] = piv[2] - vproj_j[ 4*pjd + 2 ];
+            dprod = fptype_dprod( dx , vx );
+            Z = invndist( rand_r( seed ) * irmax );
+            f = ( (-gamma * w * dprod * ir + isqrtdt * Z ) * gamma + alpha ) * w * ir;
+
+            /* update the forces */
+            for ( k = 0 ; k < 3 ; k++ ) {
+                w = f * dx[k];
+                part_j->f[k] -= w;
+                pif[k] += w;
+                }
+
+            }
+
+        } /* loop over all particles */
+            
+        
+    /* Write local data back if needed. */
+    if ( ru->e->flags & engine_flag_localparts ) {
+    
+        /* copy the particle data back */
+        for ( i = 0 ; i < count_i ; i++ ) {
+            cell_i->parts[i].f[0] = parts_i[i].f[0];
+            cell_i->parts[i].f[1] = parts_i[i].f[1];
+            cell_i->parts[i].f[2] = parts_i[i].f[2];
+            }
+        if ( cell_i != cell_j )
+            for ( i = 0 ; i < count_j ; i++ ) {
+                cell_j->parts[i].f[0] = parts_j[i].f[0];
+                cell_j->parts[i].f[1] = parts_j[i].f[1];
+                cell_j->parts[i].f[2] = parts_j[i].f[2];
+                }
+        }
+        
+    /* since nothing bad happened to us... */
+    return runner_err_ok;
+
+    }
+    
+    
+/**
  * @brief Compute the pairwise interactions for the given pair.
  *
  * @param r The #runner computing the pair.

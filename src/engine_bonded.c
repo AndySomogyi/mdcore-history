@@ -64,6 +64,110 @@
 
 
 /**
+ * @brief Re-shuffle the bonded sets.
+ *
+ * @param e The #engine.
+ */
+ 
+void engine_bonded_reshuffle ( struct engine *e ) {
+
+    int j, k, count;
+    int setids[ 4 ];
+    struct space *s = &e->s;
+    struct engine_set *set;
+    struct angle *a;
+    struct bond *b;
+    struct dihedral *d;
+    struct exclusion *ex;
+    struct cell **celllist = s->celllist;
+    struct cell *ci, *cj, *ck, *cl;
+    
+    /* Re-set the set counters. */
+    for ( k = 0 ; k < e->nr_sets ; k++ ) {
+        set = &e->sets[k];
+        set->nr_bonds = 0;
+        set->nr_angles = 0;
+        set->nr_dihedrals = 0;
+        set->nr_exclusions = 0;
+        }
+
+    /* Partition bonds. */
+    count = e->nr_bonds;
+    for ( k = 0 ; k < count ; k++ ) {
+        b = &e->bonds[k];
+        ci = celllist[ b->i ]; cj = celllist[ b->j ];
+        setids[0] = ( ci == NULL ) ? -1 : ci->setID;
+        setids[1] = ( cj == NULL ) ? -1 : cj->setID;
+        if ( setids[1] == setids[0] )
+            setids[1] = -1;
+        for ( j = 0 ; j < 2 ; j++ )
+            if ( setids[j] != -1 ) {
+                set = &e->sets[ setids[j] ];
+                set->bonds[ set->nr_bonds++ ] = b;
+                }
+        }
+
+    /* Partition exclusions. */
+    count = e->nr_exclusions;
+    for ( k = 0 ; k < count ; k++ ) {
+        ex = &e->exclusions[k];
+        ci = celllist[ ex->i ]; cj = celllist[ ex->j ];
+        setids[0] = ( ci == NULL ) ? -1 : ci->setID;
+        setids[1] = ( cj == NULL ) ? -1 : cj->setID;
+        if ( setids[1] == setids[0] )
+            setids[1] = -1;
+        for ( j = 0 ; j < 2 ; j++ )
+            if ( setids[j] != -1 ) {
+                set = &e->sets[ setids[j] ];
+                set->exclusions[ set->nr_exclusions++ ] = ex;
+                }
+        }
+
+    /* Partition angles. */
+    count = e->nr_angles;
+    for ( k = 0 ; k < count ; k++ ) {
+        a = &e->angles[k];
+        ci = celllist[ a->i ]; cj = celllist[ a->j ]; ck = celllist[ a->k ];
+        setids[0] = ( ci == NULL ) ? -1 : ci->setID;
+        setids[1] = ( cj == NULL ) ? -1 : cj->setID;
+        if ( setids[1] == setids[0] )
+            setids[1] = -1;
+        setids[2] = ( ck == NULL ) ? -1 : ck->setID;
+        if ( setids[2] == setids[0] || setids[2] == setids[1] )
+            setids[2] = -1;
+        for ( j = 0 ; j < 3 ; j++ )
+            if ( setids[j] != -1 ) {
+                set = &e->sets[ setids[j] ];
+                set->angles[ set->nr_angles++ ] = a;
+                }
+        }
+
+    /* Partition dihedrals. */
+    count = e->nr_dihedrals;
+    for ( k = 0 ; k < count ; k++ ) {
+        d = &e->dihedrals[k];
+        ci = celllist[ d->i ]; cj = celllist[ d->j ]; ck = celllist[ d->k ]; cl = celllist[ d->l ];
+        setids[0] = ( ci == NULL ) ? -1 : ci->setID;
+        setids[1] = ( cj == NULL ) ? -1 : cj->setID;
+        if ( setids[1] == setids[0] )
+            setids[1] = -1;
+        setids[2] = ( ck == NULL ) ? -1 : ck->setID;
+        if ( setids[2] == setids[0] || setids[2] == setids[1] )
+            setids[1] = -1;
+        setids[3] = ( cl == NULL ) ? -1 : cl->setID;
+        if ( setids[3] == setids[0] || setids[3] == setids[1] || setids[3] == setids[2] )
+            setids[3] = -1;
+        for ( j = 0 ; j < 4 ; j++ )
+            if ( setids[j] != -1 ) {
+                set = &e->sets[ setids[j] ];
+                set->dihedrals[ set->nr_dihedrals++ ] = d;
+                }
+        }
+
+    }
+
+
+/**
  * @brief Construct the bonded sets.
  *
  * @param e The #engine.
@@ -75,7 +179,7 @@
  
 int engine_bonded_makesets ( struct engine *e , int *grid ) {
 
-    int j, k, nr_sets;
+    int k, nr_sets;
     double scale[3];
     struct space *s = &e->s;
     struct engine_set *set;
@@ -107,14 +211,6 @@ int engine_bonded_makesets ( struct engine *e , int *grid ) {
              ( set->exclusions = malloc( sizeof(void *) * e->nr_exclusions ) ) == NULL ||
              ( set->cells = malloc( sizeof(void *) * s->nr_cells ) ) == NULL )
             return error(engine_err_malloc);
-        for ( j = 0 ; j < e->nr_bonds ; j++ )
-            set->bonds[j] = &e->bonds[j];
-        for ( j = 0 ; j < e->nr_angles ; j++ )
-            set->angles[j] = &e->angles[j];
-        for ( j = 0 ; j < e->nr_dihedrals ; j++ )
-            set->dihedrals[j] = &e->dihedrals[j];
-        for ( j = 0 ; j < e->nr_exclusions ; j++ )
-            set->exclusions[j] = &e->exclusions[j];
         }
         
     /* Compute the scaling factor. */

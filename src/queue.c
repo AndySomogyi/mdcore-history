@@ -128,44 +128,23 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
 
         /* Is this pair ok? */
         if ( t->type == task_type_pair ) {
-            // if ( rid & 1 ) {
-                if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
-                    if ( __sync_val_compare_and_swap( &cells_taboo[ t->j ] , 0 , 1 ) == 0 ) {
-                        if ( ind_best >= 0 ) {
-                            t = &q->tasks[ q->ind[ ind_best ] ];
-                            if ( t->type == task_type_self || t->type == task_type_sort )
-                                cells_taboo[ t->i ] = 0;
-                            else if ( t->type == task_type_pair ) {
-                                cells_taboo[ t->i ] = 0;
-                                cells_taboo[ t->j ] = 0;
-                                }
-                            }
-                        score_best = score;
-                        ind_best = k;
-                        }
-                    else
-                        cells_taboo[ t->i ] = 0;
-                    }
-            /*     }
-            else {
+            if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
                 if ( __sync_val_compare_and_swap( &cells_taboo[ t->j ] , 0 , 1 ) == 0 ) {
-                    if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
-                        if ( ind_best >= 0 ) {
-                            t = &q->tasks[ q->ind[ ind_best ] ];
-                            if ( t->type == task_type_self || t->type == task_type_sort )
-                                cells_taboo[ t->i ] = 0;
-                            else if ( t->type == task_type_pair ) {
-                                cells_taboo[ t->i ] = 0;
-                                cells_taboo[ t->j ] = 0;
-                                }
+                    if ( ind_best >= 0 ) {
+                        t = &q->tasks[ q->ind[ ind_best ] ];
+                        if ( t->type == task_type_self || t->type == task_type_sort )
+                            cells_taboo[ t->i ] = 0;
+                        else if ( t->type == task_type_pair ) {
+                            cells_taboo[ t->i ] = 0;
+                            cells_taboo[ t->j ] = 0;
                             }
-                        score_best = score;
-                        ind_best = k;
                         }
-                    else
-                        cells_taboo[ t->j ] = 0;
+                    score_best = score;
+                    ind_best = k;
                     }
-                } */
+                else
+                    cells_taboo[ t->i ] = 0;
+                }
             }
         else if ( t->type == task_type_sort || t->type == task_type_self ) {
             if ( __sync_val_compare_and_swap( &cells_taboo[ t->i ] , 0 , 1 ) == 0 ) {
@@ -238,9 +217,13 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
         if ( keep ) {
         
             /* Shuffle all the indices down. */
-            q->count -= 1;
+            /* q->count -= 1;
             for ( j = ind_best ; j < q->count ; j++ )
-                q->ind[j] = q->ind[j+1];
+                q->ind[j] = q->ind[j+1]; */
+                
+            /* Swap with last element. */
+            q->count -= 1;
+            q->ind[ ind_best ] = q->ind[ q->count ];
         
             }
             
@@ -248,11 +231,15 @@ struct task *queue_get ( struct queue *q , int rid , int keep ) {
         else {
         
             /* Bubble down... */
-            for ( k = ind_best ; k > q->next ; k-- )
-                q->ind[k] = q->ind[k-1];
+            // for ( k = ind_best ; k > q->next ; k-- )
+            //     q->ind[k] = q->ind[k-1];
                 
             /* Write the original index back to the list. */
-            q->ind[ q->next ] = tid;
+            // q->ind[ q->next ] = tid;
+            
+            int temp = q->ind[ q->next ];
+            q->ind[ q->next ] = q->ind[ ind_best ];
+            q->ind[ ind_best ] = temp;
             
             /* Move the next pointer up a notch. */
             q->next += 1;

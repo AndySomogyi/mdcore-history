@@ -48,7 +48,8 @@
 #define engine_err_rigid                 -26
 #define engine_err_cutoff                -27
 #define engine_err_nometis               -28
-#define engine_err_nyi                   -29
+#define engine_err_deps                  -29
+#define engine_err_nyi                   -30
 
 
 /* some constants */
@@ -67,6 +68,7 @@
 #define engine_flag_mpi                  2048
 #define engine_flag_parbonded            4096
 #define engine_flag_async                8192
+#define engine_flag_dpd                  16384
 #define engine_flag_nullpart             32768
 
 #define engine_bonds_chunk               100
@@ -78,6 +80,7 @@
 #define engine_maxgpu                    10
 #define engine_pshake_steps              20
 #define engine_maxKcutoff                2
+#define engine_maxdxratio                0.25
 
 #define engine_split_MPI        1
 #define engine_split_GPU        2
@@ -187,6 +190,9 @@ struct engine {
     
     /** The interaction matrix */
     struct potential **p, **p_bond, **p_angle, **p_dihedral;
+    
+    /** DPD coefficients. */
+    float *dpd_a, *dpd_g;
     
     /** The explicit electrostatic potential. */
     struct potential *ep;
@@ -320,6 +326,7 @@ int engine_bond_eval ( struct engine *e );
 int engine_bonded_eval ( struct engine *e );
 int engine_bonded_eval_sets ( struct engine *e );
 int engine_bonded_makesets ( struct engine *e , int *grid );
+void engine_bonded_reshuffle ( struct engine *e );
 int engine_bonded_sets ( struct engine *e , int max_sets );
 int engine_dihedral_add ( struct engine *e , int i , int j , int k , int l , int pid );
 int engine_dihedral_addpot ( struct engine *e , struct potential *p );

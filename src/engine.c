@@ -71,7 +71,7 @@ int engine_err = engine_err_ok;
 #define error(id)                ( engine_err = errs_register( id , engine_err_msg[-(id)] , __LINE__ , __FUNCTION__ , __FILE__ ) )
 
 /* list of error messages. */
-char *engine_err_msg[30] = {
+char *engine_err_msg[31] = {
     "Nothing bad happened.",
     "An unexpected NULL pointer was encountered.",
     "A call to malloc failed, probably due to insufficient memory.",
@@ -101,6 +101,7 @@ char *engine_err_msg[30] = {
     "An error occured when evaluating a rigid constraint.",
     "Cell cutoff size doesn't work with METIS", 
     "METIS library undefined",
+    "Not all task dependencies can be satified.",
     "Not yet implemented."
     };
 
@@ -255,7 +256,7 @@ int engine_verlet_update ( struct engine *e ) {
 
         /* Are we still in the green? */
         maxdx = sqrt(maxdx);
-        s->verlet_rebuild = ( 2.0*maxdx > skin );
+        s->verlet_rebuild = ( 2.0*maxdx > skin ) || ( maxdx > s->cutoff*engine_maxdxratio );
 
         }
         
@@ -267,11 +268,11 @@ int engine_verlet_update ( struct engine *e ) {
         
         /* Wait for any unterminated exchange. */
         tic = getticks();
-#ifdef WITH_MPI
+        #ifdef WITH_MPI
         if ( e->flags & engine_flag_async )
             if ( engine_exchange_wait( e ) < 0 )
                 return error(engine_err);
-#endif
+        #endif
         tic = getticks() - tic;
         e->timers[engine_timer_exchange1] += tic;
         e->timers[engine_timer_verlet] -= tic;
@@ -860,6 +861,8 @@ printf("Successfully split the space\n");
     return engine_err_ok;
 #endif
 } 
+
+
 /**
  * @brief Split the computational domain over a number of nodes using
  *      bisection.
@@ -1594,6 +1597,65 @@ int engine_addpot ( struct engine *e , struct potential *p , int i , int j ) {
     }
 
 
+/** 
+ * @brief Sort the tasks in topological order over all queues.
+ *
+ * @param s The #scheduler.
+ */
+ 
+int engine_ranktasks ( struct engine *e ) {
+
+    int i, j = 0, k, temp, left = 0, rank;
+    struct space *s = &e->s;
+    struct task *t, *tasks = s->tasks;
+    int *tid = s->tasks_ind, nr_tasks = s->nr_tasks;
+    
+    /* Run throught the tasks and get all the waits right. */
+    for ( i = 0 , k = 0 ; k < nr_tasks ; k++ ) {
+        tid[k] = k;
+        for ( j = 0 ; j < tasks[k].nr_unlock ; j++ )
+            tasks[k].unlock[j]->wait += 1;
+        }
+        
+    /* Main loop. */
+    for ( j = 0 , rank = 0 ; left < nr_tasks ; rank++ ) {
+        
+        /* Load the tids of tasks with no waits. */
+        for ( k = left ; k < nr_tasks ; k++ )
+            if ( tasks[ tid[k] ].wait == 0 ) {
+                if ( k > j ) {
+                    temp = tid[j];
+                    tid[j] = tid[k];
+                    tid[k] = temp;
+                    }
+                j += 1;
+                }
+                
+        /* Did we get anything? */
+        if ( j == left )
+            return error( engine_err_deps );
+
+        /* Unlock the next layer of tasks. */
+        for ( i = left ; i < j ; i++ ) {
+            t = &tasks[ tid[i] ];
+            t->rank = rank;
+            tid[i] = t - tasks;
+            if ( tid[i] >= nr_tasks )
+                return error( engine_err_range );
+            for ( k = 0 ; k < t->nr_unlock ; k++ )
+                t->unlock[k]->wait -= 1;
+            }
+            
+        /* The new left (no, not Tony). */
+        left = j;
+            
+        }
+        
+    return engine_err_ok;
+        
+    }
+
+
 /**
  * @brief Start the runners in the given #engine.
  *
@@ -1701,12 +1763,16 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
             return error(engine_err_malloc);
         e->nr_queues = nr_queues;
         
+        /* Rank the tasks. */
+        if ( engine_ranktasks( e ) < 0 )
+            return error( engine_err );
+        
         /* Initialize  and fill the queues. */
         for ( i = 0 ; i < e->nr_queues ; i++ )
             if ( queue_init( &e->queues[i] , 2*s->nr_tasks/e->nr_queues , e , s->tasks ) != queue_err_ok )
                 return error(engine_err_queue);
         for ( i = 0 ; i < s->nr_tasks ; i++ )
-            if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tasks[i] ) < 0 )
+            if ( queue_insert( &e->queues[ i % e->nr_queues ] , &s->tasks[ s->tasks_ind[i] ] ) < 0 )
                 return error(engine_err_queue);
                 
         /* (Allocate the runners */
@@ -1726,6 +1792,28 @@ int engine_start ( struct engine *e , int nr_runners , int nr_queues ) {
                 
         }
         
+    /* If we're doing DPD, init the projected velocities. */
+    if ( e->flags & engine_flag_dpd ) {
+        #pragma omp parallel
+        {
+            int step = omp_get_num_threads();
+            struct space *s = &e->s;
+            for ( int cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
+                struct cell *c = &(s->cells[ s->cid_real[cid] ]);
+                if ( c->vproj_size < c->count ) {
+                    if ( c->vproj != NULL ) free( c->vproj );
+                    c->vproj_size = c->count + cell_incr;
+                    posix_memalign( (void *)&c->vproj , sizeof(FPTYPE)*4 , sizeof(FPTYPE) * 4 * c->vproj_size );
+                    }
+                for ( int pid = 0 ; pid < c->count ; pid++ ) {
+                    struct part *p = &( c->parts[pid] );
+                    for ( int k = 0 ; k < 3 ; k++ )
+                        c->vproj[ pid*4 + k ] = p->v[k];
+                    }
+                }
+            }
+        }
+            
     /* Set the number of runners. */
     e->nr_runners = nr_runners;
     
@@ -1816,7 +1904,7 @@ int engine_start_SPU ( struct engine *e , int nr_runners ) {
 int engine_nonbond_eval ( struct engine *e ) {
 
     int k;
-
+    
     /* Re-set the queues. */
     for ( k = 0 ; k < e->nr_queues ; k++ )
         e->queues[k].next = 0;
@@ -1950,7 +2038,7 @@ int engine_advance ( struct engine *e ) {
             cell_welcome( &(s->cells[ s->cid_marked[cid] ]) , s->partlist );
             
         }
-            
+        
     /* Store the accumulated potential energy. */
     s->epot_nonbond += epot;
     s->epot += epot;
@@ -1959,8 +2047,8 @@ int engine_advance ( struct engine *e ) {
     return engine_err_ok;
     
     }
-
-
+    
+    
 /**
  * @brief Run the engine for a single time step.
  *
@@ -1983,12 +2071,6 @@ int engine_step ( struct engine *e ) {
 
     /* increase the time stepper */
     e->time += 1;
-    
-    /* prepare the space */
-    tic = getticks();
-    if ( space_prepare( &e->s ) != space_err_ok )
-        return error(engine_err_space);
-    e->timers[engine_timer_prepare] += getticks() - tic;
     
     /* Clear the runner timers. */
     for ( k = 0 ; k < runner_timer_count ; k++ )
@@ -2017,6 +2099,10 @@ int engine_step ( struct engine *e ) {
             return error(engine_err_space);
         e->timers[engine_timer_advance] += getticks() - tic;
         }
+        
+    /* Do we need to re-shuffle the bonded sets? */
+    if ( e->flags & engine_flag_parbonded && e->s.verlet_rebuild )
+        engine_bonded_reshuffle( e );
                     
 #ifdef WITH_MPI
     /* Re-distribute the particles to the processors. */
@@ -2040,6 +2126,36 @@ int engine_step ( struct engine *e ) {
         }
 #endif
             
+    /* If we're doing DPD, compute the projected velocities. */
+    if ( e->flags & engine_flag_dpd ) {
+        #pragma omp parallel
+        {
+            int step = omp_get_num_threads();
+            FPTYPE hdt = 0.5*e->dt;
+            struct space *s = &e->s;
+            for ( int cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
+                struct cell *c = &(s->cells[ s->cid_real[cid] ]);
+                if ( c->vproj_size < c->count ) {
+                    if ( c->vproj != NULL ) free( c->vproj );
+                    c->vproj_size = c->count + cell_incr;
+                    posix_memalign( (void *)&c->vproj , sizeof(FPTYPE)*4 , sizeof(FPTYPE) * 4 * c->vproj_size );
+                    }
+                for ( int pid = 0 ; pid < c->count ; pid++ ) {
+                    struct part *p = &( c->parts[pid] );
+                    FPTYPE w = hdt * e->types[p->type].imass;
+                    for ( int k = 0 ; k < 3 ; k++ )
+                        c->vproj[ pid*4 + k ] = p->v[k] + p->f[k] * w;
+                    }
+                }
+            }
+        }
+            
+    /* prepare the space */
+    tic = getticks();
+    if ( space_prepare( &e->s ) != space_err_ok )
+        return error(engine_err_space);
+    e->timers[engine_timer_prepare] += getticks() - tic;
+    
     /* Compute the non-bonded interactions. */
     tic = getticks();
     #if defined(HAVE_CUDA) && defined(WITH_CUDA)
@@ -2434,6 +2550,13 @@ int engine_init ( struct engine *e , const double *origin , const double *dim , 
         return error(engine_err_malloc);
     bzero( e->p_dihedral , sizeof(struct potential *) * e->dihedralpots_size );
     e->nr_dihedralpots = 0;
+    if ( flags & engine_flag_dpd ) {
+        if ( ( e->dpd_a = (float *)malloc( sizeof(float) * max_type * max_type ) ) == NULL ||
+             ( e->dpd_g = (float *)malloc( sizeof(float) * max_type * max_type ) ) == NULL )
+            return error(engine_err_malloc);
+        bzero( e->dpd_a , sizeof(float) * max_type * max_type );
+        bzero( e->dpd_g , sizeof(float) * max_type * max_type );
+        }
     
     /* Make sortlists? */
     if ( flags & engine_flag_verlet_pseudo ) {

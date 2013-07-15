@@ -89,15 +89,8 @@ extern unsigned int runner_rcount;
 
 __attribute__ ((flatten)) int runner_dobonded ( struct runner *r , struct engine_set *set ) {
 
-    int j, k, count, sid = set->id;
     struct engine *e = r->e;
     struct space *s = &e->s;
-    struct angle *a;
-    struct bond *b;
-    struct dihedral *d;
-    struct exclusion *ex;
-    struct cell **celllist = s->celllist;
-    struct cell *ci, *cj, *ck, *cl;
     double epot_bond = 0.0, epot_angle = 0.0, epot_dihedral = 0.0, epot_exclusion = 0.0;
     ticks tic;
     
@@ -106,58 +99,6 @@ __attribute__ ((flatten)) int runner_dobonded ( struct runner *r , struct engine
         printf( "%i " , set->cells[k] );
     printf( "].\n" ); fflush(stdout); */
     
-    /* Do we need to re-assess our list of bonded interactions? */
-    if ( s->verlet_rebuild ) {
-    
-        /* Partition bonds. */
-        count = e->nr_bonds;
-        for ( j = 0 , k = 0 ; k < count ; k++ ) {
-            b = &e->bonds[k];
-            ci = celllist[ b->i ]; cj = celllist[ b->j ];
-            if ( ( ci != NULL && ci->setID == sid ) ||
-                 ( cj != NULL && cj->setID == sid ) )
-                set->bonds[j++] = b;
-            }
-        set->nr_bonds = j;
-    
-        /* Partition angles. */
-        count = e->nr_angles;
-        for ( j = 0 , k = 0 ; k < count ; k++ ) {
-            a = &e->angles[k];
-            ci = celllist[ a->i ]; cj = celllist[ a->j ]; ck = celllist[ a->k ];
-            if ( ( ci != NULL && ci->setID == sid ) ||
-                 ( cj != NULL && cj->setID == sid ) ||
-                 ( ck != NULL && ck->setID == sid ) )
-                set->angles[j++] = a;
-            }
-        set->nr_angles = j;
-    
-        /* Partition dihedrals. */
-        count = e->nr_dihedrals;
-        for ( j = 0 , k = 0 ; k < count ; k++ ) {
-            d = &e->dihedrals[k];
-            ci = celllist[ d->i ]; cj = celllist[ d->j ]; ck = celllist[ d->k ]; cl = celllist[ d->l ];
-            if ( ( ci != NULL && ci->setID == sid ) ||
-                 ( cj != NULL && cj->setID == sid ) ||
-                 ( ck != NULL && ck->setID == sid ) ||
-                 ( cl != NULL && cl->setID == sid ) )
-                set->dihedrals[j++] = d;
-            }
-        set->nr_dihedrals = j;
-    
-        /* Partition exclusions. */
-        count = e->nr_exclusions;
-        for ( j = 0 , k = 0 ; k < count ; k++ ) {
-            ex = &e->exclusions[k];
-            ci = celllist[ ex->i ]; cj = celllist[ ex->j ];
-            if ( ( ci != NULL && ci->setID == sid ) ||
-                 ( cj != NULL && cj->setID == sid ) )
-                set->exclusions[j++] = ex;
-            }
-        set->nr_exclusions = j;
-    
-        }
-        
     /* Do the bonds. */
     tic = getticks();
     bond_eval_set( set->bonds , set->nr_bonds , e , set->id , &epot_bond );

@@ -63,7 +63,10 @@ struct task {
     short int type, subtype;
     
     /** Wait counters. */
-    int wait;
+    short int wait;
+    
+    /* Task rank, needed for pre-sorting. */
+    short int rank;
     
     /** Task flags. */
     int flags;

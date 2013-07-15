@@ -28,11 +28,13 @@
         #endif
         #define FPTYPE_ONE 1.0
         #define FPTYPE_TWO 2.0
+        #define FPTYPE_HALF 0.5
         #define FPTYPE_ZERO 0.0
         #define FPTYPE_SQRT sqrt
         #define FPTYPE_FMAX fmax
         #define FPTYPE_FMIN fmin
         #define FPTYPE_FABS fabs
+        #define FPTYPE_LOG log
         #define FPTYPE_COPYSIGN copysign
     #else
         /** The basic type is set to float. */
@@ -41,10 +43,12 @@
         #define FPTYPE_ONE 1.0f
         #define FPTYPE_ZERO 0.0f
         #define FPTYPE_TWO 2.0f
+        #define FPTYPE_HALF 0.5f
         #define FPTYPE_SQRT sqrtf
         #define FPTYPE_FMAX fmaxf
         #define FPTYPE_FMIN fminf
         #define FPTYPE_FABS fabsf
+        #define FPTYPE_LOG logf
         #define FPTYPE_COPYSIGN copysignf
         #ifndef FPTYPE_SINGLE
             #define FPTYPE_SINGLE

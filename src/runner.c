@@ -691,7 +691,7 @@ int runner_run ( struct runner *r ) {
         queues[ myqid ] = queues[ naq ];
                         
         /* while i can still get a pair... */
-        /* printf("runner_run: runner %i paSSEd barrier, getting pairs...\n",r->id); */
+        /* printf("runner_run: runner %i passed barrier, getting pairs...\n",r->id); */
         while ( myq->next < myq->count || naq > 0 ) {
         
             /* Try to get a pair from my own queue. */
@@ -779,13 +779,19 @@ int runner_run ( struct runner *r ) {
                     break;
                 case task_type_self:
                     TIMER_TIC_ND
-                    #if defined(VECTORIZE) && defined(FPTYPE_SINGLE)
-                        if ( runner_doself_vec( r , &s->cells[ t->i ] ) < 0 )
+                    if ( e->flags & engine_flag_dpd ) {
+                        if ( runner_doself_dpd( r , &s->cells[ t->i ] ) < 0 )
                             return error(runner_err);
-                    #else
-                        if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
-                            return error(runner_err);
-                    #endif
+                        }
+                    else {
+                        #if defined(VECTORIZE) && defined(FPTYPE_SINGLE)
+                            if ( runner_doself_vec( r , &s->cells[ t->i ] ) < 0 )
+                                return error(runner_err);
+                        #else
+                            if ( runner_doself( r , &s->cells[ t->i ] ) < 0 )
+                                return error(runner_err);
+                        #endif
+                        }
                     if ( lock_unlock( &s->cells_taboo[ t->i ] ) != 0 )
                         abort();
                     TIMER_TOC(runner_timer_self);
@@ -794,6 +800,10 @@ int runner_run ( struct runner *r ) {
                     TIMER_TIC_ND
                     if ( e->flags & engine_flag_unsorted ) {
                         if ( runner_dopair_unsorted( r , &s->cells[ t->i ] , &s->cells[ t->j ] ) < 0 )
+                            return error(runner_err);
+                        }
+                    else if ( e->flags & engine_flag_dpd ) {
+                        if ( runner_dopair_dpd( r , &s->cells[ t->i ] , &s->cells[ t->j ] , t->flags ) < 0 )
                             return error(runner_err);
                         }
                     else {
