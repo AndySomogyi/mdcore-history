@@ -153,7 +153,7 @@ void engine_bonded_reshuffle ( struct engine *e ) {
             setids[1] = -1;
         setids[2] = ( ck == NULL ) ? -1 : ck->setID;
         if ( setids[2] == setids[0] || setids[2] == setids[1] )
-            setids[1] = -1;
+            setids[2] = -1;
         setids[3] = ( cl == NULL ) ? -1 : cl->setID;
         if ( setids[3] == setids[0] || setids[3] == setids[1] || setids[3] == setids[2] )
             setids[3] = -1;
@@ -195,6 +195,7 @@ int engine_bonded_makesets ( struct engine *e , int *grid ) {
     /* Allocate the sets. */
     if ( ( e->sets = (struct engine_set *)malloc( sizeof(struct engine_set) * nr_sets ) ) == NULL )
         return error(engine_err_malloc);
+    e->nr_sets = nr_sets;
         
     /* Allocate and fill the set data. */
     for ( k = 0 ; k < nr_sets ; k++ ) {
