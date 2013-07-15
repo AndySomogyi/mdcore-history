@@ -439,6 +439,7 @@ int cell_init ( struct cell *c , int *loc , double *origin , double *dim ) {
     c->oldx = NULL;
     c->vproj_size = 0;
     c->vproj = NULL;
+    c->maxdx = 0;
     if ( ( c->sortlist = (unsigned int *)malloc( sizeof(unsigned int) * 13 * c->size ) ) == NULL )
         return error(cell_err_malloc);
     

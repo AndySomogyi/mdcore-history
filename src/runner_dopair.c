@@ -260,7 +260,7 @@ __attribute__ ((flatten)) int runner_dopair_dpd ( struct runner *ru , struct cel
     cutoff2 = cutoff*cutoff;
     bias = sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
     dscale = (FPTYPE)SHRT_MAX / (2 * bias );
-    dmaxdist = 2 + dscale * (cutoff + 2*s->maxdx);
+    dmaxdist = 2 + dscale * (cutoff + cell_i->maxdx + cell_j->maxdx);
     pix[3] = FPTYPE_ZERO;
     vx[3] = FPTYPE_ZERO;
     seed = &cell_i->seed;
@@ -425,7 +425,7 @@ __attribute__ ((flatten)) int runner_dopair ( struct runner *r , struct cell *ce
     cutoff2 = cutoff*cutoff;
     bias = sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
     dscale = (FPTYPE)SHRT_MAX / (2 * bias );
-    dmaxdist = 2 + dscale * (cutoff + 2*s->maxdx);
+    dmaxdist = 2 + dscale * (cutoff + cell_i->maxdx + cell_j->maxdx);
     pix[3] = FPTYPE_ZERO;
     
     /* Get the sort ID. */
@@ -580,7 +580,7 @@ __attribute__ ((flatten)) int runner_dopair_vec ( struct runner *r , struct cell
     cutoff2 = cutoff*cutoff;
     bias = sqrt( s->h[0]*s->h[0] + s->h[1]*s->h[1] + s->h[2]*s->h[2] );
     dscale = (FPTYPE)SHRT_MAX / (2 * bias );
-    dmaxdist = 2 + dscale * (cutoff + 2*s->maxdx);
+    dmaxdist = 2 + dscale * (cutoff + cell_i->maxdx + cell_j->maxdx);
     
     /* Get the sort ID. */
     sid = space_getsid( s , &cell_i , &cell_j , shift );

@@ -90,7 +90,7 @@ struct cell {
 	pthread_cond_t cell_cond;
     
     /* Old particle positions for the verlet lists. */
-    FPTYPE *oldx;
+    FPTYPE *oldx, maxdx;
     int oldx_size;
     
     /* Projected particle velocities for dpd. */

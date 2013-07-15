@@ -193,14 +193,14 @@ int engine_timers_reset ( struct engine *e ) {
 int engine_verlet_update ( struct engine *e ) {
 
     int cid, pid, k;
-    double dx, w, maxdx = 0.0, skin;
+    FPTYPE dx, w, maxdx = 0, skin;
     struct cell *c;
     struct part *p;
     struct space *s = &e->s;
     ticks tic;
     #ifdef HAVE_OPENMP
         int step;
-        double lmaxdx;
+        FPTYPE lmaxdx, lmaxdx2;
     #endif
     
     /* Do we really need to do this? */
@@ -214,11 +214,12 @@ int engine_verlet_update ( struct engine *e ) {
     if ( !s->verlet_rebuild ) {
     
         #ifdef HAVE_OPENMP
-            #pragma omp parallel private(c,cid,pid,p,dx,k,w,step,lmaxdx)
+            #pragma omp parallel private(c,cid,pid,p,dx,k,w,step,lmaxdx,lmaxdx2)
             {
-                lmaxdx = 0.0; step = omp_get_num_threads();
+                lmaxdx2 = 0.0; step = omp_get_num_threads();
                 for ( cid = omp_get_thread_num() ; cid < s->nr_real ; cid += step ) {
                     c = &(s->cells[s->cid_real[cid]]);
+                    lmaxdx = FPTYPE_ZERO;
                     for ( pid = 0 ; pid < c->count ; pid++ ) {
                         p = &(c->parts[pid]);
                         for ( dx = 0.0 , k = 0 ; k < 3 ; k++ ) {
@@ -227,9 +228,11 @@ int engine_verlet_update ( struct engine *e ) {
                             }
                         lmaxdx = fmax( dx , lmaxdx );
                         }
+                    c->maxdx = FPTYPE_SQRT( lmaxdx );
+                    lmaxdx2 = fmax( lmaxdx2 , lmaxdx );
                     }
                 #pragma omp critical
-                maxdx = fmax( lmaxdx , maxdx );
+                maxdx = fmax( lmaxdx2 , maxdx );
                 }
         #else
             for ( cid = 0 ; cid < s->nr_real ; cid++ ) {
