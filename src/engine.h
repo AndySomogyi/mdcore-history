@@ -77,7 +77,7 @@
 #define engine_dihedrals_chunk           100
 #define engine_exclusions_chunk          100
 #define engine_readbuff                  16384
-#define engine_maxgpu                    10
+#define engine_maxgpu                    2
 #define engine_pshake_steps              20
 #define engine_maxKcutoff                2
 #define engine_maxdxratio                0.25
@@ -291,6 +291,9 @@ struct engine {
     
     /** Timers. */
     ticks timers[engine_timer_last];
+    #ifdef WITH_CUDA
+    float timers_cuda[3*(engine_maxgpu+1)];
+    #endif
     
     /** Bonded sets. */
     struct engine_set *sets;

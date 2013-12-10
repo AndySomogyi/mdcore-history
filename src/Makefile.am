@@ -19,7 +19,7 @@
 AUTOMAKE_OPTIONS=gnu
 
 # Set-up CFLAGS for all targets
-AM_CFLAGS = -g -Wall -std=gnu99 $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror -O3 -funroll-loops -DTIMER
+AM_CFLAGS = -g -Wall -std=gnu99 $(SIMD_FLAGS) $(OPENMP_CFLAGS) -Werror -O3 -funroll-loops 
 AM_LDFLAGS = -version-info 0:0:0 $(METIS_LDFLAGS)
 
 # List required headers
@@ -37,7 +37,7 @@ SOURCES = cell.c part.c runner.c engine.c potential.c space.c errs.c \
 # CUDA sources
 if HAVECUDA
     SOURCES_CUDA = engine_cuda.cu runner_cuda.cu
-    CUDA_MYFLAGS = -O3 -g -DCPU_TPS=3.10e9 -lineinfo -src-in-ptx --maxrregcount 32 -Xptxas="-v" -Xptxas -dlcm=cg -arch sm_20 -ftz=true -fmad=true -DFPTYPE_SINGLE -DWITH_CUDA
+    CUDA_MYFLAGS = -O3 -g -DCPU_TPS=3.10e9 -lineinfo -src-in-ptx --maxrregcount=32 -Xptxas="-v" -Xptxas -dlcm=cg -arch sm_30 -ftz=true -fmad=true -DFPTYPE_SINGLE -DWITH_CUDA
 .cu: runner_cuda.h runner_cuda_main.h
 .cu.o:
 	$(NVCC) -c $(NVCCFLAGS) $(CUDA_CFLAGS) $(CUDA_MYFLAGS) $< -o $@

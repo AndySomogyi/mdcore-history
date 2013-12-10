@@ -972,7 +972,7 @@ __device__ void runner_dobond_cuda ( int *b , int count , float *forces , float 
     float r2, w;
     float ee, eff, dx[3];
     int pot;
-    
+    TIMER_TIC
     /* Loop over the bonds. */
     for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
     
@@ -1029,7 +1029,7 @@ __device__ void runner_dobond_cuda ( int *b , int count , float *forces , float 
         
     /* Store the potential energy. */
     *epot_out += 2*epot;
-    
+    TIMER_TOC(tid_bonded)
     }
 
 
@@ -1053,6 +1053,7 @@ __device__ void runner_doangle_cuda ( int *b , int count , float *forces , float
     float dprod, inji, injk, ctheta;
     float dxi[3], dxk[3], wi, wk;
     
+    TIMER_TIC
     /* Loop over the angles. */
     for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
     
@@ -1135,7 +1136,7 @@ __device__ void runner_doangle_cuda ( int *b , int count , float *forces , float
         
     /* Store the potential energy. */
     *epot_out += 2*epot;
-    
+    TIMER_TOC(tid_bonded)
     }
 
 
@@ -1160,7 +1161,8 @@ __device__ void runner_dodihedral_cuda ( int *b , int count , float *forces , fl
         t22, t24, t26, t3, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40,
         t41, t42, t43, t44, t45, t46, t47, t5, t6, t7, t8, t9,
         t2, t4, t23, t25, t27, t28, t51, t52, t53, t54, t59;
-    
+
+    TIMER_TIC
     /* Loop over the dihedrals. */
     for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
     
@@ -1297,7 +1299,7 @@ __device__ void runner_dodihedral_cuda ( int *b , int count , float *forces , fl
         
     /* Store the potential energy. */
     *epot_out += 2*epot;
-    
+    TIMER_TOC(tid_bonded)
     }
 
 
@@ -1319,7 +1321,8 @@ __device__ void runner_doexclusion_cuda ( int *b , int count , float *forces , f
     float r2, w;
     float ee, eff, dx[3];
     int pot;
-    
+
+    TIMER_TIC
     /* Loop over the bonds. */
     for ( bid = threadIdx.x ; bid < count ; bid += blockDim.x ) {
     
@@ -1376,7 +1379,7 @@ __device__ void runner_doexclusion_cuda ( int *b , int count , float *forces , f
         
     /* Store the potential energy. */
     *epot_out -= 2*epot;
-    
+    TIMER_TOC(tid_bonded)
     }
 
 
@@ -2287,7 +2290,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     dim3 nr_blocks( e->nr_runners , 1 );
     int k, cid, did, pid, maxcount = 0;
     cudaStream_t stream;
-    cudaEvent_t tic, toc_load, toc_run, toc_unload;
+    cudaEvent_t tic[engine_maxgpu], toc_load[engine_maxgpu], toc_run[engine_maxgpu], toc_unload[engine_maxgpu];
     float ms_load, ms_run, ms_unload;
     struct part *p;
     float4 *parts_cuda = (float4 *)e->parts_cuda_local, *buff4;
@@ -2302,16 +2305,15 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     #endif
     
     /* Create the events. */
-    if ( cudaSetDevice( e->devices[e->nr_devices-1] ) ||
-         cudaEventCreate( &tic ) != cudaSuccess ||
-         cudaEventCreate( &toc_load ) != cudaSuccess ||
-         cudaEventCreate( &toc_run ) != cudaSuccess ||
-         cudaEventCreate( &toc_unload ) != cudaSuccess )
+    for(did = 0; did < e->nr_devices; did++ )
+    {
+    if ( cudaSetDevice( e->devices[did] ) != cudaSuccess ||
+         cudaEventCreate( &tic[did] ) != cudaSuccess ||
+         cudaEventCreate( &toc_load[did] ) != cudaSuccess ||
+         cudaEventCreate( &toc_run[did] ) != cudaSuccess ||
+         cudaEventCreate( &toc_unload[did] ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
-    
-    /* Start the clock on the first stream. */
-    if ( cudaEventRecord( tic , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
-        cuda_error(engine_err_cuda);
+    }
     
     /* Re-set timers */
     #ifdef TIMERS
@@ -2331,7 +2333,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
         /* Get the stream. */
         stream = (cudaStream_t)e->streams[did];
-        
+        if(cudaEventRecord( tic[did], (cudaStream_t)e->streams[did] ) != cudaSuccess )
+            cuda_error(engine_err_cuda);
         /* Load the particle data onto the device. */
         // tic = getticks();
         // if ( ( maxcount = engine_cuda_load_parts( e ) ) < 0 )
@@ -2430,25 +2433,12 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
         if ( cudaMemcpyToSymbol( cuda_maxtype , &(e->max_type) , sizeof(int) , 0 , cudaMemcpyHostToDevice ) != cudaSuccess )
             return cuda_error(engine_err_cuda);
             
-        }
+        
     
     /* Lap the clock on the last stream. */
-    if ( cudaEventRecord( toc_load , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
+    if ( cudaEventRecord( toc_load[did] , (cudaStream_t)e->streams[did] ) != cudaSuccess )
         return cuda_error(engine_err_cuda);
     
-
-        
-        
-
-    /* Loop over the devices and call the different kernels on each stream. */
-    for ( did = 0 ; did < e->nr_devices ; did++ ) {
-
-        /* Set the device ID. */
-        if ( cudaSetDevice( e->devices[did] ) != cudaSuccess )
-            return cuda_error(engine_err_cuda);
-
-        /* Get the stream. */
-        stream = (cudaStream_t)e->streams[did];
         /* Clear the force array. */
         // if ( cudaMemsetAsync( e->forces_cuda[did] , 0 , sizeof( float ) * 3 * s->nr_parts , stream ) != cudaSuccess )
         //     return cuda_error(engine_err_cuda);
@@ -2507,6 +2497,8 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
             default:
                 return error(engine_err_maxparts);
             }
+        if ( cudaEventRecord( toc_run[did] , (cudaStream_t)e->streams[did] ) != cudaSuccess )
+            return cuda_error(engine_err_cuda);
         }
 
     for( did = 0; did < e->nr_devices ; did ++ ) {
@@ -2533,8 +2525,7 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
     // e->timers[ engine_timer_cuda_dopairs ] += getticks() - tic;
     
     /* Lap the clock on the last stream. */
-    if ( cudaEventRecord( toc_run , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
+
     
     /* Get and dump timers. */
     #ifdef TIMERS
@@ -2596,30 +2587,40 @@ extern "C" int engine_nonbond_cuda ( struct engine *e ) {
 
         /* Deallocate the parts array and counts array. */
         free( forces_cuda[did] );
-        
+                /* Stop the clock on the last stream. */
+    if ( cudaEventRecord( toc_unload[did] , (cudaStream_t)e->streams[did] ) != cudaSuccess ||
+         cudaStreamSynchronize( (cudaStream_t)e->streams[did] ) != cudaSuccess )
+        return cuda_error(engine_err_cuda);
         }
         
     /* Check for any missed CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
-    /* Stop the clock on the last stream. */
-    if ( cudaEventRecord( toc_unload , (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess ||
-         cudaStreamSynchronize( (cudaStream_t)e->streams[e->nr_devices-1] ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
     
     /* Check for any missed CUDA errors. */
     if ( cudaPeekAtLastError() != cudaSuccess )
         return cuda_error(engine_err_cuda);
         
     /* Store the timers. */
-    if ( cudaEventElapsedTime( &ms_load , tic , toc_load ) != cudaSuccess ||
-         cudaEventElapsedTime( &ms_run , toc_load , toc_run ) != cudaSuccess ||
-         cudaEventElapsedTime( &ms_unload , toc_run , toc_unload ) != cudaSuccess )
-        return cuda_error(engine_err_cuda);
-    e->timers[ engine_timer_cuda_load ] += ms_load / 1000 * CPU_TPS;
-    e->timers[ engine_timer_cuda_dopairs ] += ms_run / 1000 * CPU_TPS;
-    e->timers[ engine_timer_cuda_unload ] += ms_unload / 1000 * CPU_TPS;
+    e->timers_cuda[e->nr_devices*3 + 1] = 0.0f;
+    e->timers_cuda[e->nr_devices*3 + 0] = 0.0f;
+    e->timers_cuda[e->nr_devices*3 + 2] = 0.0f;
+    for(did = 0; did < e->nr_devices; did++)
+    {
+    if ( cudaSetDevice( e->devices[did] ) != cudaSuccess ||
+         cudaEventElapsedTime( &ms_load , tic[did] , toc_load[did] ) != cudaSuccess ||
+         cudaEventElapsedTime( &ms_run , toc_load[did] , toc_run[did] ) != cudaSuccess ||
+         cudaEventElapsedTime( &ms_unload , toc_run[did] , toc_unload[did] ) != cudaSuccess )
+         return cuda_error(engine_err_cuda);
+    e->timers_cuda[did*3+1]= ms_run*1.0f;
+    e->timers_cuda[e->nr_devices*3 + 1] += ms_run; 
+    e->timers_cuda[did*3+0]= ms_load*1.0f;
+    e->timers_cuda[e->nr_devices*3 + 0] += ms_load; 
+    e->timers_cuda[did*3+2] = ms_unload*1.0f;
+    e->timers_cuda[e->nr_devices*3 + 2] += ms_unload; 
+    }
+
     
     /* Go away. */
     return engine_err_ok;
@@ -3388,7 +3389,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
                 
             /* Generate the bond tasks. */
             int count = ( e->nr_bonds + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
-            for ( k = 0 ; k < count ; k++ ) {
+            for ( k = did ; k < count ; k+= nr_devices) {
                 tc = &tasks_cuda[ nr_tasks ];
                 nr_tasks += 1;
                 tc->type = task_type_bonded;
@@ -3401,7 +3402,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
 
             /* Generate the angle tasks. */
             count = ( e->nr_angles + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
-            for ( k = 0 ; k < count ; k++ ) {
+            for ( k = did ; k < count ; k+= nr_devices) {
                 tc = &tasks_cuda[ nr_tasks ];
                 nr_tasks += 1;
                 tc->type = task_type_bonded;
@@ -3414,7 +3415,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
 
             /* Generate the dihedral tasks. */
             count = ( e->nr_dihedrals + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
-            for ( k = 0 ; k < count ; k++ ) {
+            for ( k = did ; k < count ; k+= nr_devices) {
                 tc = &tasks_cuda[ nr_tasks ];
                 nr_tasks += 1;
                 tc->type = task_type_bonded;
@@ -3427,7 +3428,7 @@ extern "C" int engine_cuda_load ( struct engine *e ) {
 
             /* Generate the exclusion tasks. */
             count = ( e->nr_exclusions + ( cuda_bondspertask - 1 ) ) / cuda_bondspertask;
-            for ( k = 0 ; k < count ; k++ ) {
+            for ( k = did ; k < count ; k+= nr_devices) {
                 tc = &tasks_cuda[ nr_tasks ];
                 nr_tasks += 1;
                 tc->type = task_type_bonded;

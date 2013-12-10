@@ -53,6 +53,7 @@ enum {
     tid_potential,
     tid_potential4,
     tid_total,
+    tid_bonded,
     tid_count
     };
     

@@ -111,7 +111,7 @@ int main ( int argc , char *argv[] ) {
     int typeOT, nr_runners = 1, nr_steps = 1000;
     char *excl[] = { "OT" , "HT" };
     double L[] = { cutoff*1.05 , cutoff*1.05 , cutoff*1.05 };
-    int devices[] = { 0 , 1 };
+    int devices[] = { 0 , 2 };
     struct cell *c;
     
     
@@ -560,8 +560,21 @@ int main ( int argc , char *argv[] ) {
         /* Drop a line. */
         toc_step = getticks();
         if ( myrank == 0 ) {
-            /* printf("%i %e %e %e %i %i %.3f ms\n",
-                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(double)(toc_step-tic_step) * itpms); fflush(stdout); */
+            #ifdef WITH_CUDA
+                printf("%i %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f ",
+                e.time,epot,ekin,temp,e.s.nr_swaps,e.s.nr_stalls,(toc_step-tic_step) * itpms,
+                e.timers[engine_timer_nonbond]*itpms, e.timers[engine_timer_bonded]*itpms,
+                e.timers[engine_timer_advance]*itpms, e.timers[engine_timer_rigid]*itpms,
+                (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
+                timers[tid_temp]*itpms );
+                int did;
+                for(did = 0; did <= e.nr_devices; did++)
+                {
+                    printf("%.3f %.3f %.3f ", e.timers_cuda[did*3], e.timers_cuda[did*3+1], e.timers_cuda[did*3+2]);
+                }
+                printf("ms\n"); fflush(stdout);
+
+            #else
             printf("%i %e %e %e %e %e %e %e %e %i %i %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f ms\n",
                 e.time,epot,ekin,temp,
                 e.s.epot_nonbond, e.s.epot_bond, e.s.epot_angle, e.s.epot_dihedral, e.s.epot_exclusion,
@@ -571,6 +584,7 @@ int main ( int argc , char *argv[] ) {
                 (e.timers[engine_timer_exchange1]+e.timers[engine_timer_exchange2])*itpms,
                 e.timers[engine_timer_cuda_load]*itpms, e.timers[engine_timer_cuda_dopairs]*itpms, e.timers[engine_timer_cuda_unload]*itpms, 
                 timers[tid_temp]*itpms ); fflush(stdout);
+            #endif
             }
         
         /* Re-set the timers. */

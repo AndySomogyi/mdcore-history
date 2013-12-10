@@ -82,6 +82,8 @@ extern ticks runner_timers[];
         }
 #else
     #define TIMER_TIC
+    #define TIMER_TIC_ND
+    #define TIMER_TIC2_ND
     #define TIMER_TOC(t)
     #define TIMER_TIC2
     #define TIMER_TOC2(t)
